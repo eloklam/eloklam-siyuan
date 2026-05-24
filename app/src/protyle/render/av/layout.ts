@@ -1,5 +1,6 @@
 import {transaction} from "../../wysiwyg/transaction";
 import {Constants} from "../../../constants";
+import {escapeHtml} from "../../../util/escape";
 import {fetchSyncPost} from "../../../util/fetch";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
@@ -77,6 +78,11 @@ export const getLayoutHTML = (data: IAV) => {
                 <div class="fn__hr"></div>
                 <div>${window.siyuan.languages.gallery}</div>
             </div>
+            <div data-type="set-layout" data-view-type="calendar" class="av__layout-item${data.viewType === "calendar" ? " av__layout-item--select" : ""}">
+                <svg><use xlink:href="#iconCalendar"></use></svg>
+                <div class="fn__hr"></div>
+                <div>${window.siyuan.languages.calendar || "Calendar"}</div>
+            </div>
         </div>
     </button>
     <label class="b3-menu__item">
@@ -101,6 +107,17 @@ export const getLayoutHTML = (data: IAV) => {
     <span class="fn__space fn__flex-1"></span>
     <input data-type="toggle-kanban-bg" type="checkbox" class="b3-switch b3-switch--menu" ${view.fillColBackgroundColor ? "checked" : ""}>
 </label>`;
+    }
+    if (data.viewType === "calendar") {
+        const calendarView = data.view as IAVKanban & { dateFieldID?: string };
+        const dateFields = getFieldsByData(data).filter(f => f.type === "date");
+        const currentDateField = dateFields.find(f => f.id === calendarView.dateFieldID);
+        html += `<button class="b3-menu__item" data-type="set-calendar-date-field">
+    <span class="fn__flex-center">${window.siyuan.languages.dateField || "Date Field"}</span>
+    <span class="fn__flex-1"></span>
+    <span class="b3-menu__accelerator">${currentDateField ? escapeHtml(currentDateField.name) : (window.siyuan.languages.select || "Select...")}</span>
+    <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
+</button>`;
     }
     return html + `<button class="b3-menu__item" data-type="set-page-size" data-size="${view.pageSize}">
         <span class="fn__flex-center">${window.siyuan.languages.entryNum}</span>
@@ -178,10 +195,10 @@ export const bindLayoutEvent = (options: {
         options.data.view.wrapField = checked;
     });
     if (options.data.viewType === "table") {
-        return;
+        return options.data;
     }
     const toggleFitElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-gallery-fit"]') as HTMLInputElement;
-    toggleFitElement.addEventListener("change", () => {
+    toggleFitElement?.addEventListener("change", () => {
         const checked = toggleFitElement.checked;
         transaction(options.protyle, [{
             action: "setAttrViewFitImage",
@@ -199,7 +216,7 @@ export const bindLayoutEvent = (options: {
         (options.data.view as IAVGallery).fitImage = checked;
     });
     const toggleNameElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-gallery-name"]') as HTMLInputElement;
-    toggleNameElement.addEventListener("change", () => {
+    toggleNameElement?.addEventListener("change", () => {
         const checked = toggleNameElement.checked;
         transaction(options.protyle, [{
             action: "setAttrViewDisplayFieldName",
@@ -214,8 +231,11 @@ export const bindLayoutEvent = (options: {
         }]);
         (options.data.view as IAVGallery).displayFieldName = checked;
     });
+    if (options.data.viewType === "calendar") {
+        return options.data;
+    }
     if (options.data.viewType === "gallery") {
-        return;
+        return options.data;
     }
     const toggleBgElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-kanban-bg"]') as HTMLInputElement;
     toggleBgElement?.addEventListener("change", () => {
