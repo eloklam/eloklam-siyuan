@@ -22,6 +22,7 @@ const requiredFiles = [
   "app/src/protyle/render/av/calendar/render.ts",
   "app/src/protyle/render/av/calendar/event-dialog.ts",
   "scripts/calendar-kernel-smoke.mjs",
+  "scripts/calendar-recurrence-smoke.mjs",
 ];
 
 for (const file of requiredFiles) {
@@ -454,4 +455,21 @@ for (const term of [
   }
 }
 
-console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel smoke script`);
+const recurrenceSmoke = read("scripts/calendar-recurrence-smoke.mjs");
+for (const term of [
+  "normalizeCalendarEvents(calendar, mapping, range)",
+  "getCalendarFieldMapping(calendar)",
+  "FREQ=WEEKLY;COUNT=3",
+  "FREQ=WEEKLY;COUNT=4;BYDAY=MO,WE",
+  "recurrence: \"None\"",
+  "weekly recurrence dates",
+  "weekly BYDAY recurrence dates",
+  "expanded recurrence did not preserve mapped metadata",
+  "base event did not retain parsed recurrence exceptions",
+]) {
+  if (!recurrenceSmoke.includes(term)) {
+    fail(`calendar recurrence smoke missing ${term}`);
+  }
+}
+
+console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel and recurrence smoke scripts`);

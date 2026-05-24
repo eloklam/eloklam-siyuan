@@ -22,6 +22,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - `app/appearance/langs/*.json`
 - `kernel/model/attribute_view_calendar_test.go`
 - `scripts/calendar-kernel-smoke.mjs`
+- `scripts/calendar-recurrence-smoke.mjs`
 
 ## Implemented Functionality
 
@@ -100,6 +101,7 @@ cd kernel && go test -vet=off ./av ./model ./sql
 cd app && corepack pnpm run build:desktop
 node scripts/calendar-audit.mjs
 node scripts/calendar-kernel-smoke.mjs
+node scripts/calendar-recurrence-smoke.mjs
 ```
 
 Also passed:
@@ -118,6 +120,7 @@ Also passed:
 - Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, read-only local view switching, event tooltips, event summary, double-click creation, duplicate/quick-copy one-off behavior, schedule drag/drop targets, search rerendering, event type filtering, active query result count, search/filter clearing, direct date jumping, previous/next event jumping and no-match feedback, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 - Backend `_attrView.calendar` language coverage is checked for every bundled language JSON file.
 - `scripts/calendar-kernel-smoke.mjs` builds an isolated FTS5 kernel, creates a temporary notebook/document/AV, switches it to Calendar, maps date/recurrence/exception/location/description/color fields, inserts a timed event with metadata, renders the Calendar API payload, and verifies the event date and mapped metadata values appear.
+- `scripts/calendar-recurrence-smoke.mjs` transpiles the Calendar normalization modules into an isolated temporary app directory, runs `getCalendarFieldMapping` and `normalizeCalendarEvents`, and verifies weekly recurrence, weekly `BYDAY`, exception skipping, `None`, occurrence metadata, base exception parsing, and mapped metadata preservation.
 
 Isolated launch smoke also passed without touching the real note vault:
 
@@ -183,6 +186,7 @@ git status --short
 git diff --check
 node scripts/calendar-audit.mjs
 node scripts/calendar-kernel-smoke.mjs
+node scripts/calendar-recurrence-smoke.mjs
 cd kernel && go test -vet=off ./av ./model ./sql
 cd ../app && corepack pnpm run build:desktop
 ```
