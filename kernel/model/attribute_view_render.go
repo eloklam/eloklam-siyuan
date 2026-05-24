@@ -454,6 +454,10 @@ func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.At
 			end = len(kanban.Cards)
 		}
 		kanban.Cards = kanban.Cards[start:end]
+	case av.LayoutTypeCalendar:
+		calendar := viewable.(*av.Calendar)
+		calendar.CardCount = len(calendar.Cards)
+		calendar.PageSize = view.PageSize
 	}
 	return
 }

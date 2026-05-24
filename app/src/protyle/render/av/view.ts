@@ -382,6 +382,25 @@ export const addView = (protyle: IProtyle, blockElement: Element) => {
             }]);
         }
     });
+    addMenu.addItem({
+        icon: "iconCalendar",
+        label: window.siyuan.languages.calendar || "Calendar",
+        click() {
+            transaction(protyle, [{
+                action: "addAttrViewView",
+                avID,
+                layout: "calendar",
+                id,
+                blockID: blockElement.getAttribute("data-node-id")
+            }], [{
+                action: "removeAttrViewView",
+                layout: "calendar",
+                avID,
+                id,
+                blockID: blockElement.getAttribute("data-node-id")
+            }]);
+        }
+    });
     viewElement.classList.add("av__views--show");
     const addRect = viewElement.querySelector('.block__icon[data-type="av-add"]')?.getBoundingClientRect();
     addMenu.open({
@@ -398,6 +417,8 @@ export const getViewIcon = (type: string) => {
             return "iconGallery";
         case "kanban":
             return "iconBoard";
+        case "calendar":
+            return "iconCalendar";
     }
 };
 
@@ -409,11 +430,19 @@ export const getViewName = (type: string) => {
             return window.siyuan.languages.gallery;
         case "kanban":
             return window.siyuan.languages.kanban;
+        case "calendar":
+            return window.siyuan.languages.calendar || "Calendar";
     }
 };
 
 export const getFieldsByData = (data: IAV) => {
-    return data.viewType === "table" ? (data.view as IAVTable).columns : (data.view as IAVGallery).fields;
+    if (data.viewType === "table") {
+        return (data.view as IAVTable).columns;
+    }
+    if (data.viewType === "calendar") {
+        return (data.view as IAVCalendar).fields;
+    }
+    return (data.view as IAVGallery).fields;
 };
 
 export const dragoverTab = (event: DragEvent) => {

@@ -365,13 +365,17 @@ func getAttributeViewPrimaryKeyValues(c *gin.Context) {
 	page := 1
 	pageArg := arg["page"]
 	if nil != pageArg {
-		page = int(pageArg.(float64))
+		if pageFloat, ok := pageArg.(float64); ok {
+			page = int(pageFloat)
+		}
 	}
 
 	pageSize := -1
 	pageSizeArg := arg["pageSize"]
 	if nil != pageSizeArg {
-		pageSize = int(pageSizeArg.(float64))
+		if pageSizeFloat, ok := pageSizeArg.(float64); ok {
+			pageSize = int(pageSizeFloat)
+		}
 	}
 
 	keyword := ""

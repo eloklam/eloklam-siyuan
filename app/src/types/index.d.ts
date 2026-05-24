@@ -92,7 +92,7 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "lock-screen" |
     "mobile-keyboard-show" | "mobile-keyboard-hide" |
     "code-language-update" | "code-language-change"
-type TAVView = "table" | "gallery" | "kanban"
+type TAVView = "table" | "gallery" | "kanban" | "calendar"
 type TAVCol =
     "text"
     | "date"
@@ -974,6 +974,20 @@ interface IAVKanban extends IAVView {
     fields: IAVColumn[]
     cardCount: number,
     fillColBackgroundColor: boolean
+}
+
+interface IAVCalendar extends IAVView {
+    dateFieldID: string;
+    viewMode: number; // 0: month, 1: week, 2: day, 3: schedule
+    weekStart: number; // 0: Sunday, 1: Monday
+    fields: IAVColumn[];
+    cards: IAVGalleryItem[];
+    cardCount: number;
+    fieldMapping?: {
+        recurrenceFieldID?: string;
+        locationFieldID?: string;
+        descriptionFieldID?: string;
+    };
 }
 
 interface IAVFilter {
