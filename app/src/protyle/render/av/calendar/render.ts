@@ -82,6 +82,10 @@ const eventMatchesSearch = (event: ICalendarNormalizedEvent, query: string) => {
     }
     const haystack = [
         event.title,
+        event.start.format("YYYY-MM-DD"),
+        event.start.format("HH:mm"),
+        event.end?.format("YYYY-MM-DD"),
+        event.end?.format("HH:mm"),
         event.location,
         event.description,
         event.colorContent,
