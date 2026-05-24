@@ -252,6 +252,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     const calendar = data.view as IAVCalendar;
     const viewMode = getSafeViewMode(calendar.viewMode);
     const weekStart = getSafeWeekStart(calendar.weekStart);
+    const editable = !options.protyle.disabled && !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed");
     const rerender = (focusSearch = false, useCurrentData = false) => {
         options.blockElement.removeAttribute("data-render");
         renderCalendar({...options, data: useCurrentData ? data : undefined}).then(() => {
@@ -279,6 +280,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll('[data-type="calendar-new"]').forEach(item => {
         item.addEventListener("click", () => {
+            if (!editable) {
+                return;
+            }
             openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});
         });
     });
@@ -289,6 +293,10 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     const emptyDateFieldElement = calendarElement?.querySelector('[data-type="calendar-empty-date-field"]') as HTMLSelectElement;
     emptyDateFieldElement?.addEventListener("change", () => {
+        if (!editable) {
+            emptyDateFieldElement.value = "";
+            return;
+        }
         const current = emptyDateFieldElement.value;
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
@@ -312,6 +320,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         rerender();
     });
     calendarElement?.querySelector('[data-type="calendar-create-date-field"]')?.addEventListener("click", () => {
+        if (!editable) {
+            return;
+        }
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
         if (!avID || !blockID) {
@@ -348,6 +359,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll('[data-type="calendar-mode"]').forEach(item => {
         item.addEventListener("click", () => {
+            if (!editable) {
+                return;
+            }
             const mode = parseInt((item as HTMLElement).dataset.mode || "0", 10);
             if (mode === viewMode) {
                 return;
@@ -439,6 +453,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (resizeElement) {
                 event.preventDefault();
                 event.stopPropagation();
+                if (!editable) {
+                    return;
+                }
                 const sourceEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
                 if (!sourceEvent || sourceEvent.isAllDay) {
                     return;
@@ -464,13 +481,17 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 return;
             }
             const calendarEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
-            if (calendarEvent) {
+            if (calendarEvent && editable) {
                 openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
             }
         });
     });
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
         item.addEventListener("dragstart", (event: DragEvent) => {
+            if (!editable) {
+                event.preventDefault();
+                return;
+            }
             const eventElement = item as HTMLElement;
             event.dataTransfer?.setData("text/plain", JSON.stringify({
                 id: eventElement.dataset.occurrence || eventElement.dataset.id || "",
@@ -481,6 +502,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
         item.addEventListener("dragover", (event: DragEvent) => {
+            if (!editable) {
+                return;
+            }
             event.preventDefault();
             (item as HTMLElement).classList.add("av__calendar-day--dragover");
         });
@@ -490,6 +514,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         item.addEventListener("drop", (event: DragEvent) => {
             event.preventDefault();
             (item as HTMLElement).classList.remove("av__calendar-day--dragover");
+            if (!editable) {
+                return;
+            }
             const rawDragData = event.dataTransfer?.getData("text/plain") || "";
             const targetDate = (item as HTMLElement).dataset.date;
             let eventID = rawDragData;
