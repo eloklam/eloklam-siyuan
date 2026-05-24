@@ -1796,6 +1796,7 @@
   "calendarTimed": "Timed",
   "calendarPreviousEvent": "Previous event",
   "calendarNextEvent": "Next event",
+  "calendarNoMatchingEvent": "No matching event",
   "calendarExceptions": "Exceptions",
   "calendarLocation": "Location",
   "calendarDescription": "Description",

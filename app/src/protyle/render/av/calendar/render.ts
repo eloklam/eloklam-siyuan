@@ -376,6 +376,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         const target = direction > 0 ? sortCalendarEvents(events)[0] : sortCalendarEvents(events).reverse()[0];
         if (target) {
             setCalendarAnchor(target.start);
+        } else {
+            showMessage(window.siyuan.languages.calendarNoMatchingEvent || window.siyuan.languages.emptyContent || "No matching event");
         }
     };
     const setCalendarViewMode = (mode: number) => {

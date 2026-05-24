@@ -139,6 +139,7 @@ for (const term of [
   "normalizeCalendarEvents(calendar, mapping, getEventSeekRange(anchor)).events",
   "event.start.isAfter(anchor, \"day\")",
   "event.start.isBefore(anchor, \"day\")",
+  "showMessage(window.siyuan.languages.calendarNoMatchingEvent",
   "getEventDateLabel",
   "title=\"${escapeAttr(eventTooltip)}\"",
   "aria-label=\"${escapeAttr(eventTooltip)}\"",

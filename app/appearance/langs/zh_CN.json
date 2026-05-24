@@ -1796,6 +1796,7 @@
   "calendarTimed": "定时",
   "calendarPreviousEvent": "上一个事件",
   "calendarNextEvent": "下一个事件",
+  "calendarNoMatchingEvent": "没有匹配事件",
   "calendarExceptions": "例外",
   "calendarLocation": "地点",
   "calendarDescription": "描述",
