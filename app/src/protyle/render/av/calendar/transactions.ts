@@ -14,6 +14,29 @@ const normalizeRecurrenceValue = (value?: string) => {
     return trimmed.toLowerCase() === "none" ? "" : trimmed;
 };
 
+const recurrenceWithUntil = (value: string | undefined, untilDate: string) => {
+    const normalized = normalizeRecurrenceValue(value);
+    if (!normalized) {
+        return "";
+    }
+    const upper = normalized.toUpperCase();
+    const parts = upper.includes("=") ? upper.split(";").filter(Boolean) : [`FREQ=${upper}`];
+    let hasUntil = false;
+    const nextParts = parts.map((part) => {
+        if (part.startsWith("UNTIL=")) {
+            hasUntil = true;
+            return `UNTIL=${untilDate}`;
+        }
+        return part;
+    });
+    if (!hasUntil) {
+        nextParts.push(`UNTIL=${untilDate}`);
+    }
+    return nextParts.join(";");
+};
+
+const getEventRecurrenceRaw = (event: ICalendarNormalizedEvent) => event.recurrenceRaw || event.recurrence?.raw || event.recurrence?.freq || "";
+
 const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue => {
     const start = draft.isAllDay ? dayjs(draft.date).startOf("day") : dayjs(`${draft.date}T${draft.startTime}`);
     const endDate = draft.endDate || draft.date;
@@ -169,6 +192,51 @@ export const buildOccurrenceExceptionOperations = (options: {
         pushUpdated(ops, options.blockID, options.previousUpdated);
     }
     return ops;
+};
+
+export const buildSplitSeriesOperations = (options: {
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    draft: ICalendarEventDraft;
+    occurrenceDate: string;
+    previousUpdated?: string;
+}): ICalendarOperationSet => {
+    const recurrenceRaw = getEventRecurrenceRaw(options.event);
+    const untilDate = dayjs(options.occurrenceDate).subtract(1, "day").format("YYYY-MM-DD");
+    const truncatedRecurrence = recurrenceWithUntil(recurrenceRaw, untilDate);
+    const truncateOps: ICalendarOperationSet = {doOperations: [], undoOperations: []};
+    addMetadataUpdate(truncateOps, {
+        avID: options.avID,
+        rowID: options.event.id,
+        fields: options.fields,
+        fieldID: options.mapping.recurrenceFieldID,
+        value: truncatedRecurrence,
+        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.recurrenceFieldID),
+    });
+    if (truncateOps.doOperations.length > 0) {
+        pushUpdated(truncateOps, options.blockID, options.previousUpdated);
+    }
+    const createOps = buildCreateEventOperations({
+        avID: options.avID,
+        blockID: options.blockID,
+        dateFieldID: options.dateFieldID,
+        fields: options.fields,
+        mapping: options.mapping,
+        draft: {
+            ...options.draft,
+            recurrenceRaw: normalizeRecurrenceValue(options.draft.recurrenceRaw) || recurrenceRaw,
+            recurrenceExceptionRaw: "",
+        },
+        previousUpdated: options.previousUpdated,
+    });
+    return {
+        doOperations: [...truncateOps.doOperations, ...createOps.doOperations],
+        undoOperations: [...createOps.undoOperations, ...truncateOps.undoOperations],
+    };
 };
 
 const addColorUpdate = (ops: ICalendarOperationSet, options: {
@@ -421,6 +489,24 @@ export const updateCalendarEvent = (options: {
     previousUpdated?: string;
 }) => {
     const ops = buildUpdateEventOperations(options);
+    if (ops.doOperations.length > 0) {
+        transaction(options.protyle, ops.doOperations, ops.undoOperations);
+    }
+};
+
+export const updateCalendarEventThisAndFuture = (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    draft: ICalendarEventDraft;
+    occurrenceDate: string;
+    previousUpdated?: string;
+}) => {
+    const ops = buildSplitSeriesOperations(options);
     if (ops.doOperations.length > 0) {
         transaction(options.protyle, ops.doOperations, ops.undoOperations);
     }

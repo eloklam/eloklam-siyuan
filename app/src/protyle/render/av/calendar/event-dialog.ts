@@ -3,7 +3,7 @@ import {showMessage} from "../../../../dialog/message";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent} from "./model";
-import {createCalendarEvent, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent} from "./transactions";
+import {createCalendarEvent, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 export interface IEventDialogOptions {
     event?: ICalendarNormalizedEvent;
@@ -18,6 +18,7 @@ export interface IEventDialogOptions {
 export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const {event, date} = options;
     const isEditing = !!event;
+    const canEditFuture = !!event?.isOccurrence && !!getCalendarFieldMapping(options.data.view as IAVCalendar).recurrenceFieldID;
     const content = `<div class="b3-dialog__content av__calendar-dialog">
     <div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}">
@@ -50,6 +51,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
         ${isEditing ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${window.siyuan.languages.delete}</button><span class="fn__space"></span>` : ""}
+        ${canEditFuture ? `<button class="b3-button b3-button--outline" data-type="event-save-future">${window.siyuan.languages.calendarThisAndFuture || "This and future"}</button><span class="fn__space"></span>` : ""}
         <button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>
     </div>
 </div>`;
@@ -70,6 +72,7 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     });
     dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => saveEvent(dialog, options));
+    dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => saveFutureEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => deleteEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => duplicateEvent(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -145,6 +148,32 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         });
     }
+    dialog.destroy();
+    options.onSave?.();
+};
+
+const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
+    const calendarData = options.data.view as IAVCalendar;
+    const mapping = getCalendarFieldMapping(calendarData);
+    const draft = getDraftFromDialog(dialog);
+    const avID = options.blockElement.getAttribute("data-av-id");
+    const blockID = options.blockElement.getAttribute("data-node-id");
+    if (!options.event || !options.event.isOccurrence || !draft.title || !draft.date || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {
+        showMessage(window.siyuan.languages._kernel[29]);
+        return;
+    }
+    updateCalendarEventThisAndFuture({
+        protyle: options.protyle,
+        avID,
+        blockID,
+        dateFieldID: mapping.dateFieldID,
+        fields: calendarData.fields,
+        mapping,
+        event: options.event,
+        draft,
+        occurrenceDate: options.event.start.format("YYYY-MM-DD"),
+        previousUpdated: options.blockElement.getAttribute("updated") || "",
+    });
     dialog.destroy();
     options.onSave?.();
 };
