@@ -308,6 +308,31 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
         return anchor.isValid() ? anchor : dayjs();
     };
+    const setCalendarViewMode = (mode: number) => {
+        if (!editable || mode === viewMode || ![0, 1, 2, 3].includes(mode)) {
+            return;
+        }
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        if (!avID || !blockID) {
+            return;
+        }
+        transaction(options.protyle, [{
+            action: "setAttrViewCalendarViewMode",
+            avID,
+            blockID,
+            data: mode,
+            viewID: data.viewID,
+        }], [{
+            action: "setAttrViewCalendarViewMode",
+            avID,
+            blockID,
+            data: viewMode,
+            viewID: data.viewID,
+        }]);
+        calendar.viewMode = mode;
+        rerender();
+    };
     calendarElement?.querySelector('[data-type="calendar-prev"]')?.addEventListener("click", () => {
         setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, -1));
     });
@@ -377,6 +402,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             event.preventDefault();
             delete options.blockElement.dataset.calendarSearch;
             rerender();
+        } else if (/^[1-4]$/.test(event.key)) {
+            event.preventDefault();
+            setCalendarViewMode(parseInt(event.key, 10) - 1);
         }
     });
     const emptyDateFieldElement = calendarElement?.querySelector('[data-type="calendar-empty-date-field"]') as HTMLSelectElement;
@@ -447,33 +475,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll('[data-type="calendar-mode"]').forEach(item => {
         item.addEventListener("click", () => {
-            if (!editable) {
-                return;
-            }
             const mode = parseInt((item as HTMLElement).dataset.mode || "0", 10);
-            if (mode === viewMode) {
-                return;
-            }
-            const avID = options.blockElement.getAttribute("data-av-id");
-            const blockID = options.blockElement.getAttribute("data-node-id");
-            if (!avID || !blockID) {
-                return;
-            }
-            transaction(options.protyle, [{
-                action: "setAttrViewCalendarViewMode",
-                avID,
-                blockID,
-                data: mode,
-                viewID: data.viewID,
-            }], [{
-                action: "setAttrViewCalendarViewMode",
-                avID,
-                blockID,
-                data: viewMode,
-                viewID: data.viewID,
-            }]);
-            calendar.viewMode = mode;
-            rerender();
+            setCalendarViewMode(mode);
         });
     });
     const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
