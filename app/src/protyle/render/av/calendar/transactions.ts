@@ -37,6 +37,98 @@ const recurrenceWithUntil = (value: string | undefined, untilDate: string) => {
 
 const getEventRecurrenceRaw = (event: ICalendarNormalizedEvent) => event.recurrenceRaw || event.recurrence?.raw || event.recurrence?.freq || "";
 
+const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
+
+const addRecurringStep = (date: dayjs.Dayjs, event: ICalendarNormalizedEvent) => {
+    const interval = event.recurrence?.interval || 1;
+    if (event.recurrence?.freq === "DAILY") {
+        return date.add(interval, "day");
+    }
+    if (event.recurrence?.freq === "WEEKLY") {
+        return date.add(interval, "week");
+    }
+    if (event.recurrence?.freq === "MONTHLY") {
+        return date.add(interval, "month");
+    }
+    return date.add(interval, "year");
+};
+
+const countOccurrencesBefore = (event: ICalendarNormalizedEvent, occurrenceDate: string) => {
+    if (!event.recurrence) {
+        return 0;
+    }
+    const splitStart = dayjs(occurrenceDate).startOf("day");
+    let count = 0;
+    let generated = 0;
+    const limit = event.recurrence.count || 10000;
+    if (event.recurrence.freq === "WEEKLY" && event.recurrence.byDay?.length > 0) {
+        let weekCursor = event.start.startOf("week");
+        while (generated < limit && !weekCursor.isAfter(splitStart, "day")) {
+            const weeksFromStart = weekCursor.diff(event.start.startOf("week"), "week");
+            if (weeksFromStart >= 0 && weeksFromStart % (event.recurrence.interval || 1) === 0) {
+                for (const byDay of event.recurrence.byDay) {
+                    const occurrenceStart = weekCursor.day(weekdayMap[byDay])
+                        .hour(event.start.hour())
+                        .minute(event.start.minute())
+                        .second(event.start.second())
+                        .millisecond(event.start.millisecond());
+                    if (occurrenceStart.isBefore(event.start)) {
+                        continue;
+                    }
+                    if (event.recurrence.until && occurrenceStart.isAfter(event.recurrence.until)) {
+                        return count;
+                    }
+                    if (!occurrenceStart.isBefore(splitStart, "day")) {
+                        return count;
+                    }
+                    count++;
+                    generated++;
+                    if (generated >= limit) {
+                        return count;
+                    }
+                }
+            }
+            weekCursor = weekCursor.add(1, "week");
+        }
+        return count;
+    }
+    let cursor = event.start;
+    while (generated < limit && cursor.isBefore(splitStart, "day")) {
+        if (event.recurrence.until && cursor.isAfter(event.recurrence.until)) {
+            break;
+        }
+        count++;
+        generated++;
+        cursor = addRecurringStep(cursor, event);
+    }
+    return count;
+};
+
+const recurrenceCount = (value: string) => {
+    const countPart = value.toUpperCase().split(";").find(part => part.startsWith("COUNT="));
+    if (!countPart) {
+        return undefined;
+    }
+    const count = parseInt(countPart.split("=")[1], 10);
+    return count > 0 ? count : undefined;
+};
+
+const recurrenceWithCount = (value: string, count: number) => {
+    const upper = value.toUpperCase();
+    if (!upper.includes("COUNT=")) {
+        return value;
+    }
+    return upper.split(";").filter(Boolean).map(part => part.startsWith("COUNT=") ? `COUNT=${count}` : part).join(";");
+};
+
+const recurrenceForSplitFuture = (value: string, event: ICalendarNormalizedEvent, occurrenceDate: string, originalValue: string) => {
+    const count = recurrenceCount(value);
+    if (!count || value.toUpperCase() !== originalValue.toUpperCase()) {
+        return value;
+    }
+    return recurrenceWithCount(value, Math.max(count - countOccurrencesBefore(event, occurrenceDate), 1));
+};
+
 const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue => {
     const start = draft.isAllDay ? dayjs(draft.date).startOf("day") : dayjs(`${draft.date}T${draft.startTime}`);
     const endDate = draft.endDate || draft.date;
@@ -228,7 +320,7 @@ export const buildSplitSeriesOperations = (options: {
         mapping: options.mapping,
         draft: {
             ...options.draft,
-            recurrenceRaw: normalizeRecurrenceValue(options.draft.recurrenceRaw) || recurrenceRaw,
+            recurrenceRaw: recurrenceForSplitFuture(normalizeRecurrenceValue(options.draft.recurrenceRaw) || recurrenceRaw, options.event, options.occurrenceDate, recurrenceRaw),
             recurrenceExceptionRaw: "",
         },
         previousUpdated: options.previousUpdated,
