@@ -1203,6 +1203,11 @@ img.av__cellassetimg {
     font: inherit;
     padding: 2px 4px;
     text-align: left;
+
+    &:disabled {
+      cursor: default;
+      opacity: 0.72;
+    }
   }
 
   &-events,
@@ -1229,6 +1234,10 @@ img.av__cellassetimg {
     text-align: left;
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    &[draggable="false"] {
+      cursor: default;
+    }
   }
 
   &-event-text {
