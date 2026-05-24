@@ -1544,21 +1544,28 @@ func setAttrViewCalendarWeekStart(operation *Operation) (err error) {
 		return fmt.Errorf("view is not a calendar layout")
 	}
 
-	var weekStart av.WeekStart
-	if dataFloat, ok := operation.Data.(float64); ok {
-		weekStart = av.WeekStart(dataFloat)
-	} else if dataInt, ok := operation.Data.(int); ok {
-		weekStart = av.WeekStart(dataInt)
-	} else {
-		return fmt.Errorf("calendar week start data must be a number")
-	}
-	if av.WeekStartSunday != weekStart && av.WeekStartMonday != weekStart {
-		return fmt.Errorf("calendar week start [%d] is invalid", weekStart)
+	weekStart, err := calendarWeekStartFromOperationData(operation.Data)
+	if err != nil {
+		return
 	}
 
 	view.Calendar.WeekStart = weekStart
 	err = av.SaveAttributeView(attrView)
 	ReloadAttrView(attrView.ID)
+	return
+}
+
+func calendarWeekStartFromOperationData(data any) (weekStart av.WeekStart, err error) {
+	if dataFloat, ok := data.(float64); ok {
+		weekStart = av.WeekStart(dataFloat)
+	} else if dataInt, ok := data.(int); ok {
+		weekStart = av.WeekStart(dataInt)
+	} else {
+		return weekStart, fmt.Errorf("calendar week start data must be a number")
+	}
+	if av.WeekStartSunday != weekStart && av.WeekStartMonday != weekStart {
+		return weekStart, fmt.Errorf("calendar week start [%d] is invalid", weekStart)
+	}
 	return
 }
 

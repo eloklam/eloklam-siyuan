@@ -39,3 +39,28 @@ func TestValidateCalendarMappingField(t *testing.T) {
 		t.Fatal("missing field should be rejected")
 	}
 }
+
+func TestCalendarWeekStartFromOperationData(t *testing.T) {
+	weekStart, err := calendarWeekStartFromOperationData(float64(0))
+	if err != nil {
+		t.Fatalf("float sunday should be accepted: %v", err)
+	}
+	if weekStart != av.WeekStartSunday {
+		t.Fatalf("expected sunday, got %d", weekStart)
+	}
+
+	weekStart, err = calendarWeekStartFromOperationData(1)
+	if err != nil {
+		t.Fatalf("int monday should be accepted: %v", err)
+	}
+	if weekStart != av.WeekStartMonday {
+		t.Fatalf("expected monday, got %d", weekStart)
+	}
+
+	if _, err = calendarWeekStartFromOperationData(float64(2)); err == nil {
+		t.Fatal("invalid week start should be rejected")
+	}
+	if _, err = calendarWeekStartFromOperationData("1"); err == nil {
+		t.Fatal("non-number week start should be rejected")
+	}
+}
