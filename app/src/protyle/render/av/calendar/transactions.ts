@@ -164,6 +164,8 @@ const buildTextLikeValue = (field: IAVColumn, value: string, oldValue?: IAVCellV
     return base;
 };
 
+const buildEmptyTextLikeValue = (field: IAVColumn) => buildTextLikeValue(field, "");
+
 const buildSelectValue = (field: IAVColumn, value?: string, oldValue?: IAVCellValue): IAVCellValue | undefined => {
     const content = (value || "").trim();
     if (!content) {
@@ -188,6 +190,12 @@ const buildSelectValue = (field: IAVColumn, value?: string, oldValue?: IAVCellVa
     base.mSelect = field.type === "mSelect" ? [selectValue] : [selectValue];
     return base;
 };
+
+const buildEmptySelectValue = (field: IAVColumn): IAVCellValue => ({
+    type: field.type,
+    keyID: field.id,
+    mSelect: [],
+} as IAVCellValue);
 
 const buildBlockValue = (event: ICalendarNormalizedEvent, title: string): IAVCellValue | undefined => {
     const blockCell = getBlockCell(event.sourceCard);
@@ -245,6 +253,7 @@ const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
     fieldID?: string;
     value?: string;
     oldCell?: IAVCell;
+    undoEmptyWhenMissing?: boolean;
 }) => {
     if (!options.fieldID || options.value === undefined) {
         return;
@@ -253,7 +262,7 @@ const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
     if (!field || !["text", "template"].includes(field.type)) {
         return;
     }
-    const oldValue = cloneCellValue(options.oldCell?.value);
+    const oldValue = cloneCellValue(options.oldCell?.value) || (options.undoEmptyWhenMissing ? buildEmptyTextLikeValue(field) : undefined);
     const newValue = buildTextLikeValue(field, options.value, oldValue);
     pushUpdate(ops, {
         avID: options.avID,
@@ -285,6 +294,7 @@ export const buildOccurrenceExceptionOperations = (options: {
         fieldID: options.mapping.exceptionFieldID,
         value: existing.join(","),
         oldCell,
+        undoEmptyWhenMissing: true,
     });
     if (ops.doOperations.length > 0) {
         pushUpdated(ops, options.blockID, options.previousUpdated);
@@ -314,6 +324,7 @@ export const buildSplitSeriesOperations = (options: {
         fieldID: options.mapping.recurrenceFieldID,
         value: truncatedRecurrence,
         oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.recurrenceFieldID),
+        undoEmptyWhenMissing: true,
     });
     if (truncateOps.doOperations.length > 0) {
         pushUpdated(truncateOps, options.blockID, options.previousUpdated);
@@ -344,6 +355,7 @@ const addColorUpdate = (ops: ICalendarOperationSet, options: {
     fieldID?: string;
     value?: string;
     oldCell?: IAVCell;
+    undoEmptyWhenMissing?: boolean;
 }) => {
     if (!options.fieldID || options.value === undefined) {
         return;
@@ -352,7 +364,7 @@ const addColorUpdate = (ops: ICalendarOperationSet, options: {
     if (!field || !["select", "mSelect"].includes(field.type)) {
         return;
     }
-    const oldValue = cloneCellValue(options.oldCell?.value);
+    const oldValue = cloneCellValue(options.oldCell?.value) || (options.undoEmptyWhenMissing ? buildEmptySelectValue(field) : undefined);
     const newValue = buildSelectValue(field, options.value, oldValue);
     pushUpdate(ops, {
         avID: options.avID,
@@ -455,6 +467,7 @@ export const buildUpdateEventOperations = (options: {
         fieldID: options.mapping.recurrenceFieldID,
         value: normalizeRecurrenceValue(options.draft.recurrenceRaw),
         oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.recurrenceFieldID),
+        undoEmptyWhenMissing: true,
     });
     addMetadataUpdate(ops, {
         avID: options.avID,
@@ -463,6 +476,7 @@ export const buildUpdateEventOperations = (options: {
         fieldID: options.mapping.locationFieldID,
         value: options.draft.location,
         oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.locationFieldID),
+        undoEmptyWhenMissing: true,
     });
     addMetadataUpdate(ops, {
         avID: options.avID,
@@ -471,6 +485,7 @@ export const buildUpdateEventOperations = (options: {
         fieldID: options.mapping.descriptionFieldID,
         value: options.draft.description,
         oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.descriptionFieldID),
+        undoEmptyWhenMissing: true,
     });
     addColorUpdate(ops, {
         avID: options.avID,
@@ -479,6 +494,7 @@ export const buildUpdateEventOperations = (options: {
         fieldID: options.mapping.colorFieldID,
         value: options.draft.colorContent,
         oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.colorFieldID),
+        undoEmptyWhenMissing: true,
     });
     if (ops.doOperations.length > 0) {
         pushUpdated(ops, options.blockID, options.previousUpdated);
