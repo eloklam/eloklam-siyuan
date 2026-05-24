@@ -402,6 +402,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     normalizedForEvents.events.forEach(event => {
         renderedEvents.set(event.occurrenceID || event.id, event);
     });
+    const getEditableEvent = (sourceEvent: ICalendarNormalizedEvent) => {
+        if (!sourceEvent.isOccurrence || mapping.exceptionFieldID) {
+            return sourceEvent;
+        }
+        return baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent;
+    };
     const updateEventWithDraft = (sourceEvent: ICalendarNormalizedEvent, draft: ICalendarEventDraft) => {
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
@@ -469,29 +475,33 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 if (!sourceEvent || sourceEvent.isAllDay) {
                     return;
                 }
+                const targetEvent = getEditableEvent(sourceEvent);
                 const delta = parseInt(resizeElement.dataset.delta || "0", 10);
                 const currentEnd = sourceEvent.end || sourceEvent.start.add(1, "hour");
                 const nextEnd = currentEnd.add(delta, "minute");
                 if (!nextEnd.isAfter(sourceEvent.start)) {
                     return;
                 }
-                updateEventWithDraft(sourceEvent, {
-                    title: sourceEvent.title,
-                    date: sourceEvent.start.format("YYYY-MM-DD"),
-                    endDate: nextEnd.format("YYYY-MM-DD"),
+                const nextDuration = nextEnd.diff(sourceEvent.start, "minute");
+                const targetEnd = targetEvent.start.add(nextDuration, "minute");
+                updateEventWithDraft(targetEvent, {
+                    title: targetEvent.title,
+                    date: targetEvent.start.format("YYYY-MM-DD"),
+                    endDate: targetEnd.format("YYYY-MM-DD"),
                     isAllDay: false,
-                    startTime: sourceEvent.start.format("HH:mm"),
-                    endTime: nextEnd.format("HH:mm"),
-                    recurrenceRaw: sourceEvent.recurrenceRaw,
-                    location: sourceEvent.location,
-                    description: sourceEvent.description,
-                    colorContent: sourceEvent.colorContent,
+                    startTime: targetEvent.start.format("HH:mm"),
+                    endTime: targetEnd.format("HH:mm"),
+                    recurrenceRaw: targetEvent.recurrenceRaw,
+                    location: targetEvent.location,
+                    description: targetEvent.description,
+                    colorContent: targetEvent.colorContent,
                 });
                 return;
             }
             const calendarEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
             if (calendarEvent && editable) {
-                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
+                const eventForDialog = getEditableEvent(calendarEvent);
+                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
             }
         });
     });
@@ -541,13 +551,17 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (!sourceEvent || !targetDate) {
                 return;
             }
+            const targetEvent = getEditableEvent(sourceEvent);
             const dragOffsetDays = displayDate ? Math.max(dayjs(displayDate).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0) : 0;
             const draftDate = dayjs(targetDate).subtract(dragOffsetDays, "day").format("YYYY-MM-DD");
-            const draft = buildDraftForDate(sourceEvent, draftDate);
-            if (sourceEvent.isAllDay && sourceEvent.end && !sourceEvent.start.isSame(sourceEvent.end, "day")) {
-                draft.endTime = sourceEvent.end?.format("HH:mm") || "23:59";
+            const targetDraftDate = targetEvent === sourceEvent ?
+                draftDate :
+                targetEvent.start.add(dayjs(draftDate).diff(sourceEvent.start, "day"), "day").format("YYYY-MM-DD");
+            const draft = buildDraftForDate(targetEvent, targetDraftDate);
+            if (targetEvent.isAllDay && targetEvent.end && !targetEvent.start.isSame(targetEvent.end, "day")) {
+                draft.endTime = targetEvent.end?.format("HH:mm") || "23:59";
             }
-            updateEventWithDraft(sourceEvent, draft);
+            updateEventWithDraft(targetEvent, draft);
         });
     });
 };
