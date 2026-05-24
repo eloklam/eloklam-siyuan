@@ -229,7 +229,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
     } else if (viewMode === 3) {
         body = renderList(range, events, true);
     }
-    if (search && events.length === 0) {
+    if (search && events.length === 0 && viewMode !== 3) {
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
