@@ -659,10 +659,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             return;
         }
         const draft = buildDraftForDate(sourceEvent, sourceEvent.start.add(1, "day").format("YYYY-MM-DD"));
-        if (sourceEvent.isOccurrence) {
-            draft.recurrenceRaw = "";
-            draft.recurrenceExceptionRaw = "";
-        }
+        draft.recurrenceRaw = "";
+        draft.recurrenceExceptionRaw = "";
         const saved = createCalendarEvent({
             protyle: options.protyle,
             avID,

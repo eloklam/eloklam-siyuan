@@ -104,6 +104,9 @@ if (!renderEntry.includes("renderCalendar") || !renderEntry.includes('data.viewT
 }
 
 const calendarRender = read("app/src/protyle/render/av/calendar/render.ts");
+if (/if \(sourceEvent\.isOccurrence\)\s*{\s*draft\.recurrenceRaw = ""/.test(calendarRender)) {
+  fail("quick-copy should always clear recurrence data, not only copied occurrences");
+}
 for (const term of [
   "hasClosestByAttribute(options.blockElement, \"data-type\", \"NodeBlockQueryEmbed\")",
   "hasClosestByAttribute(e, \"data-type\", \"NodeBlockQueryEmbed\")",
@@ -204,6 +207,7 @@ for (const term of [
   "buildDraftForDate",
   "duplicateEventToNextDay",
   "draft.recurrenceRaw = \"\"",
+  "draft.recurrenceExceptionRaw = \"\"",
   "createCalendarEvent({",
   "getEditableEvent",
   ".av__calendar-event, [data-type='calendar-new']",
