@@ -1,5 +1,6 @@
 import * as dayjs from "dayjs";
 import {Constants} from "../../../../constants";
+import {showMessage} from "../../../../dialog/message";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {fetchSyncPost} from "../../../../util/fetch";
 import {hasClosestByAttribute} from "../../../util/hasClosest";
@@ -445,6 +446,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         });
         if (saved) {
             rerender();
+        } else {
+            showMessage(window.siyuan.languages._kernel[29]);
         }
     };
     const buildDraftForDate = (sourceEvent: ICalendarNormalizedEvent, targetDate: string): ICalendarEventDraft => {
