@@ -1612,19 +1612,34 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 		return fmt.Errorf("view is not a calendar layout")
 	}
 
-	var mapping av.CalendarFieldMapping
-	dataMap, ok := operation.Data.(map[string]any)
+	mapping, err := calendarFieldMappingFromOperationData(attrView, view.Calendar.FieldMapping, operation.Data)
+	if err != nil {
+		return
+	}
+
+	view.Calendar.FieldMapping = mapping
+	err = av.SaveAttributeView(attrView)
+	ReloadAttrView(attrView.ID)
+	return
+}
+
+func calendarFieldMappingFromOperationData(attrView *av.AttributeView, existing *av.CalendarFieldMapping, data any) (mapping *av.CalendarFieldMapping, err error) {
+	next := av.CalendarFieldMapping{}
+	if nil != existing {
+		next = *existing
+	}
+	dataMap, ok := data.(map[string]any)
 	if !ok {
-		return fmt.Errorf("calendar field mapping data must be an object")
+		return nil, fmt.Errorf("calendar field mapping data must be an object")
 	}
 	if val, exists := dataMap["recurrenceFieldID"]; exists {
 		if fieldID, ok := val.(string); ok {
 			if err = validateCalendarMappingField(attrView, fieldID, "recurrenceFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
 				return
 			}
-			mapping.RecurrenceFieldID = fieldID
+			next.RecurrenceFieldID = fieldID
 		} else if nil != val {
-			return fmt.Errorf("recurrenceFieldID must be a string")
+			return nil, fmt.Errorf("recurrenceFieldID must be a string")
 		}
 	}
 	if val, exists := dataMap["exceptionFieldID"]; exists {
@@ -1632,9 +1647,9 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 			if err = validateCalendarMappingField(attrView, fieldID, "exceptionFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
 				return
 			}
-			mapping.ExceptionFieldID = fieldID
+			next.ExceptionFieldID = fieldID
 		} else if nil != val {
-			return fmt.Errorf("exceptionFieldID must be a string")
+			return nil, fmt.Errorf("exceptionFieldID must be a string")
 		}
 	}
 	if val, exists := dataMap["locationFieldID"]; exists {
@@ -1642,9 +1657,9 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 			if err = validateCalendarMappingField(attrView, fieldID, "locationFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
 				return
 			}
-			mapping.LocationFieldID = fieldID
+			next.LocationFieldID = fieldID
 		} else if nil != val {
-			return fmt.Errorf("locationFieldID must be a string")
+			return nil, fmt.Errorf("locationFieldID must be a string")
 		}
 	}
 	if val, exists := dataMap["descriptionFieldID"]; exists {
@@ -1652,9 +1667,9 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 			if err = validateCalendarMappingField(attrView, fieldID, "descriptionFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
 				return
 			}
-			mapping.DescriptionFieldID = fieldID
+			next.DescriptionFieldID = fieldID
 		} else if nil != val {
-			return fmt.Errorf("descriptionFieldID must be a string")
+			return nil, fmt.Errorf("descriptionFieldID must be a string")
 		}
 	}
 	if val, exists := dataMap["colorFieldID"]; exists {
@@ -1662,19 +1677,15 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 			if err = validateCalendarMappingField(attrView, fieldID, "colorFieldID", av.KeyTypeSelect, av.KeyTypeMSelect); err != nil {
 				return
 			}
-			mapping.ColorFieldID = fieldID
+			next.ColorFieldID = fieldID
 		} else if nil != val {
-			return fmt.Errorf("colorFieldID must be a string")
+			return nil, fmt.Errorf("colorFieldID must be a string")
 		}
 	}
-	if err = validateCalendarFieldMappingUnique(&mapping); err != nil {
-		return
+	if err = validateCalendarFieldMappingUnique(&next); err != nil {
+		return nil, err
 	}
-
-	view.Calendar.FieldMapping = &mapping
-	err = av.SaveAttributeView(attrView)
-	ReloadAttrView(attrView.ID)
-	return
+	return &next, nil
 }
 
 func validateCalendarFieldMappingUnique(mapping *av.CalendarFieldMapping) (err error) {

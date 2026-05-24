@@ -61,6 +61,48 @@ func TestValidateCalendarFieldMappingUnique(t *testing.T) {
 	}
 }
 
+func TestCalendarFieldMappingFromOperationDataMergesExisting(t *testing.T) {
+	attrView := &av.AttributeView{
+		KeyValues: []*av.KeyValues{
+			{Key: &av.Key{ID: "recurrence", Type: av.KeyTypeText}},
+			{Key: &av.Key{ID: "exception", Type: av.KeyTypeText}},
+			{Key: &av.Key{ID: "location", Type: av.KeyTypeText}},
+			{Key: &av.Key{ID: "description", Type: av.KeyTypeTemplate}},
+			{Key: &av.Key{ID: "color", Type: av.KeyTypeSelect}},
+			{Key: &av.Key{ID: "newColor", Type: av.KeyTypeMSelect}},
+		},
+	}
+	existing := &av.CalendarFieldMapping{
+		RecurrenceFieldID:  "recurrence",
+		ExceptionFieldID:   "exception",
+		LocationFieldID:    "location",
+		DescriptionFieldID: "description",
+		ColorFieldID:       "color",
+	}
+
+	mapping, err := calendarFieldMappingFromOperationData(attrView, existing, map[string]any{
+		"colorFieldID": "newColor",
+	})
+	if err != nil {
+		t.Fatalf("partial mapping update should be accepted: %v", err)
+	}
+	if mapping.RecurrenceFieldID != "recurrence" || mapping.ExceptionFieldID != "exception" ||
+		mapping.LocationFieldID != "location" || mapping.DescriptionFieldID != "description" ||
+		mapping.ColorFieldID != "newColor" {
+		t.Fatalf("partial update should preserve existing mapping fields: %#v", mapping)
+	}
+
+	mapping, err = calendarFieldMappingFromOperationData(attrView, existing, map[string]any{
+		"locationFieldID": "",
+	})
+	if err != nil {
+		t.Fatalf("empty field should clear only that mapping: %v", err)
+	}
+	if mapping.LocationFieldID != "" || mapping.RecurrenceFieldID != "recurrence" {
+		t.Fatalf("empty update should clear only requested mapping: %#v", mapping)
+	}
+}
+
 func TestCalendarWeekStartFromOperationData(t *testing.T) {
 	weekStart, err := calendarWeekStartFromOperationData(float64(0))
 	if err != nil {
