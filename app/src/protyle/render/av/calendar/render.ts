@@ -104,14 +104,14 @@ const getNavDate = (anchor: dayjs.Dayjs, viewMode: number, direction: -1 | 1) =>
     return anchor.add(direction, "day");
 };
 
-const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Dayjs) => {
+const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Dayjs, editable = true) => {
     const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ?
         `${formatCalendarDate(event.start, {month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {month: "short", day: "numeric"})} ` : "";
     const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
-    return `<button class="av__calendar-event" draggable="true" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}"${colorStyle}>
+    return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}"${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
-    ${event.isAllDay ? "" : `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`}
+    ${event.isAllDay || !editable ? "" : `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`}
 </button>`;
 };
 
@@ -121,39 +121,39 @@ const renderModeSwitcher = (viewMode: number) => {
     </div>`;
 };
 
-const renderDateFieldSetup = (calendar: IAVCalendar) => {
+const renderDateFieldSetup = (calendar: IAVCalendar, editable = true) => {
     const dateFields = calendar.fields.filter(field => field.type === "date");
     if (dateFields.length === 0) {
         return `<div class="av__calendar av__calendar--empty">
     <div class="ft__on-surface">${window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field"}</div>
-    <button class="b3-button b3-button--text av__calendar-setup" data-type="calendar-create-date-field">${window.siyuan.languages.calendarCreateDateField || window.siyuan.languages.newCol}</button>
+    ${editable ? `<button class="b3-button b3-button--text av__calendar-setup" data-type="calendar-create-date-field">${window.siyuan.languages.calendarCreateDateField || window.siyuan.languages.newCol}</button>` : ""}
 </div>`;
     }
     return `<div class="av__calendar av__calendar--empty">
     <label class="ft__on-surface" for="av-calendar-date-field">${window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field"}</label>
-    <select class="b3-select av__calendar-setup" id="av-calendar-date-field" data-type="calendar-empty-date-field">
+    <select class="b3-select av__calendar-setup" id="av-calendar-date-field" data-type="calendar-empty-date-field"${editable ? "" : " disabled"}>
         <option value="">${window.siyuan.languages.select || ""}</option>
         ${dateFields.map(field => `<option value="${escapeAttr(field.id)}">${escapeHtml(field.name)}</option>`).join("")}
     </select>
-    <button class="b3-button b3-button--text av__calendar-setup" data-type="calendar-create-date-field">${window.siyuan.languages.calendarCreateDateField || window.siyuan.languages.newCol}</button>
+    ${editable ? `<button class="b3-button b3-button--text av__calendar-setup" data-type="calendar-create-date-field">${window.siyuan.languages.calendarCreateDateField || window.siyuan.languages.newCol}</button>` : ""}
 </div>`;
 };
 
-const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalendarNormalizedEvent[], weekStart = 0) => {
+const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalendarNormalizedEvent[], weekStart = 0, editable = true) => {
     let html = `<div class="av__calendar-weekdays">${getWeekdayLabels(weekStart).map(day => `<div>${escapeHtml(day)}</div>`).join("")}</div><div class="av__calendar-month">`;
     let cursor = range.start;
     while (!cursor.isAfter(range.end, "day")) {
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
         html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-daynum" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${cursor.date()}</button>
-    <div class="av__calendar-events">${dayEvents.map(event => eventButtonHTML(event, cursor)).join("")}</div>
+    <div class="av__calendar-events">${dayEvents.map(event => eventButtonHTML(event, cursor, editable)).join("")}</div>
 </div>`;
         cursor = cursor.add(1, "day");
     }
     return `${html}</div>`;
 };
 
-const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[]) => {
+const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], editable = true) => {
     const days: dayjs.Dayjs[] = [];
     let cursor = range.start.startOf("day");
     while (!cursor.isAfter(range.end, "day")) {
@@ -167,26 +167,26 @@ const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[]) =
         const timedEvents = dayEvents.filter(event => !event.isAllDay);
         return `<div class="av__calendar-week-day" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
             <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}">${escapeHtml(`${formatCalendarDate(day, {weekday: "short"})} ${day.date()}`)}</button>
-            <div class="av__calendar-all-day">${allDayEvents.map(event => eventButtonHTML(event, day)).join("")}</div>
-            <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, day)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+            <div class="av__calendar-all-day">${allDayEvents.map(event => eventButtonHTML(event, day, editable)).join("")}</div>
+            <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, day, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
         </div>`;
     }).join("")}
 </div>`;
 };
 
-const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[]) => {
+const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[], editable = true) => {
     const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, anchor)));
     const allDayEvents = dayEvents.filter(event => event.isAllDay);
     const timedEvents = dayEvents.filter(event => !event.isAllDay);
     return `<div class="av__calendar-day-view" data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}">${escapeHtml(formatCalendarDate(anchor, {weekday: "long", month: "short", day: "numeric"}))}</button>
-    <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(event => eventButtonHTML(event, anchor)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(event => eventButtonHTML(event, anchor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
     <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
-    <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, anchor)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, anchor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
 };
 
-const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], hideEmpty = false) => {
+const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], hideEmpty = false, editable = true) => {
     let cursor = range.start.startOf("day");
     let html = '<div class="av__calendar-list">';
     let renderedDays = 0;
@@ -196,7 +196,7 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
             renderedDays++;
             html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${escapeHtml(formatCalendarDate(cursor, {weekday: "short", year: "numeric", month: "short", day: "numeric"}))}</button>
-    <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => eventButtonHTML(event, cursor)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => eventButtonHTML(event, cursor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
         }
         cursor = cursor.add(1, "day");
@@ -207,13 +207,13 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
     return `${html}</div>`;
 };
 
-const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
+const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) => {
     const calendar = data.view as IAVCalendar;
     const viewMode = getSafeViewMode(calendar.viewMode);
     const weekStart = getSafeWeekStart(calendar.weekStart);
     const mapping = getCalendarFieldMapping(calendar);
     if (!mapping.hasDateField) {
-        return renderDateFieldSetup(calendar);
+        return renderDateFieldSetup(calendar, editable);
     }
     const anchor = dayjs(blockElement.dataset.calendarDate || undefined);
     const safeAnchor = anchor.isValid() ? anchor : dayjs();
@@ -222,13 +222,13 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
     const search = getCalendarSearch(blockElement);
     const events = normalized.events.filter(event => eventMatchesSearch(event, search));
     const title = getCalendarTitle(safeAnchor, range, viewMode);
-    let body = renderMonth(safeAnchor, range, events, weekStart);
+    let body = renderMonth(safeAnchor, range, events, weekStart, editable);
     if (viewMode === 1) {
-        body = renderWeek(range, events);
+        body = renderWeek(range, events, editable);
     } else if (viewMode === 2) {
-        body = renderDay(safeAnchor, events);
+        body = renderDay(safeAnchor, events, editable);
     } else if (viewMode === 3) {
-        body = renderList(range, events, true);
+        body = renderList(range, events, true, editable);
     }
     if (search && events.length === 0 && viewMode !== 3) {
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>${body}`;
@@ -242,7 +242,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
         <div class="av__calendar-title">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
         ${renderModeSwitcher(viewMode)}
-        <button class="b3-button b3-button--text" data-type="calendar-new" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>
+        ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
     </div>
     ${body}
 </div>`;
@@ -560,7 +560,7 @@ export const renderCalendar = async (options: IRenderCalendarOptions) => {
     e.setAttribute("data-render", "true");
     e.setAttribute("data-av-type", "calendar");
     const editable = !options.protyle.disabled && !hasClosestByAttribute(e, "data-type", "NodeBlockQueryEmbed");
-    const body = `<div class="av__body" data-page-size="-1">${getCalendarHTML(data, e)}</div>`;
+    const body = `<div class="av__body" data-page-size="-1">${getCalendarHTML(data, e, editable)}</div>`;
     if (options.renderAll) {
         e.firstElementChild.outerHTML = `<div class="av__container">
     ${genTabHeaderHTML(data, false, editable)}
