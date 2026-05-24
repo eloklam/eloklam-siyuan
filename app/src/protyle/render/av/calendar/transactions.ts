@@ -109,7 +109,11 @@ const recurrenceCount = (value: string) => {
     if (!countPart) {
         return undefined;
     }
-    const count = parseInt(countPart.split("=")[1], 10);
+    const countValue = countPart.slice("COUNT=".length);
+    if (!/^\d+$/.test(countValue)) {
+        return undefined;
+    }
+    const count = parseInt(countValue, 10);
     return count > 0 ? count : undefined;
 };
 
