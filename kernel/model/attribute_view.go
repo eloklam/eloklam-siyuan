@@ -4876,6 +4876,26 @@ func AddAttributeViewKey(avID, keyID, keyName, keyType, keyIcon, previousKeyID s
 					}
 				}
 			}
+
+			if nil != view.Calendar {
+				newField.Wrap = view.Calendar.WrapField
+
+				if "" == previousKeyID {
+					view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: newField})
+				} else {
+					added := false
+					for i, field := range view.Calendar.Fields {
+						if field.ID == previousKeyID {
+							view.Calendar.Fields = append(view.Calendar.Fields[:i+1], append([]*av.ViewCalendarCardField{{BaseField: newField}}, view.Calendar.Fields[i+1:]...)...)
+							added = true
+							break
+						}
+					}
+					if !added {
+						view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: newField})
+					}
+				}
+			}
 		}
 	}
 
@@ -5145,6 +5165,35 @@ func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err er
 				if field.ID == keyID {
 					view.Kanban.Fields = append(view.Kanban.Fields[:i], view.Kanban.Fields[i+1:]...)
 					break
+				}
+			}
+		}
+
+		if nil != view.Calendar {
+			if view.Calendar.DateFieldID == keyID {
+				view.Calendar.DateFieldID = ""
+			}
+			for i, field := range view.Calendar.Fields {
+				if field.ID == keyID {
+					view.Calendar.Fields = append(view.Calendar.Fields[:i], view.Calendar.Fields[i+1:]...)
+					break
+				}
+			}
+			if nil != view.Calendar.FieldMapping {
+				if view.Calendar.FieldMapping.RecurrenceFieldID == keyID {
+					view.Calendar.FieldMapping.RecurrenceFieldID = ""
+				}
+				if view.Calendar.FieldMapping.ExceptionFieldID == keyID {
+					view.Calendar.FieldMapping.ExceptionFieldID = ""
+				}
+				if view.Calendar.FieldMapping.LocationFieldID == keyID {
+					view.Calendar.FieldMapping.LocationFieldID = ""
+				}
+				if view.Calendar.FieldMapping.DescriptionFieldID == keyID {
+					view.Calendar.FieldMapping.DescriptionFieldID = ""
+				}
+				if view.Calendar.FieldMapping.ColorFieldID == keyID {
+					view.Calendar.FieldMapping.ColorFieldID = ""
 				}
 			}
 		}

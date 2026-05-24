@@ -111,6 +111,7 @@ const renderDateFieldSetup = (calendar: IAVCalendar) => {
     if (dateFields.length === 0) {
         return `<div class="av__calendar av__calendar--empty">
     <div class="ft__on-surface">${window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field"}</div>
+    <button class="b3-button b3-button--text av__calendar-setup" data-type="calendar-create-date-field">${window.siyuan.languages.calendarCreateDateField || window.siyuan.languages.newCol}</button>
 </div>`;
     }
     return `<div class="av__calendar av__calendar--empty">
@@ -119,6 +120,7 @@ const renderDateFieldSetup = (calendar: IAVCalendar) => {
         <option value="">${window.siyuan.languages.select || ""}</option>
         ${dateFields.map(field => `<option value="${escapeAttr(field.id)}">${escapeHtml(field.name)}</option>`).join("")}
     </select>
+    <button class="b3-button b3-button--text av__calendar-setup" data-type="calendar-create-date-field">${window.siyuan.languages.calendarCreateDateField || window.siyuan.languages.newCol}</button>
 </div>`;
 };
 
@@ -284,6 +286,41 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             viewID: data.viewID,
         }]);
         calendar.dateFieldID = current;
+        rerender();
+    });
+    calendarElement?.querySelector('[data-type="calendar-create-date-field"]')?.addEventListener("click", () => {
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        if (!avID || !blockID) {
+            return;
+        }
+        const keyID = Lute.NewNodeID();
+        const keyName = window.siyuan.languages.date || window.siyuan.languages.dateField || "Date";
+        transaction(options.protyle, [{
+            action: "addAttrViewCol",
+            avID,
+            id: keyID,
+            name: keyName,
+            type: "date",
+        }, {
+            action: "setAttrViewCalendarDateField",
+            avID,
+            blockID,
+            keyID,
+            data: keyID,
+            viewID: data.viewID,
+        }], [{
+            action: "setAttrViewCalendarDateField",
+            avID,
+            blockID,
+            keyID: calendar.dateFieldID || "",
+            data: calendar.dateFieldID || "",
+            viewID: data.viewID,
+        }, {
+            action: "removeAttrViewCol",
+            avID,
+            id: keyID,
+        }]);
         rerender();
     });
     calendarElement?.querySelectorAll('[data-type="calendar-mode"]').forEach(item => {
