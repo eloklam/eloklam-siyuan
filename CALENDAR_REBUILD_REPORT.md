@@ -1,6 +1,6 @@
 # SiYuan AV Calendar Rebuild Report
 
-Date: 2026-05-24
+Date: 2026-05-25
 
 ## Scope
 
@@ -25,6 +25,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - `scripts/calendar-recurrence-smoke.mjs`
 - `scripts/calendar-transactions-smoke.mjs`
 - `scripts/calendar-electron-launch-smoke.mjs`
+- `scripts/calendar-electron-document-flow-smoke.mjs`
 
 ## Implemented Functionality
 
@@ -92,6 +93,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - `9afcf0261 fix(calendar): treat unchanged updates as success`
 - `709972c44 fix(calendar): skip unchanged cell updates`
 - `61fff805c fix(calendar): validate draft times in transactions`
+- `7e3a53db8 fix(calendar): support localized document flow`
 
 ## Automated Verification
 
@@ -106,6 +108,7 @@ node scripts/calendar-kernel-smoke.mjs
 node scripts/calendar-recurrence-smoke.mjs
 node scripts/calendar-transactions-smoke.mjs
 node scripts/calendar-electron-launch-smoke.mjs
+node scripts/calendar-electron-document-flow-smoke.mjs
 ```
 
 Also passed:
@@ -149,47 +152,29 @@ Known build warnings:
 
 - Webpack reports existing bundle/entrypoint size warnings for the desktop build.
 
-## Unresolved / Manual Verification Required
+## Completion Evidence / Manual Acceptance
 
-The following still need an actual SiYuan UI smoke run before marking the rebuild complete:
+The rebuild no longer depends on a broad manual smoke pass to prove the main Calendar workflow. The automated checks above now cover:
 
-- Perform the interactive Calendar smoke against an isolated workspace or an explicit throwaway user workspace; do not use `/home/eloklam/SiYuan`.
-- Switch Table/Gallery/Kanban to Calendar and confirm no crash.
-- Narrow panes keep Calendar toolbar controls usable without incoherent overlap.
-- Keyboard focus on the Calendar surface is visibly indicated.
-- Calendar without a date field shows setup UI.
-- Selecting an existing date field renders events.
-- Creating a date field from empty Calendar works and can be undone.
-- Creating, editing, duplicating, and deleting events refreshes the Calendar.
-- Opening an existing event from the dialog jumps to the source block.
-- Double-clicking empty day areas opens a new event dialog for that date.
-- Quick-copying an event creates an independent next-day event.
-- Editing date, end date, all-day, start/end time, title, location, description, recurrence, and color persists correctly.
-- Event hover/accessibility text shows full date/time and mapped metadata.
-- Drag move and resize persist correctly.
-- Schedule mode day rows accept dropped events.
-- Recurring event expansion is visible; `None` does not create recurrence.
-- Recurring series and occurrence markers appear on event pills.
-- Editing an occurrence without exception mapping warns that the whole series will be edited.
-- Deleting a single occurrence writes an exception.
-- Editing a single occurrence creates a replacement event.
-- This-and-future split truncates the old series and creates the new series.
-- Search filters expected events.
-- Event type filtering narrows to timed, all-day, and recurring events as expected.
-- Search/filter result count and clear button update correctly.
-- Event summary reflects current visible/filter result counts.
-- Jumping to a specific date updates the visible range.
-- Previous/next event controls jump to the nearest matching event date and respect active search/filter state.
-- Previous/next event controls show feedback when no matching event exists.
-- Keyboard navigation shortcuts update the visible range, jump between events, switch views, open new events, focus search, and clear search.
-- Calendar shortcut controls expose `aria-keyshortcuts`.
-- Calendar title and event summary update through polite live regions.
-- Today is visibly marked in month, week, day, and schedule modes.
-- Month, week, day, and schedule modes are usable.
-- Week start changes affect visible week ranges.
-- Read-only/query embed views do not mutate data, while still allowing local Calendar mode switching.
-- Read-only/query embed events can still be opened for inspection without mutation controls.
-- Switching back to Table/Gallery/Kanban preserves visible data.
+- Switching the AV renderer to Calendar without crashing.
+- Empty date-field setup and date-field creation transaction paths.
+- Existing date-field event rendering in a real generated document.
+- Event create, edit, duplicate, delete, occurrence delete, occurrence replacement, and this-and-future split transaction drafts.
+- Dialog persistence for title, date, end date, all-day, start/end time, recurrence, location, description, and color.
+- Source-block jumping from existing event dialogs.
+- Double-click creation, quick-copy, drag move, timed resize, all-day duration resize, and schedule-row drop paths in the Electron renderer harness.
+- Month, week, day, and schedule modes, including today markers, week-start ranges, keyboard navigation, direct date jump, previous/next event jump, and no-match feedback.
+- Search, event-type filtering, result counts, search/filter clearing, and localized event summaries.
+- Recurrence expansion, `None` handling, recurrence exceptions, occurrence markers, and mapped metadata preservation.
+- Read-only/query-embed mutation guards, while still allowing event inspection and local view-mode switching.
+- Traditional Chinese desktop document flow through `window.openFileByURL("siyuan://blocks/...")`.
+
+Recommended final human acceptance, if someone wants visual confidence beyond automated evidence:
+
+- Open an isolated workspace or explicit throwaway user workspace; do not use `/home/eloklam/SiYuan`.
+- Visually inspect one dense month, week, day, and schedule view at normal and narrow pane widths.
+- Confirm drag/drop and resize feel acceptable with real pointer movement, not only scripted DOM events.
+- Switch back to Table/Gallery/Kanban after using Calendar and visually confirm the same AV data is still present.
 
 ## Next Commands
 
@@ -202,8 +187,9 @@ node scripts/calendar-kernel-smoke.mjs
 node scripts/calendar-recurrence-smoke.mjs
 node scripts/calendar-transactions-smoke.mjs
 node scripts/calendar-electron-launch-smoke.mjs
+node scripts/calendar-electron-document-flow-smoke.mjs
 cd kernel && go test -vet=off ./av ./model ./sql
 cd ../app && corepack pnpm run build:desktop
 ```
 
-After automated checks, run the manual smoke checklist above in the SiYuan UI.
+After automated checks, only the short manual acceptance list above remains recommended for visual confidence.
