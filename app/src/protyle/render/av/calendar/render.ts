@@ -188,15 +188,20 @@ const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[]) => {
 const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], hideEmpty = false) => {
     let cursor = range.start.startOf("day");
     let html = '<div class="av__calendar-list">';
+    let renderedDays = 0;
     while (!cursor.isAfter(range.end, "day")) {
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
         if (!hideEmpty || dayEvents.length > 0) {
+            renderedDays++;
             html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${cursor.format("YYYY-MM-DD")}</button>
     <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => eventButtonHTML(event, cursor)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
         }
         cursor = cursor.add(1, "day");
+    }
+    if (renderedDays === 0) {
+        html += `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>`;
     }
     return `${html}</div>`;
 };
