@@ -40,6 +40,49 @@ func TestValidateCalendarMappingField(t *testing.T) {
 	}
 }
 
+func TestCalendarDateFieldFromOperationData(t *testing.T) {
+	attrView := &av.AttributeView{
+		KeyValues: []*av.KeyValues{
+			{Key: &av.Key{ID: "date", Type: av.KeyTypeDate}},
+			{Key: &av.Key{ID: "text", Type: av.KeyTypeText}},
+		},
+	}
+
+	dateFieldID, err := calendarDateFieldFromOperationData(attrView, &Operation{KeyID: "date"})
+	if err != nil {
+		t.Fatalf("date keyID should be accepted: %v", err)
+	}
+	if dateFieldID != "date" {
+		t.Fatalf("expected date field from keyID, got %s", dateFieldID)
+	}
+
+	dateFieldID, err = calendarDateFieldFromOperationData(attrView, &Operation{Data: "date"})
+	if err != nil {
+		t.Fatalf("date data should be accepted: %v", err)
+	}
+	if dateFieldID != "date" {
+		t.Fatalf("expected date field from data, got %s", dateFieldID)
+	}
+
+	dateFieldID, err = calendarDateFieldFromOperationData(attrView, &Operation{Data: ""})
+	if err != nil {
+		t.Fatalf("empty data should clear date field without error: %v", err)
+	}
+	if dateFieldID != "" {
+		t.Fatalf("expected empty date field, got %s", dateFieldID)
+	}
+
+	if _, err = calendarDateFieldFromOperationData(attrView, &Operation{Data: float64(1)}); err == nil {
+		t.Fatal("non-string data should be rejected")
+	}
+	if _, err = calendarDateFieldFromOperationData(attrView, &Operation{Data: "text"}); err == nil {
+		t.Fatal("non-date field should be rejected")
+	}
+	if _, err = calendarDateFieldFromOperationData(attrView, &Operation{Data: "missing"}); err == nil {
+		t.Fatal("missing field should be rejected")
+	}
+}
+
 func TestValidateCalendarFieldMappingUnique(t *testing.T) {
 	if err := validateCalendarFieldMappingUnique(nil); err != nil {
 		t.Fatalf("nil mapping should be accepted: %v", err)

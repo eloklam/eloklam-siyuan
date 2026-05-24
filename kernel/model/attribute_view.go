@@ -1439,13 +1439,10 @@ func setAttrViewCalendarDateField(operation *Operation) (err error) {
 		return fmt.Errorf("view is not a calendar layout")
 	}
 
-	dateFieldID := operation.KeyID
-	if "" == dateFieldID {
-		if dataStr, ok := operation.Data.(string); ok {
-			dateFieldID = dataStr
-		}
+	dateFieldID, err := calendarDateFieldFromOperationData(attrView, operation)
+	if err != nil {
+		return
 	}
-
 	if "" == dateFieldID {
 		view.Calendar.DateFieldID = ""
 		err = av.SaveAttributeView(attrView)
@@ -1453,17 +1450,31 @@ func setAttrViewCalendarDateField(operation *Operation) (err error) {
 		return
 	}
 
-	key, getErr := attrView.GetKey(dateFieldID)
-	if nil != getErr {
-		return fmt.Errorf("calendar date field [%s] not found: %w", dateFieldID, getErr)
-	}
-	if av.KeyTypeDate != key.Type {
-		return fmt.Errorf("calendar date field [%s] is not a date type", dateFieldID)
-	}
-
 	view.Calendar.DateFieldID = dateFieldID
 	err = av.SaveAttributeView(attrView)
 	ReloadAttrView(attrView.ID)
+	return
+}
+
+func calendarDateFieldFromOperationData(attrView *av.AttributeView, operation *Operation) (dateFieldID string, err error) {
+	dateFieldID = operation.KeyID
+	if "" == dateFieldID {
+		dataStr, ok := operation.Data.(string)
+		if !ok {
+			return "", fmt.Errorf("calendar date field data must be a string")
+		}
+		dateFieldID = dataStr
+	}
+	if "" == dateFieldID {
+		return
+	}
+	key, getErr := attrView.GetKey(dateFieldID)
+	if nil != getErr {
+		return "", fmt.Errorf("calendar date field [%s] not found: %w", dateFieldID, getErr)
+	}
+	if av.KeyTypeDate != key.Type {
+		return "", fmt.Errorf("calendar date field [%s] is not a date type", dateFieldID)
+	}
 	return
 }
 
