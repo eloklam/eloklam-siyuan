@@ -420,6 +420,13 @@ for (const term of [
   "\"/api/filetree/createDocWithMd\"",
   "\"/api/av/changeAttrViewLayout\"",
   "\"setAttrViewCalendarDateField\"",
+  "\"setAttrViewCalendarFieldMapping\"",
+  "recurrenceFieldID",
+  "exceptionFieldID",
+  "locationFieldID",
+  "descriptionFieldID",
+  "colorFieldID",
+  "selectCellValue",
   "calendar kernel smoke passed",
   "SIYUAN_CALENDAR_KEEP_SMOKE_WORKSPACE",
 ]) {
@@ -438,6 +445,7 @@ for (const term of [
   "CGO_ENABLED=1 go build -tags fts5 -o SiYuan-Kernel .",
   "node scripts/calendar-kernel-smoke.mjs",
   "Backend `_attrView.calendar` language coverage is checked for every bundled language JSON file.",
+  "Calendar API setup and mapped metadata path.",
   "Perform the interactive Calendar smoke against an isolated workspace or an explicit throwaway user workspace; do not use `/home/eloklam/SiYuan`.",
   "After automated checks, run the manual smoke checklist above in the SiYuan UI.",
 ]) {

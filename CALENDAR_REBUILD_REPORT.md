@@ -117,7 +117,7 @@ Also passed:
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
 - Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, read-only local view switching, event tooltips, event summary, double-click creation, duplicate/quick-copy one-off behavior, schedule drag/drop targets, search rerendering, event type filtering, active query result count, search/filter clearing, direct date jumping, previous/next event jumping and no-match feedback, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 - Backend `_attrView.calendar` language coverage is checked for every bundled language JSON file.
-- `scripts/calendar-kernel-smoke.mjs` builds an isolated FTS5 kernel, creates a temporary notebook/document/AV, switches it to Calendar, sets the date field, inserts a timed event, renders the Calendar API payload, and verifies the event date value appears.
+- `scripts/calendar-kernel-smoke.mjs` builds an isolated FTS5 kernel, creates a temporary notebook/document/AV, switches it to Calendar, maps date/recurrence/exception/location/description/color fields, inserts a timed event with metadata, renders the Calendar API payload, and verifies the event date and mapped metadata values appear.
 
 Isolated launch smoke also passed without touching the real note vault:
 
@@ -127,7 +127,7 @@ Isolated launch smoke also passed without touching the real note vault:
 - Started the desktop Electron shell under `xvfb-run` with isolated `HOME`, isolated `XDG_CONFIG_HOME`, the temporary workspace, and the already-running kernel on `127.0.0.1:6806`.
 - Electron remained running until the scripted timeout; no startup crash was observed after applying the local `--no-sandbox --disable-gpu --ozone-platform=x11` smoke flags needed by this Linux sandbox.
 - The temporary kernel binary was removed after smoke verification.
-- Added repeatable `node scripts/calendar-kernel-smoke.mjs` coverage for the Calendar API setup path.
+- Added repeatable `node scripts/calendar-kernel-smoke.mjs` coverage for the Calendar API setup and mapped metadata path.
 
 Known build warnings:
 

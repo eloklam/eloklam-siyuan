@@ -85,6 +85,18 @@ const performTransactions = (baseURL, doOperations, undoOperations = []) => post
   reqId: Date.now(),
 });
 
+const textCellValue = (keyID, content) => ({
+  type: "text",
+  text: {content},
+  keyID,
+});
+
+const selectCellValue = (keyID, content, color) => ({
+  type: "select",
+  mSelect: [{content, color}],
+  keyID,
+});
+
 const main = async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "siyuan-calendar-kernel-smoke-workspace-"));
   const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), "siyuan-calendar-kernel-smoke-bin-"));
@@ -159,6 +171,11 @@ const main = async () => {
     }
 
     const dateKeyID = nodeID();
+    const recurrenceKeyID = nodeID();
+    const exceptionKeyID = nodeID();
+    const locationKeyID = nodeID();
+    const descriptionKeyID = nodeID();
+    const colorKeyID = nodeID();
     const rowID = nodeID();
     const start = new Date("2026-05-24T09:00:00").getTime();
     const end = new Date("2026-05-24T10:00:00").getTime();
@@ -168,6 +185,41 @@ const main = async () => {
       id: dateKeyID,
       name: "Smoke Date",
       type: "date",
+    }, {
+      action: "addAttrViewCol",
+      avID,
+      id: recurrenceKeyID,
+      name: "Smoke Recurrence",
+      type: "text",
+    }, {
+      action: "addAttrViewCol",
+      avID,
+      id: exceptionKeyID,
+      name: "Smoke Exceptions",
+      type: "text",
+    }, {
+      action: "addAttrViewCol",
+      avID,
+      id: locationKeyID,
+      name: "Smoke Location",
+      type: "text",
+    }, {
+      action: "addAttrViewCol",
+      avID,
+      id: descriptionKeyID,
+      name: "Smoke Description",
+      type: "text",
+    }, {
+      action: "addAttrViewCol",
+      avID,
+      id: colorKeyID,
+      name: "Smoke Color",
+      type: "select",
+    }, {
+      action: "updateAttrViewColOptions",
+      avID,
+      id: colorKeyID,
+      data: [{name: "Focus", color: "1"}],
     }, {
       action: "insertAttrViewBlock",
       avID,
@@ -190,6 +242,36 @@ const main = async () => {
           isNotTime: false,
         },
       },
+    }, {
+      action: "updateAttrViewCell",
+      avID,
+      keyID: recurrenceKeyID,
+      rowID,
+      data: textCellValue(recurrenceKeyID, "FREQ=WEEKLY;COUNT=2"),
+    }, {
+      action: "updateAttrViewCell",
+      avID,
+      keyID: exceptionKeyID,
+      rowID,
+      data: textCellValue(exceptionKeyID, "2026-05-31"),
+    }, {
+      action: "updateAttrViewCell",
+      avID,
+      keyID: locationKeyID,
+      rowID,
+      data: textCellValue(locationKeyID, "Smoke Room"),
+    }, {
+      action: "updateAttrViewCell",
+      avID,
+      keyID: descriptionKeyID,
+      rowID,
+      data: textCellValue(descriptionKeyID, "Smoke description"),
+    }, {
+      action: "updateAttrViewCell",
+      avID,
+      keyID: colorKeyID,
+      rowID,
+      data: selectCellValue(colorKeyID, "Focus", "1"),
     }]);
 
     const calendarData = await postJSON(baseURL, "/api/av/changeAttrViewLayout", {
@@ -208,6 +290,18 @@ const main = async () => {
       blockID: avBlockID,
       data: dateKeyID,
       viewID,
+    }, {
+      action: "setAttrViewCalendarFieldMapping",
+      avID,
+      blockID: avBlockID,
+      viewID,
+      data: {
+        recurrenceFieldID: recurrenceKeyID,
+        exceptionFieldID: exceptionKeyID,
+        locationFieldID: locationKeyID,
+        descriptionFieldID: descriptionKeyID,
+        colorFieldID: colorKeyID,
+      },
     }]);
 
     const renderedCalendar = await postJSON(baseURL, "/api/av/renderAttributeView", {
@@ -224,12 +318,38 @@ const main = async () => {
     if (view.dateFieldID !== dateKeyID) {
       fail(`calendar date field mismatch: ${view.dateFieldID}`);
     }
+    for (const [name, expected] of Object.entries({
+      recurrenceFieldID: recurrenceKeyID,
+      exceptionFieldID: exceptionKeyID,
+      locationFieldID: locationKeyID,
+      descriptionFieldID: descriptionKeyID,
+      colorFieldID: colorKeyID,
+    })) {
+      if (view.fieldMapping?.[name] !== expected) {
+        fail(`calendar ${name} mismatch: ${view.fieldMapping?.[name]}`);
+      }
+    }
     if (!Array.isArray(view.cards) || view.cards.length !== 1) {
       fail(`expected one calendar card, got ${view.cards?.length}`);
     }
-    const hasDateValue = view.cards[0].values.some((cell) => cell.value?.keyID === dateKeyID && cell.value?.date?.isNotEmpty);
+    const cellByKey = new Map(view.cards[0].values.map((cell) => [cell.value?.keyID, cell.value]));
+    const hasDateValue = cellByKey.get(dateKeyID)?.date?.isNotEmpty;
     if (!hasDateValue) {
       fail("calendar card does not include the smoke date value");
+    }
+    for (const [keyID, expected] of [
+      [recurrenceKeyID, "FREQ=WEEKLY;COUNT=2"],
+      [exceptionKeyID, "2026-05-31"],
+      [locationKeyID, "Smoke Room"],
+      [descriptionKeyID, "Smoke description"],
+    ]) {
+      if (cellByKey.get(keyID)?.text?.content !== expected) {
+        fail(`calendar metadata cell [${keyID}] mismatch: ${JSON.stringify(cellByKey.get(keyID))}`);
+      }
+    }
+    const colorValue = cellByKey.get(colorKeyID)?.mSelect?.[0];
+    if (colorValue?.content !== "Focus" || colorValue?.color !== "1") {
+      fail(`calendar color cell mismatch: ${JSON.stringify(colorValue)}`);
     }
 
     console.log(`calendar kernel smoke passed: workspace=${workspace} port=${port} av=${avID} view=${viewID}`);
