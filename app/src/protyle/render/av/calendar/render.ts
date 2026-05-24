@@ -9,7 +9,7 @@ import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {openEventDialog} from "./event-dialog";
-import {updateCalendarEvent} from "./transactions";
+import {createCalendarEventReplacingOccurrence, updateCalendarEvent} from "./transactions";
 
 interface IRenderCalendarOptions {
     protyle: IProtyle;
@@ -366,6 +366,22 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         if (!avID || !blockID || !mapping.dateFieldID) {
             return;
         }
+        if (sourceEvent.isOccurrence && mapping.exceptionFieldID) {
+            createCalendarEventReplacingOccurrence({
+                protyle: options.protyle,
+                avID,
+                blockID,
+                dateFieldID: mapping.dateFieldID,
+                fields: calendar.fields,
+                mapping,
+                event: sourceEvent,
+                draft,
+                occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
+                previousUpdated: options.blockElement.getAttribute("updated") || "",
+            });
+            rerender();
+            return;
+        }
         updateCalendarEvent({
             protyle: options.protyle,
             avID,
@@ -410,7 +426,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 if (!nextEnd.isAfter(sourceEvent.start)) {
                     return;
                 }
-                updateEventWithDraft(baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent, {
+                updateEventWithDraft(sourceEvent, {
                     title: sourceEvent.title,
                     date: sourceEvent.start.format("YYYY-MM-DD"),
                     endDate: nextEnd.format("YYYY-MM-DD"),
@@ -453,12 +469,11 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (!sourceEvent || !targetDate) {
                 return;
             }
-            const baseEvent = baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent;
             const draft = buildDraftForDate(sourceEvent, targetDate);
             if (sourceEvent.isAllDay && sourceEvent.end && !sourceEvent.start.isSame(sourceEvent.end, "day")) {
                 draft.endTime = sourceEvent.end?.format("HH:mm") || "23:59";
             }
-            updateEventWithDraft(baseEvent, draft);
+            updateEventWithDraft(sourceEvent, draft);
         });
     });
 };
