@@ -156,6 +156,23 @@ for (const term of [
   }
 }
 
+const avStyles = read("app/src/assets/scss/business/_av.scss");
+for (const term of [
+  ".av__calendar",
+  "&-toolbar",
+  "&-month",
+  "&-event",
+  "&-resize",
+  "&-recurrence",
+  "&-week",
+  "&-day-view",
+  "&-list",
+]) {
+  if (!avStyles.includes(term)) {
+    fail(`calendar styles missing ${term}`);
+  }
+}
+
 const report = read("CALENDAR_REBUILD_REPORT.md");
 for (const term of [
   "Unresolved / Manual Verification Required",
