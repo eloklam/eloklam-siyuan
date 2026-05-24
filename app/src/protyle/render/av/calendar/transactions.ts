@@ -132,7 +132,10 @@ const recurrenceForSplitFuture = (value: string, event: ICalendarNormalizedEvent
 const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue => {
     const start = draft.isAllDay ? dayjs(draft.date).startOf("day") : dayjs(`${draft.date}T${draft.startTime}`);
     const endDate = draft.endDate || draft.date;
-    const end = draft.isAllDay ? dayjs(endDate).endOf("day") : dayjs(`${endDate}T${draft.endTime}`);
+    let end = draft.isAllDay ? dayjs(endDate).endOf("day") : dayjs(`${endDate}T${draft.endTime}`);
+    if (!draft.isAllDay && !end.isAfter(start)) {
+        end = start.add(1, "hour");
+    }
     return {
         type: "date",
         date: {
