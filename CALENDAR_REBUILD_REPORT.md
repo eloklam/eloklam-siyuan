@@ -32,6 +32,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Event create, edit, delete, duplicate.
 - Event date, end date, all-day, time, title, location, description, recurrence, exception, and color field handling.
 - Drag move and timed resize for calendar events.
+- Direct all-day event duration resize by day.
 - Search over title, metadata, recurrence, dates, and times.
 - Field mapping for recurrence, exception, location, description, and color.
 - Color mapping for `select` and `mSelect` fields.
@@ -78,7 +79,7 @@ Also passed:
 - All `app/appearance/langs/*.json` parse as JSON.
 - Calendar language keys used by code exist in every language file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, occurrence replacement, this-and-future split, recurrence, search, view switching, drag/drop, and resize terms.
+- Static feature precheck covers create/update/delete, occurrence replacement, this-and-future split, recurrence, search, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
 - Calendar SCSS selectors for container, toolbar, month grid, event pill, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.

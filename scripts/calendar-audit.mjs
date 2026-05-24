@@ -45,6 +45,7 @@ const expectedFeatureTerms = [
   "calendar-mode",
   "calendar-drop-day",
   "calendar-resize",
+  "data-days",
 ];
 
 const missingFeatureTerms = expectedFeatureTerms.filter((term) => !joinedFrontendCode.includes(term));
@@ -121,6 +122,7 @@ for (const term of [
   "startOfCalendarWeek",
   "weekStart",
   "dragOffsetDays",
+  "deltaDays",
   "displayDate",
   "buildDraftForDate",
   "getEditableEvent",

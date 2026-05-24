@@ -116,7 +116,9 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
     return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
-    ${event.isAllDay || !editable ? "" : `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`}
+    ${!editable ? "" : (event.isAllDay ?
+        `<span class="av__calendar-resize" data-type="calendar-resize" data-days="-1">-1d</span><span class="av__calendar-resize" data-type="calendar-resize" data-days="1">+1d</span>` :
+        `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`)}
 </button>`;
 };
 
@@ -475,10 +477,35 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                     return;
                 }
                 const sourceEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
-                if (!sourceEvent || sourceEvent.isAllDay) {
+                if (!sourceEvent) {
                     return;
                 }
                 const targetEvent = getEditableEvent(sourceEvent);
+                if (sourceEvent.isAllDay) {
+                    const deltaDays = parseInt(resizeElement.dataset.days || "0", 10);
+                    if (!deltaDays) {
+                        return;
+                    }
+                    const sourceEnd = (sourceEvent.end || sourceEvent.start.endOf("day")).add(deltaDays, "day");
+                    if (sourceEnd.isBefore(sourceEvent.start, "day")) {
+                        return;
+                    }
+                    const nextDurationDays = Math.max(sourceEnd.startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
+                    const targetEnd = targetEvent.start.startOf("day").add(nextDurationDays, "day");
+                    updateEventWithDraft(targetEvent, {
+                        title: targetEvent.title,
+                        date: targetEvent.start.format("YYYY-MM-DD"),
+                        endDate: targetEnd.format("YYYY-MM-DD"),
+                        isAllDay: true,
+                        startTime: targetEvent.start.format("HH:mm"),
+                        endTime: targetEvent.end ? targetEvent.end.format("HH:mm") : "23:59",
+                        recurrenceRaw: targetEvent.recurrenceRaw,
+                        location: targetEvent.location,
+                        description: targetEvent.description,
+                        colorContent: targetEvent.colorContent,
+                    });
+                    return;
+                }
                 const delta = parseInt(resizeElement.dataset.delta || "0", 10);
                 const currentEnd = sourceEvent.end || sourceEvent.start.add(1, "hour");
                 const nextEnd = currentEnd.add(delta, "minute");
