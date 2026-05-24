@@ -332,6 +332,12 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				ret = tx.doRemoveAttrViewGroup(op)
 			case "sortAttrViewGroup":
 				ret = tx.doSortAttrViewGroup(op)
+			case "setAttrViewCalendarDateField":
+				ret = tx.doSetAttrViewCalendarDateField(op)
+			case "setAttrViewCalendarViewMode":
+				ret = tx.doSetAttrViewCalendarViewMode(op)
+			case "setAttrViewCalendarFieldMapping":
+				ret = tx.doSetAttrViewCalendarFieldMapping(op)
 			}
 
 			if nil != ret {
