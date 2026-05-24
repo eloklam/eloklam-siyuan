@@ -521,6 +521,7 @@ for (const term of [
   "dayNewDate",
   "duplicateDraft",
   "resizeDraft",
+  "dragDraft",
   "persistedModeOperation",
   "setupOperationAction",
   "createFieldOperations",

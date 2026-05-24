@@ -620,6 +620,14 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     host.querySelector('.av__calendar-event[data-id="row-render"] [data-type="calendar-resize"][data-delta="15"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const resizeCall = globalThis.__calendarRenderTxCalls.find(call => call.type === 'update');
+    const dragEvent = host.querySelector('.av__calendar-event[data-id="row-none"]');
+    const dropTarget = host.querySelector('[data-type="calendar-drop-day"][data-date="2026-05-26"]');
+    const dataTransfer = new DataTransfer();
+    dragEvent.dispatchEvent(new DragEvent('dragstart', {bubbles: true, dataTransfer}));
+    dropTarget.dispatchEvent(new DragEvent('dragover', {bubbles: true, cancelable: true, dataTransfer}));
+    dropTarget.dispatchEvent(new DragEvent('drop', {bubbles: true, cancelable: true, dataTransfer}));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const dragUpdateCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'update').find(call => call.payload?.draft?.date === '2026-05-26');
     host.querySelector('[data-type="calendar-mode"][data-mode="1"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const weekMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
@@ -726,6 +734,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       editDialogEventID: editDialog?.event?.id || '',
       duplicateDraft: duplicateCall?.payload?.draft,
       resizeDraft: resizeCall?.payload?.draft,
+      dragDraft: dragUpdateCall?.payload?.draft,
       persistedModeOperation: globalThis.__calendarRenderTransactions[0]?.doOperations?.[0]?.action || '',
       weekMode,
       dayMode,
@@ -756,6 +765,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.dayNewDate !== "2026-05-26" || result.editDialogEventID !== "row-render" ||
     result.duplicateDraft?.date !== "2026-05-25" || result.duplicateDraft?.recurrenceRaw !== "" ||
     result.resizeDraft?.endTime !== "10:15" || result.persistedModeOperation !== "setAttrViewCalendarViewMode" ||
+    result.dragDraft?.date !== "2026-05-26" || result.dragDraft?.title !== "Calendar none smoke event" ||
     result.weekMode !== "1" || result.dayMode !== "2" ||
     result.scheduleMode !== "3" || result.modeAfterKeyboard !== "0" ||
     result.anchorAfterPrevEvent !== "2026-05-24" || result.anchorAfterNextEvent !== "2026-05-25" ||
