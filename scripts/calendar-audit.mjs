@@ -87,6 +87,30 @@ if (!renderEntry.includes("renderCalendar") || !renderEntry.includes('data.viewT
   fail("AV render entry does not dispatch calendar rendering");
 }
 
+const calendarRender = read("app/src/protyle/render/av/calendar/render.ts");
+for (const term of [
+  "hasClosestByAttribute(options.blockElement, \"data-type\", \"NodeBlockQueryEmbed\")",
+  "hasClosestByAttribute(e, \"data-type\", \"NodeBlockQueryEmbed\")",
+  "draggable=\"${editable ? \"true\" : \"false\"}\"",
+  "${editable ? \"\" : \" disabled\"}",
+  "showMessage(window.siyuan.languages._kernel[29])",
+]) {
+  if (!calendarRender.includes(term)) {
+    fail(`calendar render missing read-only/error guard term: ${term}`);
+  }
+}
+
+const eventDialog = read("app/src/protyle/render/av/calendar/event-dialog.ts");
+for (const term of [
+  "showInvalidDraftMessage",
+  "window.siyuan.languages.calendarNeedDateField",
+  "window.siyuan.languages.invalid",
+]) {
+  if (!eventDialog.includes(term)) {
+    fail(`event dialog missing validation feedback term: ${term}`);
+  }
+}
+
 const layoutCode = read("app/src/protyle/render/av/layout.ts");
 for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStart", "setAttrViewCalendarFieldMapping"]) {
   if (!layoutCode.includes(term)) {
@@ -129,6 +153,18 @@ for (const term of [
 ]) {
   if (!backendTests.includes(term)) {
     fail(`backend calendar test missing ${term}`);
+  }
+}
+
+const report = read("CALENDAR_REBUILD_REPORT.md");
+for (const term of [
+  "Unresolved / Manual Verification Required",
+  "Switch Table/Gallery/Kanban to Calendar and confirm no crash.",
+  "Read-only/query embed views do not mutate data.",
+  "After automated checks, run the manual smoke checklist above in the SiYuan UI.",
+]) {
+  if (!report.includes(term)) {
+    fail(`rebuild report missing manual verification term: ${term}`);
   }
 }
 
