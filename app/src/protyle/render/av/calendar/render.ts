@@ -119,9 +119,9 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
 </button>`;
 };
 
-const renderModeSwitcher = (viewMode: number) => {
+const renderModeSwitcher = (viewMode: number, editable = true) => {
     return `<div class="av__calendar-modes">
-        ${[0, 1, 2, 3].map(mode => `<button class="b3-button${viewMode === mode ? " b3-button--text" : " b3-button--outline"}" data-type="calendar-mode" data-mode="${mode}">${getViewModeLabel(mode)}</button>`).join("")}
+        ${[0, 1, 2, 3].map(mode => `<button class="b3-button${viewMode === mode ? " b3-button--text" : " b3-button--outline"}" data-type="calendar-mode" data-mode="${mode}"${editable ? "" : " disabled"}>${getViewModeLabel(mode)}</button>`).join("")}
     </div>`;
 };
 
@@ -245,7 +245,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <button class="block__icon block__icon--show" data-type="calendar-next"><svg><use xlink:href="#iconRight"></use></svg></button>
         <div class="av__calendar-title">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
-        ${renderModeSwitcher(viewMode)}
+        ${renderModeSwitcher(viewMode, editable)}
         ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
     </div>
     ${body}
