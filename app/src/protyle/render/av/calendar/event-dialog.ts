@@ -153,9 +153,13 @@ const renderColorField = (field?: IAVColumn, event?: ICalendarNormalizedEvent) =
         return "";
     }
     const selected = event?.colorContent || "";
+    const hasSelectedOption = !selected || (field.options || []).some((option) => option.name === selected);
+    const staleOption = selected && !hasSelectedOption ?
+        `<option value="${escapeAttr(selected)}" selected disabled>${escapeHtml(selected)}</option>` : "";
     return `<div class="b3-form__space">
         <select class="b3-select fn__block" id="av-event-color" aria-label="${window.siyuan.languages.color || "Color"}">
             <option value=""${selected ? "" : " selected"}>${window.siyuan.languages.none || "None"}</option>
+            ${staleOption}
             ${(field.options || []).map((option) => `<option value="${escapeAttr(option.name)}"${option.name === selected ? " selected" : ""}>${escapeHtml(option.name)}</option>`).join("")}
         </select>
     </div>`;
