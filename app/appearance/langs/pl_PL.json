@@ -1794,6 +1794,7 @@
   "calendarWeekStart": "Week starts on",
   "calendarRecurrence": "Recurrence",
   "calendarTimed": "Timed",
+  "calendarEvents": "Events",
   "calendarPreviousEvent": "Previous event",
   "calendarNextEvent": "Next event",
   "calendarNoMatchingEvent": "No matching event",

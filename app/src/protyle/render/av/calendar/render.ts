@@ -190,8 +190,9 @@ const renderModeSwitcher = (viewMode: number) => {
 const renderEventSummary = (events: ICalendarNormalizedEvent[]) => {
     const allDayCount = events.filter(event => event.isAllDay).length;
     const timedCount = events.length - allDayCount;
+    const eventsLabel = window.siyuan.languages.calendarEvents || "Events";
     const timedLabel = window.siyuan.languages.calendarTimed || "Timed";
-    return `<div class="av__calendar-summary" aria-live="polite" aria-label="${escapeAttr(`${events.length} events, ${allDayCount} ${window.siyuan.languages.allDay || "All day"}, ${timedCount} ${timedLabel}`)}">
+    return `<div class="av__calendar-summary" aria-live="polite" aria-label="${escapeAttr(`${events.length} ${eventsLabel}, ${allDayCount} ${window.siyuan.languages.allDay || "All day"}, ${timedCount} ${timedLabel}`)}">
         <span>${events.length}</span>
         <span>${window.siyuan.languages.allDay || "All day"} ${allDayCount}</span>
         <span>${timedLabel} ${timedCount}</span>

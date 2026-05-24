@@ -193,6 +193,7 @@ for (const term of [
   "av__calendar-search-count",
   "const allDayCount = events.filter(event => event.isAllDay).length",
   "const timedCount = events.length - allDayCount",
+  "const eventsLabel = window.siyuan.languages.calendarEvents || \"Events\"",
   "const timedLabel = window.siyuan.languages.calendarTimed || \"Timed\"",
   "${renderEventSummary(events)}",
   "delete options.blockElement.dataset.calendarSearch",

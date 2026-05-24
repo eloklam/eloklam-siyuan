@@ -53,7 +53,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Event type filtering for all, timed, all-day, and recurring events.
 - Search result count and one-click search clearing.
 - Unified result count and clear control for active search/filter state.
-- Visible-range event summary for total, all-day, and timed events.
+- Localized visible-range event summary for total, all-day, and timed events.
 - Localized timed-event labels in Calendar summary and filtering controls.
 - Field mapping for recurrence, exception, location, description, and color.
 - Color mapping for `select` and `mSelect` fields.

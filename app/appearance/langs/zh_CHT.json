@@ -1794,6 +1794,7 @@
   "calendarWeekStart": "每週開始於",
   "calendarRecurrence": "重複",
   "calendarTimed": "定時",
+  "calendarEvents": "事件",
   "calendarPreviousEvent": "上一個事件",
   "calendarNextEvent": "下一個事件",
   "calendarNoMatchingEvent": "沒有符合的事件",
