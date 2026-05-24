@@ -311,9 +311,12 @@ for (const term of [
 const avStyles = read("app/src/assets/scss/business/_av.scss");
 for (const term of [
   ".av__calendar",
+  "min-width: 320px",
   "&-toolbar",
+  "flex-wrap: wrap",
   "&-jump",
   "&-summary",
+  "flex: 1 1 180px",
   "&-search-count",
   "&-month",
   "&-event",

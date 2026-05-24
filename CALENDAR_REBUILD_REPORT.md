@@ -25,6 +25,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 ## Implemented Functionality
 
 - Calendar layout rendering from AV data.
+- Responsive Calendar toolbar wrapping for narrow panes.
 - Month, week, day, and schedule views.
 - Persistent calendar view mode.
 - Keyboard navigation for previous/next, today, view switching, new event, search focus, and search clearing.
@@ -90,7 +91,7 @@ Also passed:
 - Static feature precheck covers create/update/delete, keyboard navigation, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
-- Calendar SCSS selectors for container, toolbar, event summary, month grid, event pill, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
+- Calendar SCSS selectors for container, responsive toolbar wrapping, event summary, month grid, event pill, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
 - Recurrence and normalization guards for `None`, strict `UNTIL`, duplicate parts, weekly `BYDAY`, count/until limits, exception parsing, and invalid end-date clamping are covered by `scripts/calendar-audit.mjs`.
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
@@ -105,6 +106,7 @@ Known build warnings:
 The following still need an actual SiYuan UI smoke run before marking the rebuild complete:
 
 - Switch Table/Gallery/Kanban to Calendar and confirm no crash.
+- Narrow panes keep Calendar toolbar controls usable without incoherent overlap.
 - Calendar without a date field shows setup UI.
 - Selecting an existing date field renders events.
 - Creating a date field from empty Calendar works and can be undone.
