@@ -295,8 +295,9 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
     const search = getCalendarSearch(blockElement);
     const filter = getCalendarFilter(blockElement);
     const filteredEvents = normalized.events.filter(event => eventMatchesCalendarFilter(event, filter));
-    const totalEventCount = filteredEvents.length;
+    const totalEventCount = normalized.events.length;
     const events = filteredEvents.filter(event => eventMatchesSearch(event, search));
+    const hasActiveQuery = !!search || filter !== "all";
     const title = getCalendarTitle(safeAnchor, range, viewMode);
     let body = renderMonth(safeAnchor, range, events, weekStart, editable);
     if (viewMode === 1) {
@@ -306,7 +307,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
     } else if (viewMode === 3) {
         body = renderList(range, events, true, editable);
     }
-    if ((search || filter !== "all") && events.length === 0 && viewMode !== 3) {
+    if (hasActiveQuery && events.length === 0 && viewMode !== 3) {
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
@@ -319,7 +320,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <div class="av__calendar-title" aria-live="polite">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" aria-keyshortcuts="/" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
         ${renderCalendarFilter(filter)}
-        ${search ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
+        ${hasActiveQuery ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
         ${renderEventSummary(events)}
         ${renderModeSwitcher(viewMode, editable)}
         ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" aria-keyshortcuts="N" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
@@ -429,6 +430,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelector('[data-type="calendar-clear-search"]')?.addEventListener("click", () => {
         delete options.blockElement.dataset.calendarSearch;
+        delete options.blockElement.dataset.calendarFilter;
         rerender(true, true);
     });
     calendarElement?.addEventListener("keydown", (event: KeyboardEvent) => {
