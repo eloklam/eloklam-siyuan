@@ -12,6 +12,7 @@ func TestValidateCalendarMappingField(t *testing.T) {
 			{Key: &av.Key{ID: "text", Type: av.KeyTypeText}},
 			{Key: &av.Key{ID: "template", Type: av.KeyTypeTemplate}},
 			{Key: &av.Key{ID: "select", Type: av.KeyTypeSelect}},
+			{Key: &av.Key{ID: "mSelect", Type: av.KeyTypeMSelect}},
 			{Key: &av.Key{ID: "date", Type: av.KeyTypeDate}},
 		},
 	}
@@ -27,6 +28,9 @@ func TestValidateCalendarMappingField(t *testing.T) {
 	}
 	if err := validateCalendarMappingField(attrView, "select", "colorFieldID", av.KeyTypeSelect, av.KeyTypeMSelect); nil != err {
 		t.Fatalf("select field should be accepted for color mapping: %v", err)
+	}
+	if err := validateCalendarMappingField(attrView, "mSelect", "colorFieldID", av.KeyTypeSelect, av.KeyTypeMSelect); nil != err {
+		t.Fatalf("mSelect field should be accepted for color mapping: %v", err)
 	}
 	if err := validateCalendarMappingField(attrView, "date", "colorFieldID", av.KeyTypeSelect, av.KeyTypeMSelect); nil == err {
 		t.Fatal("date field should be rejected for color mapping")

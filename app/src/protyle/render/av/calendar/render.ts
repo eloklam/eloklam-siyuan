@@ -60,7 +60,8 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent) => {
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ? `${event.start.format("MMM D")} - ${event.end.format("MMM D")} ` : "";
     const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
     return `<button class="av__calendar-event" draggable="true" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}"${colorStyle}>
-    <span>${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
+    <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
+    ${event.isAllDay ? "" : `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`}
 </button>`;
 };
 
@@ -96,7 +97,7 @@ const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[]) =
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, day)));
         const allDayEvents = dayEvents.filter(event => event.isAllDay);
         const timedEvents = dayEvents.filter(event => !event.isAllDay);
-        return `<div class="av__calendar-week-day" data-date="${day.format("YYYY-MM-DD")}">
+        return `<div class="av__calendar-week-day" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
             <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}">${day.format("ddd D")}</button>
             <div class="av__calendar-all-day">${allDayEvents.map(eventButtonHTML).join("")}</div>
             <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
@@ -109,7 +110,7 @@ const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[]) => {
     const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, anchor)));
     const allDayEvents = dayEvents.filter(event => event.isAllDay);
     const timedEvents = dayEvents.filter(event => !event.isAllDay);
-    return `<div class="av__calendar-day-view" data-date="${anchor.format("YYYY-MM-DD")}">
+    return `<div class="av__calendar-day-view" data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}">${anchor.format("dddd, MMM D")}</button>
     <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
     <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
@@ -225,11 +226,73 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     const range = getVisibleRange(dayjs(options.blockElement.dataset.calendarDate || undefined), calendar.viewMode || 0);
     const mapping = getCalendarFieldMapping(calendar);
     const baseEvents = normalizeCalendarEvents(calendar, mapping, range).baseEventsByID;
+    const updateEventWithDraft = (sourceEvent: ICalendarNormalizedEvent, draft: ICalendarEventDraft) => {
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        if (!avID || !blockID || !mapping.dateFieldID) {
+            return;
+        }
+        updateCalendarEvent({
+            protyle: options.protyle,
+            avID,
+            blockID,
+            dateFieldID: mapping.dateFieldID,
+            fields: calendar.fields,
+            mapping,
+            event: sourceEvent,
+            draft,
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        });
+        rerender();
+    };
+    const buildDraftForDate = (sourceEvent: ICalendarNormalizedEvent, targetDate: string): ICalendarEventDraft => {
+        const durationDays = Math.max((sourceEvent.end || sourceEvent.start).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
+        return {
+            title: sourceEvent.title,
+            date: targetDate,
+            endDate: dayjs(targetDate).add(durationDays, "day").format("YYYY-MM-DD"),
+            isAllDay: sourceEvent.isAllDay,
+            startTime: sourceEvent.start.format("HH:mm"),
+            endTime: sourceEvent.end ? sourceEvent.end.format("HH:mm") : sourceEvent.start.add(1, "hour").format("HH:mm"),
+            recurrenceRaw: sourceEvent.recurrenceRaw,
+            location: sourceEvent.location,
+            description: sourceEvent.description,
+            colorContent: sourceEvent.colorContent,
+        };
+    };
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
-        item.addEventListener("click", () => {
-            const event = baseEvents.get((item as HTMLElement).dataset.id || "");
-            if (event) {
-                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event, date: event.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
+        item.addEventListener("click", (event: MouseEvent) => {
+            const resizeElement = (event.target as HTMLElement).closest('[data-type="calendar-resize"]') as HTMLElement;
+            if (resizeElement) {
+                event.preventDefault();
+                event.stopPropagation();
+                const sourceEvent = baseEvents.get((item as HTMLElement).dataset.id || "");
+                if (!sourceEvent || sourceEvent.isAllDay) {
+                    return;
+                }
+                const delta = parseInt(resizeElement.dataset.delta || "0", 10);
+                const currentEnd = sourceEvent.end || sourceEvent.start.add(1, "hour");
+                const nextEnd = currentEnd.add(delta, "minute");
+                if (!nextEnd.isAfter(sourceEvent.start)) {
+                    return;
+                }
+                updateEventWithDraft(sourceEvent, {
+                    title: sourceEvent.title,
+                    date: sourceEvent.start.format("YYYY-MM-DD"),
+                    endDate: nextEnd.format("YYYY-MM-DD"),
+                    isAllDay: false,
+                    startTime: sourceEvent.start.format("HH:mm"),
+                    endTime: nextEnd.format("HH:mm"),
+                    recurrenceRaw: sourceEvent.recurrenceRaw,
+                    location: sourceEvent.location,
+                    description: sourceEvent.description,
+                    colorContent: sourceEvent.colorContent,
+                });
+                return;
+            }
+            const calendarEvent = baseEvents.get((item as HTMLElement).dataset.id || "");
+            if (calendarEvent) {
+                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
             }
         });
     });
@@ -253,39 +316,14 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             const eventID = event.dataTransfer?.getData("text/plain") || "";
             const targetDate = (item as HTMLElement).dataset.date;
             const sourceEvent = baseEvents.get(eventID);
-            const avID = options.blockElement.getAttribute("data-av-id");
-            const blockID = options.blockElement.getAttribute("data-node-id");
-            if (!sourceEvent || !targetDate || !avID || !blockID || !mapping.dateFieldID) {
+            if (!sourceEvent || !targetDate) {
                 return;
             }
-            const durationDays = Math.max((sourceEvent.end || sourceEvent.start).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
-            const draft: ICalendarEventDraft = {
-                title: sourceEvent.title,
-                date: targetDate,
-                endDate: dayjs(targetDate).add(durationDays, "day").format("YYYY-MM-DD"),
-                isAllDay: sourceEvent.isAllDay,
-                startTime: sourceEvent.start.format("HH:mm"),
-                endTime: sourceEvent.end ? sourceEvent.end.format("HH:mm") : sourceEvent.start.add(1, "hour").format("HH:mm"),
-                recurrenceRaw: sourceEvent.recurrenceRaw,
-                location: sourceEvent.location,
-                description: sourceEvent.description,
-                colorContent: sourceEvent.colorContent,
-            };
-            if (sourceEvent.isAllDay && durationDays > 0) {
+            const draft = buildDraftForDate(sourceEvent, targetDate);
+            if (sourceEvent.isAllDay && sourceEvent.end && !sourceEvent.start.isSame(sourceEvent.end, "day")) {
                 draft.endTime = sourceEvent.end?.format("HH:mm") || "23:59";
             }
-            updateCalendarEvent({
-                protyle: options.protyle,
-                avID,
-                blockID,
-                dateFieldID: mapping.dateFieldID,
-                fields: calendar.fields,
-                mapping,
-                event: sourceEvent,
-                draft,
-                previousUpdated: options.blockElement.getAttribute("updated") || "",
-            });
-            rerender();
+            updateEventWithDraft(sourceEvent, draft);
         });
     });
 };

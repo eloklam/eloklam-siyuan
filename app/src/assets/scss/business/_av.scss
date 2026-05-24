@@ -1204,11 +1204,14 @@ img.av__cellassetimg {
   }
 
   &-event {
+    align-items: center;
     background-color: var(--b3-theme-primary-light);
     border: 0;
     border-radius: var(--b3-border-radius);
     color: var(--b3-theme-primary);
     cursor: pointer;
+    display: flex;
+    gap: 4px;
     font-size: 12px;
     line-height: 20px;
     overflow: hidden;
@@ -1216,6 +1219,21 @@ img.av__cellassetimg {
     text-align: left;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  &-event-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &-resize {
+    border-left: 1px solid currentColor;
+    cursor: ew-resize;
+    flex-shrink: 0;
+    opacity: 0.72;
+    padding-left: 4px;
   }
 
   &-list {
