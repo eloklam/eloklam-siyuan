@@ -64,3 +64,64 @@ func TestCalendarWeekStartFromOperationData(t *testing.T) {
 		t.Fatal("non-number week start should be rejected")
 	}
 }
+
+func TestAddCalendarField(t *testing.T) {
+	calendar := &av.LayoutCalendar{
+		BaseLayout: &av.BaseLayout{WrapField: true},
+		Fields: []*av.ViewCalendarCardField{
+			{BaseField: &av.BaseField{ID: "first"}},
+			{BaseField: &av.BaseField{ID: "second"}},
+		},
+	}
+
+	addCalendarField(calendar, &av.BaseField{ID: "inserted"}, "first")
+	if len(calendar.Fields) != 3 {
+		t.Fatalf("expected 3 fields, got %d", len(calendar.Fields))
+	}
+	if calendar.Fields[1].ID != "inserted" {
+		t.Fatalf("expected inserted field after first, got %s", calendar.Fields[1].ID)
+	}
+	if !calendar.Fields[1].Wrap {
+		t.Fatal("inserted field should inherit calendar wrap setting")
+	}
+
+	addCalendarField(calendar, &av.BaseField{ID: "fallback"}, "missing")
+	if calendar.Fields[len(calendar.Fields)-1].ID != "fallback" {
+		t.Fatalf("missing previous field should append, got %s", calendar.Fields[len(calendar.Fields)-1].ID)
+	}
+}
+
+func TestRemoveCalendarFieldReferences(t *testing.T) {
+	calendar := &av.LayoutCalendar{
+		DateFieldID: "date",
+		Fields: []*av.ViewCalendarCardField{
+			{BaseField: &av.BaseField{ID: "date"}},
+			{BaseField: &av.BaseField{ID: "recurrence"}},
+			{BaseField: &av.BaseField{ID: "color"}},
+		},
+		FieldMapping: &av.CalendarFieldMapping{
+			RecurrenceFieldID:  "recurrence",
+			ExceptionFieldID:   "exception",
+			LocationFieldID:    "location",
+			DescriptionFieldID: "description",
+			ColorFieldID:       "color",
+		},
+	}
+
+	removeCalendarFieldReferences(calendar, "date")
+	if calendar.DateFieldID != "" {
+		t.Fatalf("date field should be cleared, got %s", calendar.DateFieldID)
+	}
+	if len(calendar.Fields) != 2 || calendar.Fields[0].ID != "recurrence" {
+		t.Fatalf("date field should be removed from fields: %#v", calendar.Fields)
+	}
+
+	removeCalendarFieldReferences(calendar, "recurrence")
+	if calendar.FieldMapping.RecurrenceFieldID != "" {
+		t.Fatalf("recurrence mapping should be cleared, got %s", calendar.FieldMapping.RecurrenceFieldID)
+	}
+	removeCalendarFieldReferences(calendar, "color")
+	if calendar.FieldMapping.ColorFieldID != "" {
+		t.Fatalf("color mapping should be cleared, got %s", calendar.FieldMapping.ColorFieldID)
+	}
+}

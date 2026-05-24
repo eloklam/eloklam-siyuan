@@ -4878,29 +4878,28 @@ func AddAttributeViewKey(avID, keyID, keyName, keyType, keyIcon, previousKeyID s
 			}
 
 			if nil != view.Calendar {
-				newField.Wrap = view.Calendar.WrapField
-
-				if "" == previousKeyID {
-					view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: newField})
-				} else {
-					added := false
-					for i, field := range view.Calendar.Fields {
-						if field.ID == previousKeyID {
-							view.Calendar.Fields = append(view.Calendar.Fields[:i+1], append([]*av.ViewCalendarCardField{{BaseField: newField}}, view.Calendar.Fields[i+1:]...)...)
-							added = true
-							break
-						}
-					}
-					if !added {
-						view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: newField})
-					}
-				}
+				addCalendarField(view.Calendar, newField, previousKeyID)
 			}
 		}
 	}
 
 	err = av.SaveAttributeView(attrView)
 	return
+}
+
+func addCalendarField(calendar *av.LayoutCalendar, field *av.BaseField, previousKeyID string) {
+	field.Wrap = calendar.WrapField
+	if "" == previousKeyID {
+		calendar.Fields = append(calendar.Fields, &av.ViewCalendarCardField{BaseField: field})
+		return
+	}
+	for i, existing := range calendar.Fields {
+		if existing.ID == previousKeyID {
+			calendar.Fields = append(calendar.Fields[:i+1], append([]*av.ViewCalendarCardField{{BaseField: field}}, calendar.Fields[i+1:]...)...)
+			return
+		}
+	}
+	calendar.Fields = append(calendar.Fields, &av.ViewCalendarCardField{BaseField: field})
 }
 
 func (tx *Transaction) doUpdateAttrViewColTemplate(operation *Operation) (ret *TxErr) {
@@ -5170,32 +5169,7 @@ func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err er
 		}
 
 		if nil != view.Calendar {
-			if view.Calendar.DateFieldID == keyID {
-				view.Calendar.DateFieldID = ""
-			}
-			for i, field := range view.Calendar.Fields {
-				if field.ID == keyID {
-					view.Calendar.Fields = append(view.Calendar.Fields[:i], view.Calendar.Fields[i+1:]...)
-					break
-				}
-			}
-			if nil != view.Calendar.FieldMapping {
-				if view.Calendar.FieldMapping.RecurrenceFieldID == keyID {
-					view.Calendar.FieldMapping.RecurrenceFieldID = ""
-				}
-				if view.Calendar.FieldMapping.ExceptionFieldID == keyID {
-					view.Calendar.FieldMapping.ExceptionFieldID = ""
-				}
-				if view.Calendar.FieldMapping.LocationFieldID == keyID {
-					view.Calendar.FieldMapping.LocationFieldID = ""
-				}
-				if view.Calendar.FieldMapping.DescriptionFieldID == keyID {
-					view.Calendar.FieldMapping.DescriptionFieldID = ""
-				}
-				if view.Calendar.FieldMapping.ColorFieldID == keyID {
-					view.Calendar.FieldMapping.ColorFieldID = ""
-				}
-			}
+			removeCalendarFieldReferences(view.Calendar, keyID)
 		}
 	}
 
@@ -5232,6 +5206,36 @@ func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err er
 		ReloadAttrView(destAv.ID)
 	}
 	return
+}
+
+func removeCalendarFieldReferences(calendar *av.LayoutCalendar, keyID string) {
+	if calendar.DateFieldID == keyID {
+		calendar.DateFieldID = ""
+	}
+	for i, field := range calendar.Fields {
+		if field.ID == keyID {
+			calendar.Fields = append(calendar.Fields[:i], calendar.Fields[i+1:]...)
+			break
+		}
+	}
+	if nil == calendar.FieldMapping {
+		return
+	}
+	if calendar.FieldMapping.RecurrenceFieldID == keyID {
+		calendar.FieldMapping.RecurrenceFieldID = ""
+	}
+	if calendar.FieldMapping.ExceptionFieldID == keyID {
+		calendar.FieldMapping.ExceptionFieldID = ""
+	}
+	if calendar.FieldMapping.LocationFieldID == keyID {
+		calendar.FieldMapping.LocationFieldID = ""
+	}
+	if calendar.FieldMapping.DescriptionFieldID == keyID {
+		calendar.FieldMapping.DescriptionFieldID = ""
+	}
+	if calendar.FieldMapping.ColorFieldID == keyID {
+		calendar.FieldMapping.ColorFieldID = ""
+	}
 }
 
 func (tx *Transaction) doReplaceAttrViewBlock(operation *Operation) (ret *TxErr) {
