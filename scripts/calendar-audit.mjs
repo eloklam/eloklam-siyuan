@@ -2,8 +2,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import {fileURLToPath} from "node:url";
 
-const root = process.cwd();
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(scriptDir, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const exists = (file) => fs.existsSync(path.join(root, file));
 const fail = (message) => {
