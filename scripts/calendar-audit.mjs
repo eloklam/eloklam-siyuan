@@ -218,10 +218,15 @@ for (const term of [
 }
 
 const eventDialog = read("app/src/protyle/render/av/calendar/event-dialog.ts");
+if (/recurrenceRaw:\s*options\.event\?\.isOccurrence\s*\?/.test(eventDialog)) {
+  fail("dialog duplicate should always clear recurrence data");
+}
 for (const term of [
   "showInvalidDraftMessage",
   "window.siyuan.languages.calendarNeedDateField",
   "window.siyuan.languages.invalid",
+  "recurrenceRaw: \"\"",
+  "recurrenceExceptionRaw: \"\"",
   "const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID",
   "window.siyuan.languages.calendarEditSeriesNotice",
   "event?.blockID ? `<button class=\"b3-button b3-button--outline\" data-type=\"event-open-block\"",

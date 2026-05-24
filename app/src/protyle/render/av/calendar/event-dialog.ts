@@ -456,7 +456,7 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const currentDraft = getDraftFromDialog(dialog);
     const draft = {
         ...currentDraft,
-        recurrenceRaw: options.event?.isOccurrence ? "" : currentDraft.recurrenceRaw,
+        recurrenceRaw: "",
         recurrenceExceptionRaw: "",
     };
     const avID = options.blockElement.getAttribute("data-av-id");
