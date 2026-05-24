@@ -1487,6 +1487,7 @@
     "table": "Table",
     "gallery": "Card",
     "kanban": "Kanban",
+    "calendar": "Calendar",
     "key": "Primary Key",
     "select": "Select"
   },

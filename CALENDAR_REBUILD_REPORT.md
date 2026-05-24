@@ -21,6 +21,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - `app/src/assets/scss/business/_av.scss`
 - `app/appearance/langs/*.json`
 - `kernel/model/attribute_view_calendar_test.go`
+- `scripts/calendar-kernel-smoke.mjs`
 
 ## Implemented Functionality
 
@@ -69,6 +70,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Read-only and query-embed events remain inspectable in a read-only dialog with mutation controls hidden.
 - Backend validation for calendar date field, view mode, week start, and field mappings.
 - Backend add/remove field synchronization for calendar fields and mappings.
+- Backend Attribute View layout labels include Calendar in `_attrView` language maps, preventing localized layout switches from panicking.
 - Language key coverage for all bundled language JSON files.
 
 ## Notable Hardening Commits
@@ -97,6 +99,7 @@ git diff --check
 cd kernel && go test -vet=off ./av ./model ./sql
 cd app && corepack pnpm run build:desktop
 node scripts/calendar-audit.mjs
+node scripts/calendar-kernel-smoke.mjs
 ```
 
 Also passed:
@@ -113,6 +116,8 @@ Also passed:
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
 - Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, read-only local view switching, event tooltips, event summary, double-click creation, duplicate/quick-copy one-off behavior, schedule drag/drop targets, search rerendering, event type filtering, active query result count, search/filter clearing, direct date jumping, previous/next event jumping and no-match feedback, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
+- Backend `_attrView.calendar` language coverage is checked for every bundled language JSON file.
+- `scripts/calendar-kernel-smoke.mjs` builds an isolated FTS5 kernel, creates a temporary notebook/document/AV, switches it to Calendar, sets the date field, inserts a timed event, renders the Calendar API payload, and verifies the event date value appears.
 
 Isolated launch smoke also passed without touching the real note vault:
 
@@ -122,6 +127,7 @@ Isolated launch smoke also passed without touching the real note vault:
 - Started the desktop Electron shell under `xvfb-run` with isolated `HOME`, isolated `XDG_CONFIG_HOME`, the temporary workspace, and the already-running kernel on `127.0.0.1:6806`.
 - Electron remained running until the scripted timeout; no startup crash was observed after applying the local `--no-sandbox --disable-gpu --ozone-platform=x11` smoke flags needed by this Linux sandbox.
 - The temporary kernel binary was removed after smoke verification.
+- Added repeatable `node scripts/calendar-kernel-smoke.mjs` coverage for the Calendar API setup path.
 
 Known build warnings:
 
@@ -176,6 +182,7 @@ cd /home/eloklam/recovered-projects/SiYuan-recovered
 git status --short
 git diff --check
 node scripts/calendar-audit.mjs
+node scripts/calendar-kernel-smoke.mjs
 cd kernel && go test -vet=off ./av ./model ./sql
 cd ../app && corepack pnpm run build:desktop
 ```

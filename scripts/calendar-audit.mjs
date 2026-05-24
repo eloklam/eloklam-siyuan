@@ -21,6 +21,7 @@ const requiredFiles = [
   "app/src/protyle/render/av/calendar/transactions.ts",
   "app/src/protyle/render/av/calendar/render.ts",
   "app/src/protyle/render/av/calendar/event-dialog.ts",
+  "scripts/calendar-kernel-smoke.mjs",
 ];
 
 for (const file of requiredFiles) {
@@ -30,7 +31,10 @@ for (const file of requiredFiles) {
 }
 
 const frontendCode = Object.fromEntries(requiredFiles.map((file) => [file, read(file)]));
-const joinedFrontendCode = Object.values(frontendCode).join("\n");
+const joinedFrontendCode = requiredFiles
+  .filter((file) => file.startsWith("app/src/"))
+  .map((file) => frontendCode[file])
+  .join("\n");
 
 const expectedFeatureTerms = [
   "createCalendarEvent",
@@ -95,6 +99,9 @@ for (const file of fs.readdirSync(langDir).filter((item) => item.endsWith(".json
   const missing = [...calendarLanguageKeys].filter((key) => !(key in data));
   if (missing.length > 0) {
     fail(`${file} missing language keys: ${missing.join(", ")}`);
+  }
+  if (!data._attrView || data._attrView.calendar !== data.calendar) {
+    fail(`${file} missing _attrView.calendar backend layout label`);
   }
 }
 
@@ -406,6 +413,21 @@ for (const term of [
   }
 }
 
+const kernelSmoke = read("scripts/calendar-kernel-smoke.mjs");
+for (const term of [
+  "go\", [\"build\", \"-tags\", \"fts5\"",
+  "\"/api/notebook/createNotebook\"",
+  "\"/api/filetree/createDocWithMd\"",
+  "\"/api/av/changeAttrViewLayout\"",
+  "\"setAttrViewCalendarDateField\"",
+  "calendar kernel smoke passed",
+  "SIYUAN_CALENDAR_KEEP_SMOKE_WORKSPACE",
+]) {
+  if (!kernelSmoke.includes(term)) {
+    fail(`calendar kernel smoke missing ${term}`);
+  }
+}
+
 const report = read("CALENDAR_REBUILD_REPORT.md");
 for (const term of [
   "Unresolved / Manual Verification Required",
@@ -414,6 +436,8 @@ for (const term of [
   "Read-only/query embed events can still be opened for inspection without mutation controls.",
   "Isolated launch smoke also passed without touching the real note vault:",
   "CGO_ENABLED=1 go build -tags fts5 -o SiYuan-Kernel .",
+  "node scripts/calendar-kernel-smoke.mjs",
+  "Backend `_attrView.calendar` language coverage is checked for every bundled language JSON file.",
   "Perform the interactive Calendar smoke against an isolated workspace or an explicit throwaway user workspace; do not use `/home/eloklam/SiYuan`.",
   "After automated checks, run the manual smoke checklist above in the SiYuan UI.",
 ]) {
@@ -422,4 +446,4 @@ for (const term of [
   }
 }
 
-console.log(`calendar audit passed: ${requiredFiles.length} frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms`);
+console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel smoke script`);
