@@ -10,6 +10,7 @@ interface IRecurrenceFormValue {
     interval: string;
     count: string;
     until: string;
+    byDay: string[];
     raw: string;
     isAdvanced: boolean;
 }
@@ -27,14 +28,15 @@ export interface IEventDialogOptions {
 const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     const raw = (value || "").trim();
     if (!raw || raw.toLowerCase() === "none") {
-        return {freq: "", interval: "1", count: "", until: "", raw: "", isAdvanced: false};
+        return {freq: "", interval: "1", count: "", until: "", byDay: [], raw: "", isAdvanced: false};
     }
     const upper = raw.toUpperCase();
     if (["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(upper)) {
-        return {freq: upper, interval: "1", count: "", until: "", raw, isAdvanced: false};
+        return {freq: upper, interval: "1", count: "", until: "", byDay: [], raw, isAdvanced: false};
     }
-    const result: IRecurrenceFormValue = {freq: "", interval: "1", count: "", until: "", raw, isAdvanced: false};
-    const supportedKeys = ["FREQ", "INTERVAL", "COUNT", "UNTIL"];
+    const result: IRecurrenceFormValue = {freq: "", interval: "1", count: "", until: "", byDay: [], raw, isAdvanced: false};
+    const supportedKeys = ["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"];
+    const weekdays = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
     upper.split(";").filter(Boolean).forEach(part => {
         const [key, val] = part.split("=");
         if (!supportedKeys.includes(key)) {
@@ -49,14 +51,25 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
             result.count = val;
         } else if (key === "UNTIL") {
             result.until = val.slice(0, 10);
+        } else if (key === "BYDAY") {
+            result.byDay = val.split(",").filter(day => weekdays.includes(day));
         }
     });
-    result.isAdvanced = result.isAdvanced || !result.freq;
+    result.isAdvanced = result.isAdvanced || !result.freq || (result.byDay.length > 0 && result.freq !== "WEEKLY");
     return result;
 };
 
 const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
     const recurrence = parseRecurrenceFormValue(event?.recurrenceRaw || event?.recurrence?.freq || "");
+    const weekdays = [
+        {value: "SU", label: "Sun"},
+        {value: "MO", label: "Mon"},
+        {value: "TU", label: "Tue"},
+        {value: "WE", label: "Wed"},
+        {value: "TH", label: "Thu"},
+        {value: "FR", label: "Fri"},
+        {value: "SA", label: "Sat"},
+    ];
     if (recurrence.isAdvanced) {
         return `<input class="b3-text-field fn__block" id="av-event-recurrence-raw" readonly value="${escapeAttr(recurrence.raw)}">
 <div class="ft__on-surface ft__smaller">${window.siyuan.languages.calendarRecurringAdvancedReadOnly || "Advanced recurrence is retained (not editable here)."}</div>`;
@@ -72,6 +85,12 @@ const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
     <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-interval" aria-label="${window.siyuan.languages.calendarInterval || "Interval"}" value="${escapeAttr(recurrence.interval || "1")}">
     <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-count" aria-label="${window.siyuan.languages.calendarCount || "Count"}" placeholder="${window.siyuan.languages.calendarCount || "Count"}" value="${escapeAttr(recurrence.count)}">
     <input type="date" class="b3-text-field" id="av-event-recurrence-until" aria-label="${window.siyuan.languages.calendarUntil || "Until"}" value="${escapeAttr(recurrence.until)}">
+    <div class="av__calendar-weekday" data-type="calendar-weekday-row">
+        ${weekdays.map(day => `<label class="av__calendar-weekday-item">
+            <input type="checkbox" data-type="calendar-recurrence-weekday" value="${day.value}"${recurrence.byDay.includes(day.value) ? " checked" : ""}>
+            <span>${day.label}</span>
+        </label>`).join("")}
+    </div>
 </div>`;
 };
 
@@ -96,6 +115,12 @@ const getRecurrenceFromDialog = (dialog: Dialog) => {
     }
     if (until) {
         parts.push(`UNTIL=${until}`);
+    }
+    const byDay = Array.from(dialog.element.querySelectorAll('[data-type="calendar-recurrence-weekday"]:checked'))
+        .map(item => (item as HTMLInputElement).value)
+        .filter(Boolean);
+    if (freq === "WEEKLY" && byDay.length > 0) {
+        parts.push(`BYDAY=${byDay.join(",")}`);
     }
     return parts.join(";");
 };
@@ -163,6 +188,15 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
             endDateInput.value = dateInput.value;
         }
     });
+    const recurrenceFreq = dialog.element.querySelector("#av-event-recurrence-freq") as HTMLSelectElement;
+    const weekdayRow = dialog.element.querySelector('[data-type="calendar-weekday-row"]') as HTMLElement;
+    const updateWeekdayVisibility = () => {
+        if (weekdayRow) {
+            weekdayRow.style.display = recurrenceFreq?.value === "WEEKLY" ? "flex" : "none";
+        }
+    };
+    recurrenceFreq?.addEventListener("change", updateWeekdayVisibility);
+    updateWeekdayVisibility();
     dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => saveEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => saveFutureEvent(dialog, options));

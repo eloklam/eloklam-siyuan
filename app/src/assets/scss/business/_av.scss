@@ -1247,6 +1247,20 @@ img.av__cellassetimg {
     grid-template-columns: minmax(120px, 1.4fr) minmax(72px, .7fr) minmax(88px, .8fr) minmax(128px, 1fr);
   }
 
+  &-weekday {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    grid-column: 1 / -1;
+  }
+
+  &-weekday-item {
+    align-items: center;
+    display: inline-flex;
+    gap: 4px;
+    min-height: 24px;
+  }
+
   &-list {
     display: flex;
     flex-direction: column;
