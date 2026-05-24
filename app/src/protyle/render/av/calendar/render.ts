@@ -114,7 +114,7 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ?
         `${formatCalendarDate(event.start, {month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {month: "short", day: "numeric"})} ` : "";
     const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
-    return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}"${colorStyle}>
+    return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
     ${event.isAllDay || !editable ? "" : `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`}
 </button>`;
