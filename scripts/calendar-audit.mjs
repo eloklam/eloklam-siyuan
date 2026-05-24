@@ -111,6 +111,37 @@ for (const term of [
   }
 }
 
+const recurrenceCode = read("app/src/protyle/render/av/calendar/recurrence.ts");
+for (const term of [
+  "str === \"NONE\"",
+  "const supportedKeys = [\"FREQ\", \"INTERVAL\", \"COUNT\", \"UNTIL\", \"BYDAY\"]",
+  "seenKeys.has(key)",
+  "parseDateStrict",
+  "until.endOf(\"day\")",
+  "new Set(byDay).size !== byDay.length",
+  "result.byDay?.length && result.freq !== \"WEEKLY\"",
+  "event.recurrence.count && index >= event.recurrence.count",
+  "event.recurrence.until && occurrenceStart.isAfter(event.recurrence.until)",
+  "event.recurrenceExceptions?.includes(date.format(\"YYYY-MM-DD\"))",
+]) {
+  if (!recurrenceCode.includes(term)) {
+    fail(`recurrence support missing ${term}`);
+  }
+}
+
+const normalizeCode = read("app/src/protyle/render/av/calendar/normalize.ts");
+for (const term of [
+  "parseRecurrenceExceptions",
+  "normalizeExceptionDate",
+  "Array.from(new Set",
+  "dateTimeMatch",
+  "end.isBefore(start)",
+]) {
+  if (!normalizeCode.includes(term)) {
+    fail(`calendar normalization missing ${term}`);
+  }
+}
+
 const layoutCode = read("app/src/protyle/render/av/layout.ts");
 for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStart", "setAttrViewCalendarFieldMapping"]) {
   if (!layoutCode.includes(term)) {
