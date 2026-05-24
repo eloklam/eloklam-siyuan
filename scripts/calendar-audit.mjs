@@ -172,6 +172,30 @@ for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStar
     fail(`layout menu missing ${term}`);
   }
 }
+for (const term of [
+  "validateCalendarMetadataMapping",
+  "calendarDuplicateMetadataField",
+  "buildOptions([\"text\", \"template\"], mapping.recurrenceFieldID)",
+  "buildOptions([\"select\", \"mSelect\"], mapping.colorFieldID)",
+  "item.value = previous[item.dataset.field",
+]) {
+  if (!layoutCode.includes(term)) {
+    fail(`layout mapping guard missing ${term}`);
+  }
+}
+
+const mappedFieldsCode = read("app/src/protyle/render/av/calendar/mapped-fields.ts");
+for (const term of [
+  "getMappedFieldID",
+  "allowedTypes.includes(field.type)",
+  "getMappedFieldID(calendarData, persisted.recurrenceFieldID, [\"text\", \"template\"])",
+  "getMappedFieldID(calendarData, persisted.colorFieldID, [\"select\", \"mSelect\"])",
+  "hasDateField: !!dateFieldID && calendarData.fields.some(field => field.id === dateFieldID && field.type === \"date\")",
+]) {
+  if (!mappedFieldsCode.includes(term)) {
+    fail(`mapped field guard missing ${term}`);
+  }
+}
 
 const transactionDispatcher = read("kernel/model/transaction.go");
 for (const term of [
@@ -191,6 +215,9 @@ for (const term of [
   "calendarViewModeFromOperationData",
   "calendarWeekStartFromOperationData",
   "calendarFieldMappingFromOperationData",
+  "validateCalendarFieldMappingUnique",
+  "validateCalendarMappingField",
+  "av.KeyTypeSelect, av.KeyTypeMSelect",
   "removeCalendarFieldReferences",
 ]) {
   if (!backendCalendar.includes(term)) {
@@ -205,6 +232,9 @@ for (const term of [
   "TestCalendarViewModeFromOperationData",
   "TestCalendarFieldMappingFromOperationDataMergesExisting",
   "TestRemoveCalendarFieldReferences",
+  "duplicate text metadata fields should be rejected",
+  "color mapping may reuse text metadata field IDs",
+  "empty update should clear only requested mapping",
 ]) {
   if (!backendTests.includes(term)) {
     fail(`backend calendar test missing ${term}`);
