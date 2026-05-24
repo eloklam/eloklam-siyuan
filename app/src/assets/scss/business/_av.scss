@@ -1133,6 +1133,11 @@ img.av__cellassetimg {
     text-align: center;
   }
 
+  &-setup {
+    margin-top: 12px;
+    min-width: 220px;
+  }
+
   &-toolbar {
     align-items: center;
     display: flex;

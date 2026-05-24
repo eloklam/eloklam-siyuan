@@ -88,6 +88,22 @@ const renderModeSwitcher = (viewMode: number) => {
     </div>`;
 };
 
+const renderDateFieldSetup = (calendar: IAVCalendar) => {
+    const dateFields = calendar.fields.filter(field => field.type === "date");
+    if (dateFields.length === 0) {
+        return `<div class="av__calendar av__calendar--empty">
+    <div class="ft__on-surface">${window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field"}</div>
+</div>`;
+    }
+    return `<div class="av__calendar av__calendar--empty">
+    <label class="ft__on-surface" for="av-calendar-date-field">${window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field"}</label>
+    <select class="b3-select av__calendar-setup" id="av-calendar-date-field" data-type="calendar-empty-date-field">
+        <option value="">${window.siyuan.languages.select || ""}</option>
+        ${dateFields.map(field => `<option value="${escapeAttr(field.id)}">${escapeHtml(field.name)}</option>`).join("")}
+    </select>
+</div>`;
+};
+
 const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalendarNormalizedEvent[]) => {
     let html = `<div class="av__calendar-weekdays">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(day => `<div>${day}</div>`).join("")}</div><div class="av__calendar-month">`;
     let cursor = range.start;
@@ -155,9 +171,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
     const calendar = data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendar);
     if (!mapping.hasDateField) {
-        return `<div class="av__calendar av__calendar--empty">
-    <div class="ft__on-surface">${window.siyuan.languages.dateField || "Date Field"}</div>
-</div>`;
+        return renderDateFieldSetup(calendar);
     }
     const anchor = dayjs(blockElement.dataset.calendarDate || undefined);
     const safeAnchor = anchor.isValid() ? anchor : dayjs();
@@ -229,6 +243,30 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     searchInput?.addEventListener("input", () => {
         options.blockElement.dataset.calendarSearch = searchInput.value.trim();
         rerender(true, true);
+    });
+    const emptyDateFieldElement = calendarElement?.querySelector('[data-type="calendar-empty-date-field"]') as HTMLSelectElement;
+    emptyDateFieldElement?.addEventListener("change", () => {
+        const current = emptyDateFieldElement.value;
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        if (!current || !avID || !blockID) {
+            return;
+        }
+        transaction(options.protyle, [{
+            action: "setAttrViewCalendarDateField",
+            avID,
+            blockID,
+            data: current,
+            viewID: data.viewID,
+        }], [{
+            action: "setAttrViewCalendarDateField",
+            avID,
+            blockID,
+            data: calendar.dateFieldID || "",
+            viewID: data.viewID,
+        }]);
+        calendar.dateFieldID = current;
+        rerender();
     });
     calendarElement?.querySelectorAll('[data-type="calendar-mode"]').forEach(item => {
         item.addEventListener("click", () => {
