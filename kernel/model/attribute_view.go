@@ -1436,7 +1436,7 @@ func setAttrViewCalendarDateField(operation *Operation) (err error) {
 	}
 
 	if av.LayoutTypeCalendar != view.LayoutType || nil == view.Calendar {
-		return
+		return fmt.Errorf("view is not a calendar layout")
 	}
 
 	dateFieldID := operation.KeyID
@@ -1503,7 +1503,7 @@ func setAttrViewCalendarViewMode(operation *Operation) (err error) {
 	}
 
 	if av.LayoutTypeCalendar != view.LayoutType || nil == view.Calendar {
-		return
+		return fmt.Errorf("view is not a calendar layout")
 	}
 
 	viewMode, err := calendarViewModeFromOperationData(operation.Data)
