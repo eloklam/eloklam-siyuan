@@ -590,7 +590,11 @@ export const createCalendarEvent = (options: {
     previousUpdated?: string;
 }) => {
     const ops = buildCreateEventOperations(options);
+    if (ops.doOperations.length === 0) {
+        return false;
+    }
     transaction(options.protyle, ops.doOperations, ops.undoOperations);
+    return true;
 };
 
 export const createCalendarEventReplacingOccurrence = (options: {
@@ -627,7 +631,11 @@ export const createCalendarEventReplacingOccurrence = (options: {
         },
         previousUpdated: options.previousUpdated,
     });
+    if (exceptionOps.doOperations.length === 0 || createOps.doOperations.length === 0) {
+        return false;
+    }
     transaction(options.protyle, [...exceptionOps.doOperations, ...createOps.doOperations], [...createOps.undoOperations, ...exceptionOps.undoOperations]);
+    return true;
 };
 
 export const updateCalendarEvent = (options: {
@@ -644,7 +652,9 @@ export const updateCalendarEvent = (options: {
     const ops = buildUpdateEventOperations(options);
     if (ops.doOperations.length > 0) {
         transaction(options.protyle, ops.doOperations, ops.undoOperations);
+        return true;
     }
+    return false;
 };
 
 export const updateCalendarEventThisAndFuture = (options: {
@@ -662,7 +672,9 @@ export const updateCalendarEventThisAndFuture = (options: {
     const ops = buildSplitSeriesOperations(options);
     if (ops.doOperations.length > 0) {
         transaction(options.protyle, ops.doOperations, ops.undoOperations);
+        return true;
     }
+    return false;
 };
 
 export const deleteCalendarEvent = (options: {
@@ -674,6 +686,7 @@ export const deleteCalendarEvent = (options: {
 }) => {
     const ops = buildDeleteEventOperations(options);
     transaction(options.protyle, ops.doOperations, ops.undoOperations);
+    return true;
 };
 
 export const deleteCalendarOccurrence = (options: {
@@ -689,5 +702,7 @@ export const deleteCalendarOccurrence = (options: {
     const ops = buildOccurrenceExceptionOperations(options);
     if (ops.doOperations.length > 0) {
         transaction(options.protyle, ops.doOperations, ops.undoOperations);
+        return true;
     }
+    return false;
 };

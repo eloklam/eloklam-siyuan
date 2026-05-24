@@ -409,7 +409,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             return;
         }
         if (sourceEvent.isOccurrence && mapping.exceptionFieldID) {
-            createCalendarEventReplacingOccurrence({
+            const saved = createCalendarEventReplacingOccurrence({
                 protyle: options.protyle,
                 avID,
                 blockID,
@@ -421,10 +421,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
             });
-            rerender();
+            if (saved) {
+                rerender();
+            }
             return;
         }
-        updateCalendarEvent({
+        const saved = updateCalendarEvent({
             protyle: options.protyle,
             avID,
             blockID,
@@ -435,7 +437,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             draft,
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         });
-        rerender();
+        if (saved) {
+            rerender();
+        }
     };
     const buildDraftForDate = (sourceEvent: ICalendarNormalizedEvent, targetDate: string): ICalendarEventDraft => {
         const durationDays = Math.max((sourceEvent.end || sourceEvent.start).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);

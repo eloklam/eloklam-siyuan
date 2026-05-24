@@ -327,7 +327,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     }
     if (options.event) {
         if (options.event.isOccurrence && mapping.exceptionFieldID) {
-            createCalendarEventReplacingOccurrence({
+            if (!createCalendarEventReplacingOccurrence({
                 protyle: options.protyle,
                 avID,
                 blockID,
@@ -338,12 +338,15 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
                 draft,
                 occurrenceDate: options.event.start.format("YYYY-MM-DD"),
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
-            });
+            })) {
+                showMessage(window.siyuan.languages._kernel[29]);
+                return;
+            }
             dialog.destroy();
             options.onSave?.();
             return;
         }
-        updateCalendarEvent({
+        if (!updateCalendarEvent({
             protyle: options.protyle,
             avID,
             blockID,
@@ -353,9 +356,12 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             event: options.event,
             draft,
             previousUpdated: options.blockElement.getAttribute("updated") || "",
-        });
+        })) {
+            showMessage(window.siyuan.languages._kernel[29]);
+            return;
+        }
     } else {
-        createCalendarEvent({
+        if (!createCalendarEvent({
             protyle: options.protyle,
             avID,
             blockID,
@@ -364,7 +370,10 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             mapping,
             draft,
             previousUpdated: options.blockElement.getAttribute("updated") || "",
-        });
+        })) {
+            showMessage(window.siyuan.languages._kernel[29]);
+            return;
+        }
     }
     dialog.destroy();
     options.onSave?.();
@@ -380,7 +389,7 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         showMessage(window.siyuan.languages._kernel[29]);
         return;
     }
-    updateCalendarEventThisAndFuture({
+    if (!updateCalendarEventThisAndFuture({
         protyle: options.protyle,
         avID,
         blockID,
@@ -391,7 +400,10 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         draft,
         occurrenceDate: options.event.start.format("YYYY-MM-DD"),
         previousUpdated: options.blockElement.getAttribute("updated") || "",
-    });
+    })) {
+        showMessage(window.siyuan.languages._kernel[29]);
+        return;
+    }
     dialog.destroy();
     options.onSave?.();
 };
@@ -411,7 +423,7 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         showMessage(window.siyuan.languages._kernel[29]);
         return;
     }
-    createCalendarEvent({
+    if (!createCalendarEvent({
         protyle: options.protyle,
         avID,
         blockID,
@@ -420,7 +432,10 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         mapping,
         draft,
         previousUpdated: options.blockElement.getAttribute("updated") || "",
-    });
+    })) {
+        showMessage(window.siyuan.languages._kernel[29]);
+        return;
+    }
     dialog.destroy();
     options.onSave?.();
 };
