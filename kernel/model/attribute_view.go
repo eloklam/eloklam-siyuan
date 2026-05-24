@@ -1578,6 +1578,16 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 			return fmt.Errorf("descriptionFieldID must be a string")
 		}
 	}
+	if val, exists := dataMap["colorFieldID"]; exists {
+		if fieldID, ok := val.(string); ok {
+			if err = validateCalendarMappingField(attrView, fieldID, "colorFieldID", av.KeyTypeSelect, av.KeyTypeMSelect); err != nil {
+				return
+			}
+			mapping.ColorFieldID = fieldID
+		} else if nil != val {
+			return fmt.Errorf("colorFieldID must be a string")
+		}
+	}
 
 	view.Calendar.FieldMapping = &mapping
 	err = av.SaveAttributeView(attrView)

@@ -6,9 +6,10 @@ import {hasClosestByAttribute} from "../../../util/hasClosest";
 import {transaction} from "../../../wysiwyg/transaction";
 import {genTabHeaderHTML} from "../render";
 import {getCalendarFieldMapping} from "./mapped-fields";
-import {ICalendarNormalizedEvent, ICalendarRange} from "./model";
+import {ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {openEventDialog} from "./event-dialog";
+import {updateCalendarEvent} from "./transactions";
 
 interface IRenderCalendarOptions {
     protyle: IProtyle;
@@ -57,7 +58,8 @@ const getNavDate = (anchor: dayjs.Dayjs, viewMode: number, direction: -1 | 1) =>
 const eventButtonHTML = (event: ICalendarNormalizedEvent) => {
     const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ? `${event.start.format("MMM D")} - ${event.end.format("MMM D")} ` : "";
-    return `<button class="av__calendar-event" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}">
+    const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
+    return `<button class="av__calendar-event" draggable="true" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}"${colorStyle}>
     <span>${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
 </button>`;
 };
@@ -73,7 +75,7 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
     let cursor = range.start;
     while (!cursor.isAfter(range.end, "day")) {
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
-        html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}" data-date="${cursor.format("YYYY-MM-DD")}">
+        html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-daynum" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${cursor.date()}</button>
     <div class="av__calendar-events">${dayEvents.map(eventButtonHTML).join("")}</div>
 </div>`;
@@ -229,6 +231,61 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (event) {
                 openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event, date: event.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
             }
+        });
+    });
+    calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
+        item.addEventListener("dragstart", (event: DragEvent) => {
+            event.dataTransfer?.setData("text/plain", (item as HTMLElement).dataset.id || "");
+            event.dataTransfer.effectAllowed = "move";
+        });
+    });
+    calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
+        item.addEventListener("dragover", (event: DragEvent) => {
+            event.preventDefault();
+            (item as HTMLElement).classList.add("av__calendar-day--dragover");
+        });
+        item.addEventListener("dragleave", () => {
+            (item as HTMLElement).classList.remove("av__calendar-day--dragover");
+        });
+        item.addEventListener("drop", (event: DragEvent) => {
+            event.preventDefault();
+            (item as HTMLElement).classList.remove("av__calendar-day--dragover");
+            const eventID = event.dataTransfer?.getData("text/plain") || "";
+            const targetDate = (item as HTMLElement).dataset.date;
+            const sourceEvent = baseEvents.get(eventID);
+            const avID = options.blockElement.getAttribute("data-av-id");
+            const blockID = options.blockElement.getAttribute("data-node-id");
+            if (!sourceEvent || !targetDate || !avID || !blockID || !mapping.dateFieldID) {
+                return;
+            }
+            const durationDays = Math.max((sourceEvent.end || sourceEvent.start).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
+            const draft: ICalendarEventDraft = {
+                title: sourceEvent.title,
+                date: targetDate,
+                endDate: dayjs(targetDate).add(durationDays, "day").format("YYYY-MM-DD"),
+                isAllDay: sourceEvent.isAllDay,
+                startTime: sourceEvent.start.format("HH:mm"),
+                endTime: sourceEvent.end ? sourceEvent.end.format("HH:mm") : sourceEvent.start.add(1, "hour").format("HH:mm"),
+                recurrenceRaw: sourceEvent.recurrenceRaw,
+                location: sourceEvent.location,
+                description: sourceEvent.description,
+                colorContent: sourceEvent.colorContent,
+            };
+            if (sourceEvent.isAllDay && durationDays > 0) {
+                draft.endTime = sourceEvent.end?.format("HH:mm") || "23:59";
+            }
+            updateCalendarEvent({
+                protyle: options.protyle,
+                avID,
+                blockID,
+                dateFieldID: mapping.dateFieldID,
+                fields: calendar.fields,
+                mapping,
+                event: sourceEvent,
+                draft,
+                previousUpdated: options.blockElement.getAttribute("updated") || "",
+            });
+            rerender();
         });
     });
 };

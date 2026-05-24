@@ -43,6 +43,9 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     <div class="b3-form__space">
         <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${escapeHtml(event?.description || "")}</textarea>
     </div>
+    <div class="b3-form__space">
+        <input class="b3-text-field fn__block" id="av-event-color" placeholder="${window.siyuan.languages.color || "Color"}" value="${escapeAttr(event?.colorContent || "")}">
+    </div>
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
@@ -87,6 +90,7 @@ const getDraftFromDialog = (dialog: Dialog) => {
         recurrenceRaw: (dialog.element.querySelector("#av-event-recurrence") as HTMLInputElement)?.value,
         location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
         description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
+        colorContent: (dialog.element.querySelector("#av-event-color") as HTMLInputElement)?.value,
     };
 };
 

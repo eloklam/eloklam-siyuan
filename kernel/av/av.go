@@ -874,6 +874,7 @@ func (av *AttributeView) Clone() (ret *AttributeView) {
 				view.Calendar.FieldMapping.RecurrenceFieldID = keyIDMap[view.Calendar.FieldMapping.RecurrenceFieldID]
 				view.Calendar.FieldMapping.LocationFieldID = keyIDMap[view.Calendar.FieldMapping.LocationFieldID]
 				view.Calendar.FieldMapping.DescriptionFieldID = keyIDMap[view.Calendar.FieldMapping.DescriptionFieldID]
+				view.Calendar.FieldMapping.ColorFieldID = keyIDMap[view.Calendar.FieldMapping.ColorFieldID]
 			}
 		}
 		view.ItemIDs = []string{}

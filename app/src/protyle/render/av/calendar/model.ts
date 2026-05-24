@@ -10,6 +10,7 @@ export interface ICalendarFieldMapping {
     recurrenceFieldID?: string;
     locationFieldID?: string;
     descriptionFieldID?: string;
+    colorFieldID?: string;
     hasDateField: boolean;
 }
 
@@ -25,12 +26,15 @@ export interface ICalendarRecurrence {
 export interface ICalendarEventDraft {
     title: string;
     date: string;
+    endDate?: string;
     isAllDay: boolean;
     startTime: string;
     endTime: string;
     recurrenceRaw?: string;
     location?: string;
     description?: string;
+    color?: string;
+    colorContent?: string;
 }
 
 export interface ICalendarNormalizedEvent {
@@ -45,6 +49,8 @@ export interface ICalendarNormalizedEvent {
     recurrenceRaw?: string;
     location?: string;
     description?: string;
+    color?: string;
+    colorContent?: string;
     sourceCard: IAVGalleryItem;
     isOccurrence?: boolean;
     occurrenceID?: string;

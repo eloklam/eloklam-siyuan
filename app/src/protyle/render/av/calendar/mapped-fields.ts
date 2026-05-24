@@ -8,15 +8,30 @@ export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFie
         recurrenceFieldID: persisted.recurrenceFieldID,
         locationFieldID: persisted.locationFieldID,
         descriptionFieldID: persisted.descriptionFieldID,
+        colorFieldID: persisted.colorFieldID,
         hasDateField: !!dateFieldID && calendarData.fields.some(field => field.id === dateFieldID && field.type === "date"),
     };
 };
 
+const getSelectColor = (cell?: IAVCell) => {
+    const item = cell?.value?.mSelect?.[0];
+    if (!item) {
+        return {};
+    }
+    return {
+        color: item.color,
+        colorContent: item.content,
+    };
+};
+
 export const getMappedMetadata = (card: IAVGalleryItem, mapping: ICalendarFieldMapping) => {
+    const color = getSelectColor(getCellByFieldID(card, mapping.colorFieldID));
     return {
         recurrence: getTextFromCell(getCellByFieldID(card, mapping.recurrenceFieldID)),
         location: getTextFromCell(getCellByFieldID(card, mapping.locationFieldID)),
         description: getTextFromCell(getCellByFieldID(card, mapping.descriptionFieldID)),
+        color: color.color,
+        colorContent: color.colorContent,
     };
 };
 
@@ -60,4 +75,3 @@ export const buildTextCellUpdate = (options: {
         undoOp: {action: "updateAttrViewCell", id: cell.id, avID, keyID: fieldID, rowID: event.id, data: oldCellValue},
     };
 };
-

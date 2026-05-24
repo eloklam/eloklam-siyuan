@@ -16,7 +16,8 @@ const normalizeRecurrenceValue = (value?: string) => {
 
 const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue => {
     const start = draft.isAllDay ? dayjs(draft.date).startOf("day") : dayjs(`${draft.date}T${draft.startTime}`);
-    const end = draft.isAllDay ? dayjs(draft.date).endOf("day") : dayjs(`${draft.date}T${draft.endTime}`);
+    const endDate = draft.endDate || draft.date;
+    const end = draft.isAllDay ? dayjs(endDate).endOf("day") : dayjs(`${endDate}T${draft.endTime}`);
     return {
         type: "date",
         date: {
@@ -42,6 +43,28 @@ const buildTextLikeValue = (field: IAVColumn, value: string, oldValue?: IAVCellV
         base.text = {content: value};
         delete base.template;
     }
+    return base;
+};
+
+const buildSelectValue = (field: IAVColumn, value?: string, oldValue?: IAVCellValue): IAVCellValue | undefined => {
+    const content = (value || "").trim();
+    if (!content) {
+        return oldValue ? {
+            ...clone(oldValue),
+            type: field.type,
+            keyID: field.id,
+            mSelect: [],
+        } : undefined;
+    }
+    const option = field.options?.find(item => item.name === content);
+    const selectValue = {
+        content,
+        color: option?.color || "1",
+    };
+    const base = oldValue ? clone(oldValue) : {type: field.type, keyID: field.id} as IAVCellValue;
+    base.type = field.type;
+    base.keyID = field.id;
+    base.mSelect = field.type === "mSelect" ? [selectValue] : [selectValue];
     return base;
 };
 
@@ -120,6 +143,32 @@ const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
     });
 };
 
+const addColorUpdate = (ops: ICalendarOperationSet, options: {
+    avID: string;
+    rowID: string;
+    fields: IAVColumn[];
+    fieldID?: string;
+    value?: string;
+    oldCell?: IAVCell;
+}) => {
+    if (!options.fieldID || options.value === undefined) {
+        return;
+    }
+    const field = getFieldByID(options.fields, options.fieldID);
+    if (!field || !["select", "mSelect"].includes(field.type)) {
+        return;
+    }
+    const oldValue = cloneCellValue(options.oldCell?.value);
+    const newValue = buildSelectValue(field, options.value, oldValue);
+    pushUpdate(ops, {
+        avID: options.avID,
+        rowID: options.rowID,
+        keyID: options.fieldID,
+        oldValue,
+        newValue,
+    });
+};
+
 export const buildCreateEventOperations = (options: {
     avID: string;
     blockID: string;
@@ -166,6 +215,13 @@ export const buildCreateEventOperations = (options: {
         fields: options.fields,
         fieldID: options.mapping.descriptionFieldID,
         value: options.draft.description,
+    });
+    addColorUpdate(ops, {
+        avID: options.avID,
+        rowID,
+        fields: options.fields,
+        fieldID: options.mapping.colorFieldID,
+        value: options.draft.colorContent,
     });
     ops.undoOperations.push({action: "removeAttrViewBlock", srcIDs: [rowID], avID: options.avID});
     pushUpdated(ops, options.blockID, options.previousUpdated);
@@ -221,6 +277,14 @@ export const buildUpdateEventOperations = (options: {
         fieldID: options.mapping.descriptionFieldID,
         value: options.draft.description,
         oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.descriptionFieldID),
+    });
+    addColorUpdate(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        fields: options.fields,
+        fieldID: options.mapping.colorFieldID,
+        value: options.draft.colorContent,
+        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.colorFieldID),
     });
     if (ops.doOperations.length > 0) {
         pushUpdated(ops, options.blockID, options.previousUpdated);

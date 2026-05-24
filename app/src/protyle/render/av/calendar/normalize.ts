@@ -30,6 +30,8 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
         recurrenceRaw: metadata.recurrence,
         location: metadata.location,
         description: metadata.description,
+        color: metadata.color,
+        colorContent: metadata.colorContent,
         sourceCard: card,
     };
 };

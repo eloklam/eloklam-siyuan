@@ -140,6 +140,11 @@ export const getLayoutHTML = (data: IAV) => {
         <select class="b3-select fn__block" data-type="calendar-map-field" data-field="descriptionFieldID">
             ${buildOptions(["text", "template"], mapping.descriptionFieldID)}
         </select>
+        <div class="fn__hr"></div>
+        <label class="ft__on-surface">${window.siyuan.languages.color || "Color"}</label>
+        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="colorFieldID">
+            ${buildOptions(["select", "mSelect"], mapping.colorFieldID)}
+        </select>
     </div>
 </div>`;
     }

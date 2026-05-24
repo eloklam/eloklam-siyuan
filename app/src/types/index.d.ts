@@ -987,6 +987,7 @@ interface IAVCalendar extends IAVView {
         recurrenceFieldID?: string;
         locationFieldID?: string;
         descriptionFieldID?: string;
+        colorFieldID?: string;
     };
 }
 

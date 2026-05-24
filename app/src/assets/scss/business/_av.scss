@@ -1177,6 +1177,11 @@ img.av__cellassetimg {
     &--today {
       box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
     }
+
+    &--dragover {
+      background-color: var(--b3-theme-primary-light);
+      box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
+    }
   }
 
   &-daynum,
