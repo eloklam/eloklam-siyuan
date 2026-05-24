@@ -65,12 +65,14 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     const result: IRecurrenceFormValue = {freq: "", interval: "1", count: "", until: "", byDay: [], raw, isAdvanced: false};
     const supportedKeys = ["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"];
     const weekdays = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+    const seenKeys = new Set<string>();
     upper.split(";").filter(Boolean).forEach(part => {
         const [key, val] = part.split("=");
-        if (!supportedKeys.includes(key)) {
+        if (!supportedKeys.includes(key) || seenKeys.has(key)) {
             result.isAdvanced = true;
             return;
         }
+        seenKeys.add(key);
         if (!val) {
             result.isAdvanced = true;
             return;
@@ -103,7 +105,7 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
         } else if (key === "BYDAY") {
             const byDay = val.split(",");
             result.byDay = byDay.filter(day => weekdays.includes(day));
-            if (result.byDay.length !== byDay.length) {
+            if (result.byDay.length !== byDay.length || new Set(result.byDay).size !== result.byDay.length) {
                 result.isAdvanced = true;
             }
         }
