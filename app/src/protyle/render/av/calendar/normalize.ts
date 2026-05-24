@@ -42,21 +42,27 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
 };
 
 const normalizeExceptionDate = (value: string) => {
+    const isRealDate = (dateValue: string) => {
+        const parsed = dayjs(dateValue);
+        return parsed.isValid() && parsed.format("YYYY-MM-DD") === dateValue;
+    };
     if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        return value;
+        return isRealDate(value) ? value : "";
     }
     if (/^\d{8}$/.test(value)) {
-        return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+        const dateValue = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+        return isRealDate(dateValue) ? dateValue : "";
     }
     const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T\d{6}Z?$/);
     if (dateTimeMatch) {
-        return `${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`;
+        const dateValue = `${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`;
+        return isRealDate(dateValue) ? dateValue : "";
     }
     return "";
 };
 
 const parseRecurrenceExceptions = (value = "") => {
-    return value.split(/[\s,;]+/).map(item => normalizeExceptionDate(item.trim())).filter(Boolean);
+    return Array.from(new Set(value.split(/[\s,;]+/).map(item => normalizeExceptionDate(item.trim())).filter(Boolean)));
 };
 
 export const normalizeCalendarEvents = (
