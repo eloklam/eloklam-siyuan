@@ -53,6 +53,16 @@ const getViewModeLabel = (viewMode: number) => {
     return labels[viewMode] || labels[0];
 };
 
+const getCalendarTitle = (anchor: dayjs.Dayjs, range: ICalendarRange, viewMode: number) => {
+    if (viewMode === 1 || viewMode === 3) {
+        return `${range.start.format("MMM D")} - ${range.end.format("MMM D, YYYY")}`;
+    }
+    if (viewMode === 2) {
+        return anchor.format("MMM D, YYYY");
+    }
+    return anchor.format("MMMM YYYY");
+};
+
 const getCalendarLocale = () => window.siyuan.config.lang.replace("_", "-");
 
 const formatCalendarDate = (date: dayjs.Dayjs, options: Intl.DateTimeFormatOptions) => {
@@ -205,7 +215,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
     const normalized = normalizeCalendarEvents(calendar, mapping, range);
     const search = getCalendarSearch(blockElement);
     const events = normalized.events.filter(event => eventMatchesSearch(event, search));
-    const title = viewMode === 1 ? `${range.start.format("MMM D")} - ${range.end.format("MMM D, YYYY")}` : safeAnchor.format(viewMode === 2 ? "MMM D, YYYY" : "MMMM YYYY");
+    const title = getCalendarTitle(safeAnchor, range, viewMode);
     let body = renderMonth(safeAnchor, range, events, weekStart);
     if (viewMode === 1) {
         body = renderWeek(range, events);
