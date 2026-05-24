@@ -133,10 +133,27 @@ const recurrenceForSplitFuture = (value: string, event: ICalendarNormalizedEvent
     return recurrenceWithCount(value, Math.max(count - countOccurrencesBefore(event, occurrenceDate), 1));
 };
 
-const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue => {
-    const start = draft.isAllDay ? dayjs(draft.date).startOf("day") : dayjs(`${draft.date}T${draft.startTime}`);
-    const endDate = draft.endDate && dayjs(draft.endDate).isAfter(dayjs(draft.date), "day") ? draft.endDate : draft.date;
-    let end = draft.isAllDay ? dayjs(endDate).endOf("day") : dayjs(`${endDate}T${draft.endTime}`);
+const isRealDateInputValue = (value?: string) => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false;
+    }
+    const parsed = dayjs(value);
+    return parsed.isValid() && parsed.format("YYYY-MM-DD") === value;
+};
+
+const getTimeInputValue = (value: string | undefined, fallback: string) => {
+    return value && /^\d{2}:\d{2}$/.test(value) ? value : fallback;
+};
+
+const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue | undefined => {
+    if (!isRealDateInputValue(draft.date)) {
+        return undefined;
+    }
+    const startTime = getTimeInputValue(draft.startTime, "09:00");
+    const endTime = getTimeInputValue(draft.endTime, "10:00");
+    const start = draft.isAllDay ? dayjs(draft.date).startOf("day") : dayjs(`${draft.date}T${startTime}`);
+    const endDate = draft.endDate && isRealDateInputValue(draft.endDate) && dayjs(draft.endDate).isAfter(dayjs(draft.date), "day") ? draft.endDate : draft.date;
+    let end = draft.isAllDay ? dayjs(endDate).endOf("day") : dayjs(`${endDate}T${endTime}`);
     if (!draft.isAllDay && !end.isAfter(start)) {
         end = start.add(1, "hour");
     }
@@ -317,6 +334,9 @@ export const buildSplitSeriesOperations = (options: {
     occurrenceDate: string;
     previousUpdated?: string;
 }): ICalendarOperationSet => {
+    if (!isRealDateInputValue(options.draft.date)) {
+        return {doOperations: [], undoOperations: []};
+    }
     const recurrenceRaw = getEventRecurrenceRaw(options.event);
     const untilDate = dayjs(options.occurrenceDate).subtract(1, "day").format("YYYY-MM-DD");
     const truncatedRecurrence = recurrenceWithUntil(recurrenceRaw, untilDate);
@@ -388,6 +408,10 @@ export const buildCreateEventOperations = (options: {
     draft: ICalendarEventDraft;
     previousUpdated?: string;
 }): ICalendarOperationSet => {
+    const dateValue = buildDateValue(options.draft);
+    if (!dateValue) {
+        return {doOperations: [], undoOperations: []};
+    }
     const rowID = Lute.NewNodeID();
     const itemID = Lute.NewNodeID();
     const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
@@ -403,7 +427,7 @@ export const buildCreateEventOperations = (options: {
         avID: options.avID,
         rowID,
         keyID: options.dateFieldID,
-        newValue: buildDateValue(options.draft),
+        newValue: dateValue,
     });
     addMetadataUpdate(ops, {
         avID: options.avID,
@@ -455,6 +479,10 @@ export const buildUpdateEventOperations = (options: {
     draft: ICalendarEventDraft;
     previousUpdated?: string;
 }): ICalendarOperationSet => {
+    const dateValue = buildDateValue(options.draft);
+    if (!dateValue) {
+        return {doOperations: [], undoOperations: []};
+    }
     const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
     const blockCell = getBlockCell(options.event.sourceCard);
     pushUpdate(ops, {
@@ -469,7 +497,7 @@ export const buildUpdateEventOperations = (options: {
         rowID: options.event.id,
         keyID: options.dateFieldID,
         oldValue: cloneCellValue(options.event.dateCell?.value),
-        newValue: buildDateValue(options.draft),
+        newValue: dateValue,
     });
     addMetadataUpdate(ops, {
         avID: options.avID,
