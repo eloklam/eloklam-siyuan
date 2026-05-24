@@ -6,12 +6,15 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import {createRequire} from "node:module";
 import {fileURLToPath} from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDir, "..");
 const appDir = path.join(root, "app");
 const kernelDir = path.join(root, "kernel");
+const requireFromApp = createRequire(path.join(appDir, "package.json"));
+const ts = requireFromApp("typescript");
 const appKernelDir = path.join(appDir, "kernel");
 const appKernelBinary = path.join(appKernelDir, process.platform === "win32" ? "SiYuan-Kernel.exe" : "SiYuan-Kernel");
 const electronBinary = path.join(appDir, "node_modules/.bin/electron");
@@ -24,6 +27,21 @@ const fail = (message) => {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const nodeID = () => {
+  const now = new Date();
+  const pad = (value, size = 2) => String(value).padStart(size, "0");
+  const stamp = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join("");
+  const random = Math.random().toString(36).slice(2, 9).padEnd(7, "0");
+  return `${stamp}-${random}`;
+};
 
 const isPortFree = (port) => new Promise((resolve) => {
   const server = net.createServer();
@@ -203,6 +221,181 @@ const waitForAppShell = async (debugPort) => {
   fail(`electron target did not expose the SiYuan app shell: ${JSON.stringify(lastState)}`);
 };
 
+const writeFile = (file, content) => {
+  fs.mkdirSync(path.dirname(file), {recursive: true});
+  fs.writeFileSync(file, content);
+};
+
+const compileCalendarRenderHarness = () => {
+  const tempDir = fs.mkdtempSync(path.join(appDir, ".calendar-electron-render-"));
+  const calendarSourceDir = path.join(appDir, "src/protyle/render/av/calendar");
+  const calendarTargetDir = path.join(tempDir, "src/protyle/render/av/calendar");
+  const compileCalendarFile = (file) => {
+    const source = fs.readFileSync(path.join(calendarSourceDir, file), "utf8");
+    const result = ts.transpileModule(source, {
+      compilerOptions: {
+        esModuleInterop: false,
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2020,
+      },
+      fileName: file,
+    });
+    writeFile(path.join(calendarTargetDir, file.replace(/\.ts$/, ".js")), result.outputText);
+  };
+  for (const file of ["model.ts", "mapped-fields.ts", "recurrence.ts", "normalize.ts", "render.ts"]) {
+    compileCalendarFile(file);
+  }
+  writeFile(path.join(tempDir, "src/constants.js"), `
+exports.Constants = {
+  CUSTOM_SY_AV_VIEW: 'custom-sy-av-view',
+  CB_GET_AV_NO_CREATE: 'cb-get-av-no-create',
+};
+`);
+  writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = () => undefined;\n");
+  writeFile(path.join(tempDir, "src/util/escape.js"), `
+const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[item]));
+exports.escapeHtml = escapeHtml;
+exports.escapeAttr = escapeHtml;
+`);
+  writeFile(path.join(tempDir, "src/util/fetch.js"), "exports.fetchSyncPost = async () => ({data: {}});\n");
+  writeFile(path.join(tempDir, "src/protyle/util/hasClosest.js"), `
+exports.hasClosestByAttribute = (element, attr, value) => {
+  let current = element;
+  while (current) {
+    if (current.getAttribute && current.getAttribute(attr) === value) return current;
+    current = current.parentElement;
+  }
+  return undefined;
+};
+`);
+  writeFile(path.join(tempDir, "src/protyle/wysiwyg/transaction.js"), "exports.transaction = () => undefined;\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/render.js"), "exports.genTabHeaderHTML = () => '<div class=\"av__header\"></div>';\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), "exports.openEventDialog = () => undefined;\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/transactions.js"), `
+exports.createCalendarEvent = () => true;
+exports.createCalendarEventReplacingOccurrence = () => true;
+exports.updateCalendarEvent = () => true;
+`);
+  return {tempDir, renderModule: path.join(calendarTargetDir, "render.js")};
+};
+
+const runCalendarRenderSmoke = async (debugPort, renderModule) => {
+  const fixture = {
+    avID: nodeID(),
+    blockID: nodeID(),
+    viewID: nodeID(),
+  };
+  const result = await evaluateInTarget(debugPort, `(async () => {
+    const renderModule = require(${JSON.stringify(renderModule)});
+    window.siyuan = window.siyuan || {};
+    window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en_US'});
+    window.siyuan.languages = Object.assign({
+      calendar: 'Calendar',
+      month: 'Month',
+      week: 'Week',
+      day: 'Day',
+      calendarSchedule: 'Schedule',
+      today: 'Today',
+      calendarPreviousEvent: 'Previous event',
+      calendarNextEvent: 'Next event',
+      calendarSearch: 'Search',
+      calendarEvents: 'Events',
+      calendarTimed: 'Timed',
+      calendarRecurrence: 'Recurring',
+      calendarOccurrence: 'Recurring occurrence',
+      calendarLocation: 'Location',
+      calendarDescription: 'Description',
+      allDay: 'All day',
+      all: 'All',
+      filter: 'Filter',
+      emptyContent: 'Empty',
+      newEvent: 'New event',
+      newRow: 'New row',
+      copy: 'Copy',
+      untitled: 'Untitled',
+      _kernel: {29: 'Failed'}
+    }, window.siyuan.languages || {});
+    window.Lute = window.Lute || {NewNodeID: () => String(Date.now()) + '-render'};
+    const timestamp = (value) => new Date(value).getTime();
+    const field = (id, type, extra = {}) => ({id, type, name: id, desc: '', width: '', icon: '', wrap: false, pin: false, hidden: false, numberFormat: '', template: '', calc: {}, ...extra});
+    const cell = (rowID, keyID, type, value) => ({id: rowID + '-' + keyID, valueType: type, color: '', bgColor: '', value: {id: rowID + '-' + keyID, keyID, type, ...value}});
+    const card = (rowID, title, start, end, recurrence, exception = '') => ({
+      id: rowID,
+      values: [
+        cell(rowID, 'block', 'block', {block: {id: 'block-' + rowID, content: title}}),
+        cell(rowID, 'date', 'date', {date: {content: timestamp(start), isNotEmpty: true, content2: timestamp(end), isNotEmpty2: true, hasEndDate: true, isNotTime: false}}),
+        cell(rowID, 'recurrence', 'text', {text: {content: recurrence}}),
+        cell(rowID, 'exception', 'text', {text: {content: exception}}),
+        cell(rowID, 'location', 'text', {text: {content: 'Render Room'}}),
+        cell(rowID, 'description', 'text', {text: {content: 'Render description'}}),
+        cell(rowID, 'color', 'select', {mSelect: [{content: 'Focus', color: '1'}]}),
+      ],
+    });
+    const host = document.createElement('div');
+    host.className = 'av';
+    host.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)});
+    host.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)});
+    host.dataset.calendarDate = '2026-05-24';
+    host.innerHTML = '<div></div>';
+    document.body.appendChild(host);
+    const calendar = {
+      dateFieldID: 'date',
+      viewMode: 0,
+      weekStart: 0,
+      fields: [
+        field('date', 'date'),
+        field('recurrence', 'text'),
+        field('exception', 'text'),
+        field('location', 'text'),
+        field('description', 'text'),
+        field('color', 'select', {options: [{name: 'Focus', color: '1'}]}),
+      ],
+      fieldMapping: {
+        recurrenceFieldID: 'recurrence',
+        exceptionFieldID: 'exception',
+        locationFieldID: 'location',
+        descriptionFieldID: 'description',
+        colorFieldID: 'color',
+      },
+      cards: [
+        card('row-render', 'Calendar UI render smoke event', '2026-05-24T09:00:00', '2026-05-24T10:00:00', 'FREQ=WEEKLY;COUNT=2', '2026-05-31'),
+        card('row-none', 'Calendar none smoke event', '2026-05-25T11:00:00', '2026-05-25T12:00:00', 'None'),
+      ],
+      cardCount: 2,
+    };
+    await renderModule.renderCalendar({
+      protyle: {disabled: false, block: {action: []}},
+      blockElement: host,
+      renderAll: true,
+      data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'},
+    });
+    const calendarElement = host.querySelector('.av__calendar');
+    const search = host.querySelector('[data-type="calendar-search"]');
+    search.value = 'none';
+    search.dispatchEvent(new Event('input', {bubbles: true}));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return {
+      hasCalendar: !!calendarElement,
+      eventCount: host.querySelectorAll('.av__calendar-event').length,
+      eventText: Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n'),
+      modeCount: host.querySelectorAll('[data-type="calendar-mode"]').length,
+      hasSummary: !!host.querySelector('.av__calendar-summary'),
+      hasSearch: !!host.querySelector('[data-type="calendar-search"]'),
+      hasJumpDate: !!host.querySelector('[data-type="calendar-jump-date"]'),
+      recurringCount: host.querySelectorAll('.av__calendar-recurring').length,
+      dataViewMode: calendarElement && calendarElement.getAttribute('data-view-mode'),
+      filteredEventText: Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n'),
+      searchState: host.dataset.calendarSearch,
+    };
+  })()`);
+  if (!result?.hasCalendar || result.modeCount !== 4 || !result.hasSummary || !result.hasSearch ||
+    !result.hasJumpDate || !result.eventText.includes("Calendar none smoke event") ||
+    result.searchState !== "none") {
+    fail(`calendar Electron render smoke failed: ${JSON.stringify(result)}`);
+  }
+  return result;
+};
+
 const stopProcessGroup = async (child) => {
   if (!child || child.exitCode !== null) {
     return;
@@ -243,10 +436,12 @@ const main = async () => {
   const hadAppBuildDir = fs.existsSync(appBuildDir);
   let kernel;
   let electron;
+  let renderHarness;
 
   try {
     fs.mkdirSync(siyuanConfig, {recursive: true});
     fs.writeFileSync(path.join(siyuanConfig, "workspace.json"), JSON.stringify([workspace]));
+    renderHarness = compileCalendarRenderHarness();
     if (!hadAppBuildDir) {
       if (!fs.existsSync(path.join(desktopBuildDir, "index.html"))) {
         fail(`desktop build output missing at ${desktopBuildDir}; run cd app && corepack pnpm run build:desktop first`);
@@ -322,6 +517,7 @@ const main = async () => {
 
     const debugInfo = await waitForElectronDebug(debugPort);
     const uiState = await waitForAppShell(debugPort);
+    const renderState = await runCalendarRenderSmoke(debugPort, renderHarness.renderModule);
     if (electron.exitCode !== null) {
       fail(`electron exited before launch smoke completed: ${electronOutput.slice(-2000)}`);
     }
@@ -329,7 +525,7 @@ const main = async () => {
     if (electron.exitCode !== null) {
       fail(`electron exited shortly after exposing debug target: ${electronOutput.slice(-2000)}`);
     }
-    console.log(`calendar electron launch smoke passed: workspace=${workspace} debugPort=${debugPort} browser=${debugInfo.browser} href=${uiState.href}`);
+    console.log(`calendar electron launch smoke passed: workspace=${workspace} debugPort=${debugPort} browser=${debugInfo.browser} href=${uiState.href} renderedEvents=${renderState.eventCount}`);
   } finally {
     await stopProcessGroup(electron);
     if (kernel && kernel.exitCode === null) {
@@ -348,6 +544,9 @@ const main = async () => {
     }
     if (!hadAppBuildDir) {
       fs.rmSync(appBuildDir, {recursive: true, force: true, maxRetries: 3});
+    }
+    if (renderHarness?.tempDir) {
+      fs.rmSync(renderHarness.tempDir, {recursive: true, force: true, maxRetries: 3});
     }
     if (process.env.SIYUAN_CALENDAR_KEEP_SMOKE_WORKSPACE !== "1") {
       fs.rmSync(workspace, {recursive: true, force: true, maxRetries: 3});
