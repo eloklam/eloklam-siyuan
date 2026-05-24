@@ -1,6 +1,6 @@
 import {transaction} from "../../wysiwyg/transaction";
 import {Constants} from "../../../constants";
-import {escapeHtml} from "../../../util/escape";
+import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {fetchSyncPost} from "../../../util/fetch";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
@@ -109,15 +109,39 @@ export const getLayoutHTML = (data: IAV) => {
 </label>`;
     }
     if (data.viewType === "calendar") {
-        const calendarView = data.view as IAVKanban & { dateFieldID?: string };
-        const dateFields = getFieldsByData(data).filter(f => f.type === "date");
-        const currentDateField = dateFields.find(f => f.id === calendarView.dateFieldID);
-        html += `<button class="b3-menu__item" data-type="set-calendar-date-field">
-    <span class="fn__flex-center">${window.siyuan.languages.dateField || "Date Field"}</span>
-    <span class="fn__flex-1"></span>
-    <span class="b3-menu__accelerator">${currentDateField ? escapeHtml(currentDateField.name) : (window.siyuan.languages.select || "Select...")}</span>
-    <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
-</button>`;
+        const calendarView = data.view as IAVCalendar;
+        const fields = getFieldsByData(data);
+        const mapping = calendarView.fieldMapping || {};
+        const buildOptions = (fieldTypes: TAVCol[], selected = "", allowEmpty = true) => {
+            let options = allowEmpty ? `<option value="">${escapeHtml(window.siyuan.languages.calcOperatorNone)}</option>` : "";
+            fields.filter(field => fieldTypes.includes(field.type)).forEach(field => {
+                options += `<option value="${escapeAttr(field.id)}"${field.id === selected ? " selected" : ""}>${escapeHtml(field.name)}</option>`;
+            });
+            return options;
+        };
+        html += `<div class="b3-menu__item" data-type="nobg">
+    <div class="fn__block">
+        <label class="ft__on-surface">${window.siyuan.languages.dateField || "Date Field"}</label>
+        <select class="b3-select fn__block" data-type="calendar-date-field">
+            ${buildOptions(["date"], calendarView.dateFieldID, false)}
+        </select>
+        <div class="fn__hr"></div>
+        <label class="ft__on-surface">${window.siyuan.languages.calendarRecurrence || "Recurrence"}</label>
+        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="recurrenceFieldID">
+            ${buildOptions(["text", "template"], mapping.recurrenceFieldID)}
+        </select>
+        <div class="fn__hr"></div>
+        <label class="ft__on-surface">${window.siyuan.languages.calendarLocation || "Location"}</label>
+        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="locationFieldID">
+            ${buildOptions(["text", "template"], mapping.locationFieldID)}
+        </select>
+        <div class="fn__hr"></div>
+        <label class="ft__on-surface">${window.siyuan.languages.calendarDescription || "Description"}</label>
+        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="descriptionFieldID">
+            ${buildOptions(["text", "template"], mapping.descriptionFieldID)}
+        </select>
+    </div>
+</div>`;
     }
     return html + `<button class="b3-menu__item" data-type="set-page-size" data-size="${view.pageSize}">
         <span class="fn__flex-center">${window.siyuan.languages.entryNum}</span>
@@ -232,6 +256,7 @@ export const bindLayoutEvent = (options: {
         (options.data.view as IAVGallery).displayFieldName = checked;
     });
     if (options.data.viewType === "calendar") {
+        bindCalendarLayoutEvent(options, avID, blockID, viewID);
         return options.data;
     }
     if (options.data.viewType === "gallery") {
@@ -254,6 +279,56 @@ export const bindLayoutEvent = (options: {
             viewID
         }]);
         (options.data.view as IAVKanban).fillColBackgroundColor = checked;
+    });
+};
+
+const bindCalendarLayoutEvent = (options: {
+    protyle: IProtyle,
+    data: IAV,
+    menuElement: HTMLElement
+    blockElement: Element
+}, avID: string, blockID: string, viewID: string) => {
+    const calendarView = options.data.view as IAVCalendar;
+    const dateFieldElement = options.menuElement.querySelector('select[data-type="calendar-date-field"]') as HTMLSelectElement;
+    dateFieldElement?.addEventListener("change", () => {
+        const previous = calendarView.dateFieldID || "";
+        const current = dateFieldElement.value;
+        transaction(options.protyle, [{
+            action: "setAttrViewCalendarDateField",
+            avID,
+            blockID,
+            keyID: current,
+            data: current,
+            viewID
+        }], [{
+            action: "setAttrViewCalendarDateField",
+            avID,
+            blockID,
+            keyID: previous,
+            data: previous,
+            viewID
+        }]);
+        calendarView.dateFieldID = current;
+    });
+    options.menuElement.querySelectorAll('select[data-type="calendar-map-field"]').forEach((item: HTMLSelectElement) => {
+        item.addEventListener("change", () => {
+            const previous = {...(calendarView.fieldMapping || {})};
+            const next = {...previous, [item.dataset.field]: item.value};
+            transaction(options.protyle, [{
+                action: "setAttrViewCalendarFieldMapping",
+                avID,
+                blockID,
+                data: next,
+                viewID
+            }], [{
+                action: "setAttrViewCalendarFieldMapping",
+                avID,
+                blockID,
+                data: previous,
+                viewID
+            }]);
+            calendarView.fieldMapping = next;
+        });
     });
 };
 

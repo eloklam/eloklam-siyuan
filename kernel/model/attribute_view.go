@@ -1550,6 +1550,9 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 	}
 	if val, exists := dataMap["recurrenceFieldID"]; exists {
 		if fieldID, ok := val.(string); ok {
+			if err = validateCalendarMappingField(attrView, fieldID, "recurrenceFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
+				return
+			}
 			mapping.RecurrenceFieldID = fieldID
 		} else if nil != val {
 			return fmt.Errorf("recurrenceFieldID must be a string")
@@ -1557,6 +1560,9 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 	}
 	if val, exists := dataMap["locationFieldID"]; exists {
 		if fieldID, ok := val.(string); ok {
+			if err = validateCalendarMappingField(attrView, fieldID, "locationFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
+				return
+			}
 			mapping.LocationFieldID = fieldID
 		} else if nil != val {
 			return fmt.Errorf("locationFieldID must be a string")
@@ -1564,6 +1570,9 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 	}
 	if val, exists := dataMap["descriptionFieldID"]; exists {
 		if fieldID, ok := val.(string); ok {
+			if err = validateCalendarMappingField(attrView, fieldID, "descriptionFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
+				return
+			}
 			mapping.DescriptionFieldID = fieldID
 		} else if nil != val {
 			return fmt.Errorf("descriptionFieldID must be a string")
@@ -1574,6 +1583,22 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 	err = av.SaveAttributeView(attrView)
 	ReloadAttrView(attrView.ID)
 	return
+}
+
+func validateCalendarMappingField(attrView *av.AttributeView, fieldID, fieldName string, allowedTypes ...av.KeyType) (err error) {
+	if "" == fieldID {
+		return
+	}
+	key, err := attrView.GetKey(fieldID)
+	if nil != err {
+		return fmt.Errorf("calendar mapping field [%s=%s] not found: %w", fieldName, fieldID, err)
+	}
+	for _, allowedType := range allowedTypes {
+		if key.Type == allowedType {
+			return nil
+		}
+	}
+	return fmt.Errorf("calendar mapping field [%s=%s] has invalid type [%s]", fieldName, fieldID, key.Type)
 }
 
 func AppendAttributeViewDetachedBlocksWithValues(avID string, blocksValues [][]*av.Value) (err error) {
