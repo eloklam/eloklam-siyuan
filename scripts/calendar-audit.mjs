@@ -47,6 +47,7 @@ const expectedFeatureTerms = [
   "calendar-mode",
   "calendar-drop-day",
   "calendar-resize",
+  "getEventTooltip",
   "data-days",
 ];
 
@@ -116,6 +117,9 @@ for (const term of [
   "getSafeViewMode",
   "getVisibleRange",
   "getCalendarTitle",
+  "getEventDateLabel",
+  "title=\"${escapeAttr(eventTooltip)}\"",
+  "aria-label=\"${escapeAttr(eventTooltip)}\"",
   "jumpDateInput",
   "eventMatchesSearch",
   "getCalendarSearch",

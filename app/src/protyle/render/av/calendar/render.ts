@@ -109,12 +109,36 @@ const getNavDate = (anchor: dayjs.Dayjs, viewMode: number, direction: -1 | 1) =>
     return anchor.add(direction, "day");
 };
 
+const getEventDateLabel = (event: ICalendarNormalizedEvent) => {
+    if (event.isAllDay) {
+        return event.end && !event.start.isSame(event.end, "day") ?
+            `${formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {year: "numeric", month: "short", day: "numeric"})}` :
+            formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"});
+    }
+    const dateLabel = event.end && !event.start.isSame(event.end, "day") ?
+        `${formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"})} ${event.start.format("HH:mm")} - ${formatCalendarDate(event.end, {year: "numeric", month: "short", day: "numeric"})} ${event.end.format("HH:mm")}` :
+        `${formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"})} ${event.start.format("HH:mm")} - ${(event.end || event.start.add(1, "hour")).format("HH:mm")}`;
+    return dateLabel;
+};
+
+const getEventTooltip = (event: ICalendarNormalizedEvent) => {
+    return [
+        event.title,
+        getEventDateLabel(event),
+        event.location ? `${window.siyuan.languages.calendarLocation || "Location"}: ${event.location}` : "",
+        event.description ? `${window.siyuan.languages.calendarDescription || "Description"}: ${event.description}` : "",
+        event.recurrenceRaw ? `${window.siyuan.languages.calendarRecurrence || "Recurrence"}: ${event.recurrenceRaw}` : "",
+        event.isOccurrence ? window.siyuan.languages.calendarDeleteOccurrence || "Recurring occurrence" : "",
+    ].filter(Boolean).join("\n");
+};
+
 const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Dayjs, editable = true) => {
     const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ?
         `${formatCalendarDate(event.start, {month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {month: "short", day: "numeric"})} ` : "";
     const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
-    return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}${colorStyle}>
+    const eventTooltip = getEventTooltip(event);
+    return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${editable ? "" : " disabled"}${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
     ${!editable ? "" : (event.isAllDay ?
         `<span class="av__calendar-resize" data-type="calendar-resize" data-days="-1">-1d</span><span class="av__calendar-resize" data-type="calendar-resize" data-days="1">+1d</span>` :
