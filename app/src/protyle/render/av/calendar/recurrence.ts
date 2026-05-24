@@ -4,6 +4,17 @@ import {ICalendarNormalizedEvent, ICalendarRange, ICalendarRecurrence} from "./m
 const isValidFreq = (value: string) => ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(value);
 const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
 
+const parseUntil = (value: string) => {
+    if (/^\d{8}$/.test(value)) {
+        return dayjs(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`);
+    }
+    const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T\d{6}Z?$/);
+    if (dateTimeMatch) {
+        return dayjs(`${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`);
+    }
+    return dayjs(value);
+};
+
 export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined => {
     if (typeof value !== "string") {
         return undefined;
@@ -35,12 +46,12 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
                 result.count = count;
             }
         } else if (key === "UNTIL") {
-            const until = dayjs(val);
+            const until = parseUntil(val);
             if (until.isValid()) {
                 result.until = until.endOf("day");
             }
         } else if (key === "BYDAY") {
-            const byDay = val.split(",").filter(day => weekdayMap[day] !== undefined);
+            const byDay = val.split(",").filter(day => weekdayMap[day] !== undefined).sort((a, b) => weekdayMap[a] - weekdayMap[b]);
             if (byDay.length > 0) {
                 result.byDay = byDay;
             }
