@@ -142,6 +142,30 @@ for (const term of [
   }
 }
 
+const transactionsCode = read("app/src/protyle/render/av/calendar/transactions.ts");
+for (const term of [
+  "isRealDateInputValue(options.draft.date)",
+  "getTimeInputValue",
+  "end = start.add(1, \"hour\")",
+  "JSON.stringify(options.oldValue) === JSON.stringify(options.newValue)",
+  "undoEmptyWhenMissing",
+  "buildOccurrenceExceptionOperations",
+  "existing.sort()",
+  "recurrenceWithUntil",
+  "recurrenceForSplitFuture",
+  "buildCreateEventOperations",
+  "buildUpdateEventOperations",
+  "buildDeleteEventOperations",
+  "createCalendarEventReplacingOccurrence",
+  "[...exceptionOps.doOperations, ...createOps.doOperations]",
+  "[...createOps.undoOperations, ...exceptionOps.undoOperations]",
+  "return true;",
+]) {
+  if (!transactionsCode.includes(term)) {
+    fail(`calendar transactions missing ${term}`);
+  }
+}
+
 const layoutCode = read("app/src/protyle/render/av/layout.ts");
 for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStart", "setAttrViewCalendarFieldMapping"]) {
   if (!layoutCode.includes(term)) {
