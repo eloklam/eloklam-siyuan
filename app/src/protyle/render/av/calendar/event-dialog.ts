@@ -46,7 +46,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
-        ${isEditing ? `<button class="b3-button b3-button--remove" data-type="event-delete">${window.siyuan.languages.delete}</button><span class="fn__space"></span>` : ""}
+        ${isEditing ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${window.siyuan.languages.delete}</button><span class="fn__space"></span>` : ""}
         <button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>
     </div>
 </div>`;
@@ -68,6 +68,7 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => saveEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => deleteEvent(dialog, options));
+    dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => duplicateEvent(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.key === "Enter") {
             event.preventDefault();
@@ -76,27 +77,26 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     });
 };
 
-const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
-    const calendarData = options.data.view as IAVCalendar;
-    const mapping = getCalendarFieldMapping(calendarData);
-    const title = (dialog.element.querySelector("#av-event-title") as HTMLInputElement).value.trim();
-    const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement).value;
-    const isAllDay = (dialog.element.querySelector("#av-event-allday") as HTMLInputElement).checked;
-    const startTime = (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00";
-    const endTime = (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00";
-    const draft = {
-        title,
-        date,
-        isAllDay,
-        startTime,
-        endTime,
+const getDraftFromDialog = (dialog: Dialog) => {
+    return {
+        title: (dialog.element.querySelector("#av-event-title") as HTMLInputElement).value.trim(),
+        date: (dialog.element.querySelector("#av-event-date") as HTMLInputElement).value,
+        isAllDay: (dialog.element.querySelector("#av-event-allday") as HTMLInputElement).checked,
+        startTime: (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00",
+        endTime: (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00",
         recurrenceRaw: (dialog.element.querySelector("#av-event-recurrence") as HTMLInputElement)?.value,
         location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
         description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
     };
+};
+
+const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
+    const calendarData = options.data.view as IAVCalendar;
+    const mapping = getCalendarFieldMapping(calendarData);
+    const draft = getDraftFromDialog(dialog);
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    if (!title || !date || !avID || !blockID || !mapping.dateFieldID) {
+    if (!draft.title || !draft.date || !avID || !blockID || !mapping.dateFieldID) {
         showMessage(window.siyuan.languages._kernel[29]);
         return;
     }
@@ -124,6 +124,30 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         });
     }
+    dialog.destroy();
+    options.onSave?.();
+};
+
+const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
+    const calendarData = options.data.view as IAVCalendar;
+    const mapping = getCalendarFieldMapping(calendarData);
+    const draft = getDraftFromDialog(dialog);
+    const avID = options.blockElement.getAttribute("data-av-id");
+    const blockID = options.blockElement.getAttribute("data-node-id");
+    if (!draft.title || !draft.date || !avID || !blockID || !mapping.dateFieldID) {
+        showMessage(window.siyuan.languages._kernel[29]);
+        return;
+    }
+    createCalendarEvent({
+        protyle: options.protyle,
+        avID,
+        blockID,
+        dateFieldID: mapping.dateFieldID,
+        fields: calendarData.fields,
+        mapping,
+        draft,
+        previousUpdated: options.blockElement.getAttribute("updated") || "",
+    });
     dialog.destroy();
     options.onSave?.();
 };
