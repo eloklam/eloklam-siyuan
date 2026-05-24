@@ -1146,6 +1146,11 @@ img.av__cellassetimg {
     text-align: center;
   }
 
+  &-modes {
+    display: flex;
+    gap: 4px;
+  }
+
   &-weekdays,
   &-month {
     display: grid;
@@ -1212,6 +1217,41 @@ img.av__cellassetimg {
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  &-week {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(7, minmax(104px, 1fr));
+  }
+
+  &-week-day,
+  &-day-view {
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    min-width: 0;
+    padding: 8px;
+  }
+
+  &-all-day,
+  &-timed {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 28px;
+    min-width: 0;
+    padding-top: 6px;
+  }
+
+  &-all-day {
+    border-bottom: 1px solid var(--b3-border-color);
+    padding-bottom: 6px;
+  }
+
+  &-now {
+    color: var(--b3-theme-primary);
+    font-size: 12px;
+    line-height: 24px;
   }
 
   &-list-day {

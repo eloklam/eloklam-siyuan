@@ -3,6 +3,7 @@ import {Constants} from "../../../../constants";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {fetchSyncPost} from "../../../../util/fetch";
 import {hasClosestByAttribute} from "../../../util/hasClosest";
+import {transaction} from "../../../wysiwyg/transaction";
 import {genTabHeaderHTML} from "../render";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent, ICalendarRange} from "./model";
@@ -30,12 +31,41 @@ const getVisibleRange = (anchor: dayjs.Dayjs, viewMode: number): ICalendarRange 
     return {start: anchor.startOf("month").startOf("week"), end: anchor.endOf("month").endOf("week")};
 };
 
+const getViewModeLabel = (viewMode: number) => {
+    const labels = [
+        window.siyuan.languages.month || "Month",
+        window.siyuan.languages.week || "Week",
+        window.siyuan.languages.day || "Day",
+        window.siyuan.languages.calendarSchedule || "Schedule",
+    ];
+    return labels[viewMode] || labels[0];
+};
+
+const getNavDate = (anchor: dayjs.Dayjs, viewMode: number, direction: -1 | 1) => {
+    if (viewMode === 0) {
+        return anchor.add(direction, "month");
+    }
+    if (viewMode === 1) {
+        return anchor.add(direction, "week");
+    }
+    if (viewMode === 3) {
+        return anchor.add(direction * 30, "day");
+    }
+    return anchor.add(direction, "day");
+};
+
 const eventButtonHTML = (event: ICalendarNormalizedEvent) => {
     const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ? `${event.start.format("MMM D")} - ${event.end.format("MMM D")} ` : "";
     return `<button class="av__calendar-event" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}">
     <span>${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
 </button>`;
+};
+
+const renderModeSwitcher = (viewMode: number) => {
+    return `<div class="av__calendar-modes">
+        ${[0, 1, 2, 3].map(mode => `<button class="b3-button${viewMode === mode ? " b3-button--text" : " b3-button--outline"}" data-type="calendar-mode" data-mode="${mode}">${getViewModeLabel(mode)}</button>`).join("")}
+    </div>`;
 };
 
 const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalendarNormalizedEvent[]) => {
@@ -50,6 +80,39 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
         cursor = cursor.add(1, "day");
     }
     return `${html}</div>`;
+};
+
+const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[]) => {
+    const days: dayjs.Dayjs[] = [];
+    let cursor = range.start.startOf("day");
+    while (!cursor.isAfter(range.end, "day")) {
+        days.push(cursor);
+        cursor = cursor.add(1, "day");
+    }
+    return `<div class="av__calendar-week">
+    ${days.map(day => {
+        const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, day)));
+        const allDayEvents = dayEvents.filter(event => event.isAllDay);
+        const timedEvents = dayEvents.filter(event => !event.isAllDay);
+        return `<div class="av__calendar-week-day" data-date="${day.format("YYYY-MM-DD")}">
+            <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}">${day.format("ddd D")}</button>
+            <div class="av__calendar-all-day">${allDayEvents.map(eventButtonHTML).join("")}</div>
+            <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+        </div>`;
+    }).join("")}
+</div>`;
+};
+
+const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[]) => {
+    const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, anchor)));
+    const allDayEvents = dayEvents.filter(event => event.isAllDay);
+    const timedEvents = dayEvents.filter(event => !event.isAllDay);
+    return `<div class="av__calendar-day-view" data-date="${anchor.format("YYYY-MM-DD")}">
+    <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}">${anchor.format("dddd, MMM D")}</button>
+    <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
+    <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+</div>`;
 };
 
 const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], hideEmpty = false) => {
@@ -81,7 +144,14 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
     const range = getVisibleRange(safeAnchor, calendar.viewMode || 0);
     const normalized = normalizeCalendarEvents(calendar, mapping, range);
     const title = calendar.viewMode === 1 ? `${range.start.format("MMM D")} - ${range.end.format("MMM D, YYYY")}` : safeAnchor.format(calendar.viewMode === 2 ? "MMM D, YYYY" : "MMMM YYYY");
-    const body = calendar.viewMode === 0 ? renderMonth(safeAnchor, range, normalized.events) : renderList(range, normalized.events, calendar.viewMode === 3);
+    let body = renderMonth(safeAnchor, range, normalized.events);
+    if (calendar.viewMode === 1) {
+        body = renderWeek(range, normalized.events);
+    } else if (calendar.viewMode === 2) {
+        body = renderDay(safeAnchor, normalized.events);
+    } else if (calendar.viewMode === 3) {
+        body = renderList(range, normalized.events, true);
+    }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
     return `<div class="av__calendar" data-view-mode="${calendar.viewMode || 0}">
     <div class="av__calendar-toolbar">
@@ -89,6 +159,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
         <button class="b3-button b3-button--outline" data-type="calendar-today">${window.siyuan.languages.today || "Today"}</button>
         <button class="block__icon block__icon--show" data-type="calendar-next"><svg><use xlink:href="#iconRight"></use></svg></button>
         <div class="av__calendar-title">${escapeHtml(title)}</div>
+        ${renderModeSwitcher(calendar.viewMode || 0)}
         <button class="b3-button b3-button--text" data-type="calendar-new" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>
     </div>
     ${body}
@@ -104,12 +175,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     };
     calendarElement?.querySelector('[data-type="calendar-prev"]')?.addEventListener("click", () => {
         const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
-        options.blockElement.dataset.calendarDate = (anchor.isValid() ? anchor : dayjs()).subtract(calendar.viewMode === 0 ? 1 : 7, calendar.viewMode === 0 ? "month" : "day").format("YYYY-MM-DD");
+        options.blockElement.dataset.calendarDate = getNavDate(anchor.isValid() ? anchor : dayjs(), calendar.viewMode || 0, -1).format("YYYY-MM-DD");
         rerender();
     });
     calendarElement?.querySelector('[data-type="calendar-next"]')?.addEventListener("click", () => {
         const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
-        options.blockElement.dataset.calendarDate = (anchor.isValid() ? anchor : dayjs()).add(calendar.viewMode === 0 ? 1 : 7, calendar.viewMode === 0 ? "month" : "day").format("YYYY-MM-DD");
+        options.blockElement.dataset.calendarDate = getNavDate(anchor.isValid() ? anchor : dayjs(), calendar.viewMode || 0, 1).format("YYYY-MM-DD");
         rerender();
     });
     calendarElement?.querySelector('[data-type="calendar-today"]')?.addEventListener("click", () => {
@@ -119,6 +190,34 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     calendarElement?.querySelectorAll('[data-type="calendar-new"]').forEach(item => {
         item.addEventListener("click", () => {
             openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});
+        });
+    });
+    calendarElement?.querySelectorAll('[data-type="calendar-mode"]').forEach(item => {
+        item.addEventListener("click", () => {
+            const mode = parseInt((item as HTMLElement).dataset.mode || "0", 10);
+            if (mode === calendar.viewMode) {
+                return;
+            }
+            const avID = options.blockElement.getAttribute("data-av-id");
+            const blockID = options.blockElement.getAttribute("data-node-id");
+            if (!avID || !blockID) {
+                return;
+            }
+            transaction(options.protyle, [{
+                action: "setAttrViewCalendarViewMode",
+                avID,
+                blockID,
+                data: mode,
+                viewID: data.viewID,
+            }], [{
+                action: "setAttrViewCalendarViewMode",
+                avID,
+                blockID,
+                data: calendar.viewMode || 0,
+                viewID: data.viewID,
+            }]);
+            calendar.viewMode = mode;
+            rerender();
         });
     });
     const range = getVisibleRange(dayjs(options.blockElement.dataset.calendarDate || undefined), calendar.viewMode || 0);
