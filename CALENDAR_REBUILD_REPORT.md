@@ -47,6 +47,10 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 
 ## Notable Hardening Commits
 
+- `53db959b5 test(calendar): audit read-only and report guards`
+- `43b21036a test(calendar): make audit path independent`
+- `cfa92ca0d test(calendar): add static rebuild audit`
+- `c4feb1729 docs(calendar): add rebuild audit report`
 - `1106a80e1 fix(calendar): disable read-only event buttons`
 - `f8b2c299b fix(calendar): report failed direct event updates`
 - `ef9a6c37c fix(calendar): show specific dialog validation errors`
@@ -76,6 +80,7 @@ Also passed:
 - Calendar frontend required files exist.
 - Static feature precheck covers create/update/delete, occurrence replacement, this-and-future split, recurrence, search, view switching, drag/drop, and resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
+- Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
 
 Known build warnings:
 
