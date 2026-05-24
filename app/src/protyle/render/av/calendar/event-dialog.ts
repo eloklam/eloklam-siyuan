@@ -24,7 +24,8 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}">
     </div>
     <div class="b3-form__space fn__flex">
-        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" value="${event?.start.format("YYYY-MM-DD") || date}">
+        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${event?.start.format("YYYY-MM-DD") || date}">
+        <input type="date" class="b3-text-field fn__flex-1" id="av-event-end-date" aria-label="${window.siyuan.languages.endDate || "End date"}" value="${event?.end?.format("YYYY-MM-DD") || event?.start.format("YYYY-MM-DD") || date}">
         <label class="fn__flex-center av__calendar-check">
             <input type="checkbox" id="av-event-allday" ${event?.isAllDay ?? true ? "checked" : ""}>
             <span>${window.siyuan.languages.allDay || "All day"}</span>
@@ -70,6 +71,13 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     allDayCheckbox?.addEventListener("change", () => {
         timeRow.style.display = allDayCheckbox.checked ? "none" : "flex";
     });
+    const dateInput = dialog.element.querySelector("#av-event-date") as HTMLInputElement;
+    const endDateInput = dialog.element.querySelector("#av-event-end-date") as HTMLInputElement;
+    dateInput?.addEventListener("change", () => {
+        if (!endDateInput.value || endDateInput.value < dateInput.value) {
+            endDateInput.value = dateInput.value;
+        }
+    });
     dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => saveEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => saveFutureEvent(dialog, options));
@@ -84,9 +92,13 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
 };
 
 const getDraftFromDialog = (dialog: Dialog) => {
+    const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement).value;
+    const endDateInput = (dialog.element.querySelector("#av-event-end-date") as HTMLInputElement).value;
+    const endDate = endDateInput && endDateInput >= date ? endDateInput : date;
     return {
         title: (dialog.element.querySelector("#av-event-title") as HTMLInputElement).value.trim(),
-        date: (dialog.element.querySelector("#av-event-date") as HTMLInputElement).value,
+        date,
+        endDate,
         isAllDay: (dialog.element.querySelector("#av-event-allday") as HTMLInputElement).checked,
         startTime: (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00",
         endTime: (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00",
