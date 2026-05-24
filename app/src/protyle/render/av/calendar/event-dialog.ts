@@ -1,6 +1,6 @@
 import {Dialog} from "../../../../dialog";
 import {showMessage} from "../../../../dialog/message";
-import {escapeAttr} from "../../../../util/escape";
+import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent} from "./model";
 import {createCalendarEvent, deleteCalendarEvent, updateCalendarEvent} from "./transactions";
@@ -34,15 +34,15 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <span class="av__calendar-time-sep">-</span>
         <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${event?.end?.format("HH:mm") || "10:00"}">
     </div>
-    ${isEditing ? `<div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event.location || "")}">
+    <div class="b3-form__space">
+        <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}">
     </div>
     <div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-recurrence" placeholder="${window.siyuan.languages.calendarRecurrence || "Recurrence"}" value="${escapeAttr(event.recurrence?.freq || "")}">
+        <input class="b3-text-field fn__block" id="av-event-recurrence" placeholder="${window.siyuan.languages.calendarRecurrence || "Recurrence"}" value="${escapeAttr(event?.recurrenceRaw || event?.recurrence?.freq || "")}">
     </div>
     <div class="b3-form__space">
-        <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${event.description || ""}</textarea>
-    </div>` : ""}
+        <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${escapeHtml(event?.description || "")}</textarea>
+    </div>
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
@@ -84,6 +84,16 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const isAllDay = (dialog.element.querySelector("#av-event-allday") as HTMLInputElement).checked;
     const startTime = (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00";
     const endTime = (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00";
+    const draft = {
+        title,
+        date,
+        isAllDay,
+        startTime,
+        endTime,
+        recurrenceRaw: (dialog.element.querySelector("#av-event-recurrence") as HTMLInputElement)?.value,
+        location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
+        description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
+    };
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!title || !date || !avID || !blockID || !mapping.dateFieldID) {
@@ -94,20 +104,25 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         updateCalendarEvent({
             protyle: options.protyle,
             avID,
+            blockID,
             dateFieldID: mapping.dateFieldID,
-            event: options.event,
-            title,
-            date,
-            isAllDay,
-            startTime,
-            endTime,
+            fields: calendarData.fields,
             mapping,
-            recurrence: (dialog.element.querySelector("#av-event-recurrence") as HTMLInputElement)?.value,
-            location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
-            description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
+            event: options.event,
+            draft,
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
         });
     } else {
-        createCalendarEvent({protyle: options.protyle, avID, blockID, dateFieldID: mapping.dateFieldID, title, date, isAllDay, startTime, endTime});
+        createCalendarEvent({
+            protyle: options.protyle,
+            avID,
+            blockID,
+            dateFieldID: mapping.dateFieldID,
+            fields: calendarData.fields,
+            mapping,
+            draft,
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        });
     }
     dialog.destroy();
     options.onSave?.();
@@ -119,7 +134,13 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     if (!options.event || !avID || !blockID) {
         return;
     }
-    deleteCalendarEvent({protyle: options.protyle, avID, blockID, event: options.event});
+    deleteCalendarEvent({
+        protyle: options.protyle,
+        avID,
+        blockID,
+        event: options.event,
+        previousUpdated: options.blockElement.getAttribute("updated") || "",
+    });
     dialog.destroy();
     options.onDelete?.();
 };

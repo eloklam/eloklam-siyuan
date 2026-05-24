@@ -1,11 +1,22 @@
 import * as dayjs from "dayjs";
 import {transaction} from "../../../wysiwyg/transaction";
-import {ICalendarFieldMapping, ICalendarNormalizedEvent} from "./model";
-import {buildTextCellUpdate} from "./mapped-fields";
+import {cloneCellValue, getBlockCell, getCellByFieldID, getFieldByID, ICalendarEventDraft, ICalendarFieldMapping, ICalendarNormalizedEvent} from "./model";
 
-const buildDateValue = (date: string, isAllDay: boolean, startTime: string, endTime: string): IAVCellValue => {
-    const start = isAllDay ? dayjs(date).startOf("day") : dayjs(`${date}T${startTime}`);
-    const end = isAllDay ? dayjs(date).endOf("day") : dayjs(`${date}T${endTime}`);
+export interface ICalendarOperationSet {
+    doOperations: IOperation[];
+    undoOperations: IOperation[];
+}
+
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
+const normalizeRecurrenceValue = (value?: string) => {
+    const trimmed = (value || "").trim();
+    return trimmed.toLowerCase() === "none" ? "" : trimmed;
+};
+
+const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue => {
+    const start = draft.isAllDay ? dayjs(draft.date).startOf("day") : dayjs(`${draft.date}T${draft.startTime}`);
+    const end = draft.isAllDay ? dayjs(draft.date).endOf("day") : dayjs(`${draft.date}T${draft.endTime}`);
     return {
         type: "date",
         date: {
@@ -14,118 +25,223 @@ const buildDateValue = (date: string, isAllDay: boolean, startTime: string, endT
             content2: end.valueOf(),
             isNotEmpty2: true,
             hasEndDate: true,
-            isNotTime: isAllDay,
+            isNotTime: draft.isAllDay,
         },
     };
 };
 
-export const createCalendarEvent = (options: {
-    protyle: IProtyle;
+const buildTextLikeValue = (field: IAVColumn, value: string, oldValue?: IAVCellValue): IAVCellValue => {
+    const type = field.type === "template" ? "template" : "text";
+    const base = oldValue ? clone(oldValue) : {type, keyID: field.id} as IAVCellValue;
+    base.type = type;
+    base.keyID = field.id;
+    if (type === "template") {
+        base.template = {content: value};
+        delete base.text;
+    } else {
+        base.text = {content: value};
+        delete base.template;
+    }
+    return base;
+};
+
+const buildBlockValue = (event: ICalendarNormalizedEvent, title: string): IAVCellValue | undefined => {
+    const blockCell = getBlockCell(event.sourceCard);
+    if (!blockCell?.value) {
+        return undefined;
+    }
+    const value = clone(blockCell.value);
+    value.type = "block";
+    value.keyID = blockCell.value.keyID;
+    value.block = {
+        ...(value.block || {}),
+        content: title,
+    };
+    return value;
+};
+
+const pushUpdate = (ops: ICalendarOperationSet, options: {
+    avID: string;
+    rowID: string;
+    keyID?: string;
+    oldValue?: IAVCellValue;
+    newValue?: IAVCellValue;
+}) => {
+    if (!options.keyID || !options.newValue) {
+        return;
+    }
+    ops.doOperations.push({
+        action: "updateAttrViewCell",
+        avID: options.avID,
+        keyID: options.keyID,
+        rowID: options.rowID,
+        data: options.newValue,
+    });
+    if (options.oldValue) {
+        ops.undoOperations.unshift({
+            action: "updateAttrViewCell",
+            avID: options.avID,
+            keyID: options.keyID,
+            rowID: options.rowID,
+            data: options.oldValue,
+        });
+    }
+};
+
+const pushUpdated = (ops: ICalendarOperationSet, blockID: string, previousUpdated = "") => {
+    const newUpdated = dayjs().format("YYYYMMDDHHmmss");
+    ops.doOperations.push({action: "doUpdateUpdated", id: blockID, data: newUpdated});
+    ops.undoOperations.push({action: "doUpdateUpdated", id: blockID, data: previousUpdated});
+};
+
+const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
+    avID: string;
+    rowID: string;
+    fields: IAVColumn[];
+    fieldID?: string;
+    value?: string;
+    oldCell?: IAVCell;
+}) => {
+    if (!options.fieldID || options.value === undefined) {
+        return;
+    }
+    const field = getFieldByID(options.fields, options.fieldID);
+    if (!field || !["text", "template"].includes(field.type)) {
+        return;
+    }
+    const oldValue = cloneCellValue(options.oldCell?.value);
+    const newValue = buildTextLikeValue(field, options.value, oldValue);
+    pushUpdate(ops, {
+        avID: options.avID,
+        rowID: options.rowID,
+        keyID: options.fieldID,
+        oldValue,
+        newValue,
+    });
+};
+
+export const buildCreateEventOperations = (options: {
     avID: string;
     blockID: string;
     dateFieldID: string;
-    title: string;
-    date: string;
-    isAllDay: boolean;
-    startTime: string;
-    endTime: string;
-}) => {
-    const newNodeID = Lute.NewNodeID();
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    draft: ICalendarEventDraft;
+    previousUpdated?: string;
+}): ICalendarOperationSet => {
+    const rowID = Lute.NewNodeID();
     const itemID = Lute.NewNodeID();
-    transaction(options.protyle, [{
+    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
+    ops.doOperations.push({
         action: "insertAttrViewBlock",
         avID: options.avID,
         previousID: "",
-        srcs: [{itemID, id: newNodeID, isDetached: true, content: options.title}],
+        srcs: [{itemID, id: rowID, isDetached: true, content: options.draft.title}],
         blockID: options.blockID,
         context: {ignoreTip: "true"},
-    }, {
-        action: "updateAttrViewCell",
-        id: itemID,
-        avID: options.avID,
-        keyID: options.dateFieldID,
-        rowID: newNodeID,
-        data: buildDateValue(options.date, options.isAllDay, options.startTime, options.endTime),
-    }], [{
-        action: "removeAttrViewBlock",
-        srcIDs: [newNodeID],
-        avID: options.avID,
-    }]);
-};
-
-export const updateCalendarEvent = (options: {
-    protyle: IProtyle;
-    avID: string;
-    dateFieldID: string;
-    event: ICalendarNormalizedEvent;
-    title: string;
-    date: string;
-    isAllDay: boolean;
-    startTime: string;
-    endTime: string;
-    mapping: ICalendarFieldMapping;
-    recurrence?: string;
-    location?: string;
-    description?: string;
-}) => {
-    const doOps: IOperation[] = [];
-    const undoOps: IOperation[] = [];
-    if (options.event.dateCell?.id) {
-        doOps.push({
-            action: "updateAttrViewCell",
-            id: options.event.dateCell.id,
-            avID: options.avID,
-            keyID: options.dateFieldID,
-            rowID: options.event.id,
-            data: buildDateValue(options.date, options.isAllDay, options.startTime, options.endTime),
-        });
-        undoOps.push({
-            action: "updateAttrViewCell",
-            id: options.event.dateCell.id,
-            avID: options.avID,
-            keyID: options.dateFieldID,
-            rowID: options.event.id,
-            data: options.event.dateCell.value,
-        });
-    }
-    [
-        {fieldID: options.mapping.recurrenceFieldID, value: options.recurrence, oldValue: options.event.recurrence?.freq || ""},
-        {fieldID: options.mapping.locationFieldID, value: options.location, oldValue: options.event.location || ""},
-        {fieldID: options.mapping.descriptionFieldID, value: options.description, oldValue: options.event.description || ""},
-    ].forEach(item => {
-        if (item.value === undefined) {
-            return;
-        }
-        const update = buildTextCellUpdate({
-            avID: options.avID,
-            event: options.event,
-            fieldID: item.fieldID,
-            value: item.value.trim().toLowerCase() === "none" ? "" : item.value,
-            oldValue: item.oldValue,
-        });
-        if (update) {
-            doOps.push(update.doOp);
-            undoOps.push(update.undoOp);
-        }
     });
-    if (doOps.length > 0) {
-        transaction(options.protyle, doOps, undoOps);
-    }
+    pushUpdate(ops, {
+        avID: options.avID,
+        rowID,
+        keyID: options.dateFieldID,
+        newValue: buildDateValue(options.draft),
+    });
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID,
+        fields: options.fields,
+        fieldID: options.mapping.recurrenceFieldID,
+        value: normalizeRecurrenceValue(options.draft.recurrenceRaw),
+    });
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID,
+        fields: options.fields,
+        fieldID: options.mapping.locationFieldID,
+        value: options.draft.location,
+    });
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID,
+        fields: options.fields,
+        fieldID: options.mapping.descriptionFieldID,
+        value: options.draft.description,
+    });
+    ops.undoOperations.push({action: "removeAttrViewBlock", srcIDs: [rowID], avID: options.avID});
+    pushUpdated(ops, options.blockID, options.previousUpdated);
+    return ops;
 };
 
-export const deleteCalendarEvent = (options: {
-    protyle: IProtyle;
+export const buildUpdateEventOperations = (options: {
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    draft: ICalendarEventDraft;
+    previousUpdated?: string;
+}): ICalendarOperationSet => {
+    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
+    const blockCell = getBlockCell(options.event.sourceCard);
+    pushUpdate(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        keyID: blockCell?.value?.keyID,
+        oldValue: cloneCellValue(blockCell?.value),
+        newValue: buildBlockValue(options.event, options.draft.title),
+    });
+    pushUpdate(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        keyID: options.dateFieldID,
+        oldValue: cloneCellValue(options.event.dateCell?.value),
+        newValue: buildDateValue(options.draft),
+    });
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        fields: options.fields,
+        fieldID: options.mapping.recurrenceFieldID,
+        value: normalizeRecurrenceValue(options.draft.recurrenceRaw),
+        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.recurrenceFieldID),
+    });
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        fields: options.fields,
+        fieldID: options.mapping.locationFieldID,
+        value: options.draft.location,
+        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.locationFieldID),
+    });
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        fields: options.fields,
+        fieldID: options.mapping.descriptionFieldID,
+        value: options.draft.description,
+        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.descriptionFieldID),
+    });
+    if (ops.doOperations.length > 0) {
+        pushUpdated(ops, options.blockID, options.previousUpdated);
+    }
+    return ops;
+};
+
+export const buildDeleteEventOperations = (options: {
     avID: string;
     blockID: string;
     event: ICalendarNormalizedEvent;
-}) => {
-    const blockCell = options.event.sourceCard.values.find(v => v.valueType === "block" || v.value?.type === "block");
+    previousUpdated?: string;
+}): ICalendarOperationSet => {
+    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
+    const blockCell = getBlockCell(options.event.sourceCard);
     const blockValue = blockCell?.value;
-    transaction(options.protyle, [{
-        action: "removeAttrViewBlock",
-        avID: options.avID,
-        srcIDs: [options.event.id],
-    }], [{
+    const cellSnapshots = options.event.sourceCard.values
+        .map(cell => ({keyID: cell.value?.keyID, value: cloneCellValue(cell.value)}))
+        .filter(item => item.keyID && item.value);
+    ops.doOperations.push({action: "removeAttrViewBlock", avID: options.avID, srcIDs: [options.event.id]});
+    ops.undoOperations.push({
         action: "insertAttrViewBlock",
         avID: options.avID,
         blockID: options.blockID,
@@ -136,6 +252,58 @@ export const deleteCalendarEvent = (options: {
             isDetached: blockValue?.isDetached ?? true,
             content: blockValue?.block?.content || options.event.title || "",
         }],
-    }]);
+    });
+    cellSnapshots.forEach(item => {
+        ops.undoOperations.push({
+            action: "updateAttrViewCell",
+            avID: options.avID,
+            keyID: item.keyID,
+            rowID: options.event.id,
+            data: item.value,
+        });
+    });
+    pushUpdated(ops, options.blockID, options.previousUpdated);
+    return ops;
 };
 
+export const createCalendarEvent = (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    draft: ICalendarEventDraft;
+    previousUpdated?: string;
+}) => {
+    const ops = buildCreateEventOperations(options);
+    transaction(options.protyle, ops.doOperations, ops.undoOperations);
+};
+
+export const updateCalendarEvent = (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    draft: ICalendarEventDraft;
+    previousUpdated?: string;
+}) => {
+    const ops = buildUpdateEventOperations(options);
+    if (ops.doOperations.length > 0) {
+        transaction(options.protyle, ops.doOperations, ops.undoOperations);
+    }
+};
+
+export const deleteCalendarEvent = (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    event: ICalendarNormalizedEvent;
+    previousUpdated?: string;
+}) => {
+    const ops = buildDeleteEventOperations(options);
+    transaction(options.protyle, ops.doOperations, ops.undoOperations);
+};

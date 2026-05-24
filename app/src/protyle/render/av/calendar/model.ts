@@ -18,6 +18,19 @@ export interface ICalendarRecurrence {
     interval?: number;
     count?: number;
     until?: dayjs.Dayjs;
+    byDay?: string[];
+    raw?: string;
+}
+
+export interface ICalendarEventDraft {
+    title: string;
+    date: string;
+    isAllDay: boolean;
+    startTime: string;
+    endTime: string;
+    recurrenceRaw?: string;
+    location?: string;
+    description?: string;
 }
 
 export interface ICalendarNormalizedEvent {
@@ -29,6 +42,7 @@ export interface ICalendarNormalizedEvent {
     isAllDay: boolean;
     dateCell?: IAVCell;
     recurrence?: ICalendarRecurrence;
+    recurrenceRaw?: string;
     location?: string;
     description?: string;
     sourceCard: IAVGalleryItem;
@@ -56,3 +70,16 @@ export const getTextFromCell = (cell?: IAVCell): string => {
     return value.text?.content || value.template?.content || value.block?.content || value.url?.content || "";
 };
 
+export const cloneCellValue = (value?: IAVCellValue): IAVCellValue | undefined => {
+    if (!value) {
+        return undefined;
+    }
+    return JSON.parse(JSON.stringify(value));
+};
+
+export const getFieldByID = (fields: IAVColumn[], fieldID?: string): IAVColumn | undefined => {
+    if (!fieldID) {
+        return undefined;
+    }
+    return fields.find(field => field.id === fieldID);
+};

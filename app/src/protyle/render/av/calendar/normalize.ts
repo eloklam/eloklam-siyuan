@@ -26,6 +26,7 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
         isAllDay: dateValue.isNotTime !== false,
         dateCell,
         recurrence: parseRecurrence(metadata.recurrence),
+        recurrenceRaw: metadata.recurrence,
         location: metadata.location,
         description: metadata.description,
         sourceCard: card,
@@ -54,4 +55,3 @@ export const normalizeCalendarEvents = (
         baseEventsByID,
     };
 };
-
