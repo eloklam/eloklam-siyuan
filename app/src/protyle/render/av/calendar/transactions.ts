@@ -412,6 +412,13 @@ export const buildCreateEventOperations = (options: {
         avID: options.avID,
         rowID,
         fields: options.fields,
+        fieldID: options.mapping.exceptionFieldID,
+        value: options.draft.recurrenceExceptionRaw,
+    });
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID,
+        fields: options.fields,
         fieldID: options.mapping.locationFieldID,
         value: options.draft.location,
     });
