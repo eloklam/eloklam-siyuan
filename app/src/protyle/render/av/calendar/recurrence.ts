@@ -3,6 +3,7 @@ import {ICalendarNormalizedEvent, ICalendarRange, ICalendarRecurrence} from "./m
 
 const isValidFreq = (value: string) => ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(value);
 const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
+const supportedKeys = ["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"];
 
 const parseUntil = (value: string) => {
     if (/^\d{8}$/.test(value)) {
@@ -31,36 +32,55 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
         return {freq: str as ICalendarRecurrence["freq"]};
     }
     const result: Partial<ICalendarRecurrence> = {raw};
-    str.split(";").forEach(part => {
-        const [key, val] = part.split("=");
-        if (!val) {
+    let isMalformed = false;
+    str.split(";").filter(Boolean).forEach(part => {
+        const separatorIndex = part.indexOf("=");
+        const key = separatorIndex > -1 ? part.slice(0, separatorIndex) : "";
+        const val = separatorIndex > -1 ? part.slice(separatorIndex + 1) : "";
+        if (!key || !val || !supportedKeys.includes(key)) {
+            isMalformed = true;
             return;
         }
         if (key === "FREQ" && isValidFreq(val)) {
             result.freq = val as ICalendarRecurrence["freq"];
         } else if (key === "INTERVAL") {
-            const interval = parseInt(val, 10);
+            const interval = /^\d+$/.test(val) ? parseInt(val, 10) : 0;
             if (interval > 0) {
                 result.interval = interval;
+            } else {
+                isMalformed = true;
             }
         } else if (key === "COUNT") {
-            const count = parseInt(val, 10);
+            const count = /^\d+$/.test(val) ? parseInt(val, 10) : 0;
             if (count > 0) {
                 result.count = count;
+            } else {
+                isMalformed = true;
             }
         } else if (key === "UNTIL") {
             const until = parseUntil(val);
             if (until.isValid()) {
                 result.until = until.endOf("day");
+            } else {
+                isMalformed = true;
             }
         } else if (key === "BYDAY") {
-            const byDay = val.split(",").filter(day => weekdayMap[day] !== undefined).sort((a, b) => weekdayMap[a] - weekdayMap[b]);
+            const values = val.split(",");
+            const byDay = values.filter(day => weekdayMap[day] !== undefined).sort((a, b) => weekdayMap[a] - weekdayMap[b]);
             if (byDay.length > 0) {
                 result.byDay = byDay;
             }
+            if (byDay.length !== values.length) {
+                isMalformed = true;
+            }
+        } else {
+            isMalformed = true;
         }
     });
-    return result.freq ? result as ICalendarRecurrence : undefined;
+    if (result.byDay?.length && result.freq !== "WEEKLY") {
+        isMalformed = true;
+    }
+    return result.freq && !isMalformed ? result as ICalendarRecurrence : undefined;
 };
 
 const addFreq = (date: dayjs.Dayjs, recurrence: ICalendarRecurrence) => {
