@@ -43,6 +43,8 @@ const parseRecurrenceUntilDate = (value: string) => {
     return value.slice(0, 10);
 };
 
+const isDateInputValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
 const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     const raw = (value || "").trim();
     if (!raw || raw.toLowerCase() === "none") {
@@ -65,16 +67,37 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
             result.isAdvanced = true;
             return;
         }
-        if (key === "FREQ" && ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(val)) {
-            result.freq = val;
-        } else if (key === "INTERVAL" && parseInt(val, 10) > 0) {
-            result.interval = val;
-        } else if (key === "COUNT" && parseInt(val, 10) > 0) {
-            result.count = val;
+        if (key === "FREQ") {
+            if (["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(val)) {
+                result.freq = val;
+            } else {
+                result.isAdvanced = true;
+            }
+        } else if (key === "INTERVAL") {
+            if (/^\d+$/.test(val) && parseInt(val, 10) > 0) {
+                result.interval = val;
+            } else {
+                result.isAdvanced = true;
+            }
+        } else if (key === "COUNT") {
+            if (/^\d+$/.test(val) && parseInt(val, 10) > 0) {
+                result.count = val;
+            } else {
+                result.isAdvanced = true;
+            }
         } else if (key === "UNTIL") {
-            result.until = parseRecurrenceUntilDate(val);
+            const until = parseRecurrenceUntilDate(val);
+            if (isDateInputValue(until)) {
+                result.until = until;
+            } else {
+                result.isAdvanced = true;
+            }
         } else if (key === "BYDAY") {
-            result.byDay = val.split(",").filter(day => weekdays.includes(day));
+            const byDay = val.split(",");
+            result.byDay = byDay.filter(day => weekdays.includes(day));
+            if (result.byDay.length !== byDay.length) {
+                result.isAdvanced = true;
+            }
         }
     });
     result.isAdvanced = result.isAdvanced || !result.freq || (result.byDay.length > 0 && result.freq !== "WEEKLY");
