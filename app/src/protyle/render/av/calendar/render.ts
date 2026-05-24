@@ -246,6 +246,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <button class="block__icon block__icon--show" data-type="calendar-prev"><svg><use xlink:href="#iconLeft"></use></svg></button>
         <button class="b3-button b3-button--outline" data-type="calendar-today">${window.siyuan.languages.today || "Today"}</button>
         <button class="block__icon block__icon--show" data-type="calendar-next"><svg><use xlink:href="#iconRight"></use></svg></button>
+        <input class="b3-text-field av__calendar-jump" type="date" data-type="calendar-jump-date" value="${safeAnchor.format("YYYY-MM-DD")}">
         <div class="av__calendar-title">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
         ${renderModeSwitcher(viewMode, editable)}
@@ -284,6 +285,16 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelector('[data-type="calendar-today"]')?.addEventListener("click", () => {
         options.blockElement.dataset.calendarDate = dayjs().format("YYYY-MM-DD");
+        rerender();
+    });
+    const jumpDateInput = calendarElement?.querySelector('[data-type="calendar-jump-date"]') as HTMLInputElement;
+    jumpDateInput?.addEventListener("change", () => {
+        const nextDate = dayjs(jumpDateInput.value);
+        if (!nextDate.isValid() || nextDate.format("YYYY-MM-DD") !== jumpDateInput.value) {
+            jumpDateInput.value = (options.blockElement.dataset.calendarDate || dayjs().format("YYYY-MM-DD"));
+            return;
+        }
+        options.blockElement.dataset.calendarDate = jumpDateInput.value;
         rerender();
     });
     calendarElement?.querySelectorAll('[data-type="calendar-new"]').forEach(item => {

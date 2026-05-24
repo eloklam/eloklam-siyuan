@@ -1156,6 +1156,11 @@ img.av__cellassetimg {
     min-width: 120px;
   }
 
+  &-jump {
+    flex: 0 0 136px;
+    min-width: 136px;
+  }
+
   &-modes {
     display: flex;
     gap: 4px;

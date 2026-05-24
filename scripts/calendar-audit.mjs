@@ -42,6 +42,7 @@ const expectedFeatureTerms = [
   "expandRecurrences",
   "parseRecurrence",
   "calendar-search",
+  "calendar-jump-date",
   "calendar-mode",
   "calendar-drop-day",
   "calendar-resize",
@@ -114,6 +115,7 @@ for (const term of [
   "getSafeViewMode",
   "getVisibleRange",
   "getCalendarTitle",
+  "jumpDateInput",
   "eventMatchesSearch",
   "getCalendarSearch",
   "calendarSearch",
@@ -277,6 +279,7 @@ const avStyles = read("app/src/assets/scss/business/_av.scss");
 for (const term of [
   ".av__calendar",
   "&-toolbar",
+  "&-jump",
   "&-month",
   "&-event",
   "&-resize",
