@@ -225,7 +225,7 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
         if (!hideEmpty || dayEvents.length > 0) {
             renderedDays++;
-            html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}">
+            html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(formatCalendarDate(cursor, {weekday: "short", year: "numeric", month: "short", day: "numeric"}))}</button>
     <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => eventButtonHTML(event, cursor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
@@ -326,6 +326,14 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     calendarElement?.querySelectorAll('[data-type="calendar-new"]').forEach(item => {
         item.addEventListener("click", () => {
             if (!editable) {
+                return;
+            }
+            openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});
+        });
+    });
+    calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
+        item.addEventListener("dblclick", (event: MouseEvent) => {
+            if (!editable || (event.target as HTMLElement).closest(".av__calendar-event, [data-type='calendar-new']")) {
                 return;
             }
             openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});

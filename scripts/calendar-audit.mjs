@@ -46,6 +46,7 @@ const expectedFeatureTerms = [
   "calendar-jump-date",
   "calendar-mode",
   "calendar-drop-day",
+  "dblclick",
   "calendar-resize",
   "getEventTooltip",
   "data-days",
@@ -114,6 +115,7 @@ for (const term of [
   "renderWeek",
   "renderDay",
   "renderList",
+  "av__calendar-list-day\" data-date=\"${cursor.format(\"YYYY-MM-DD\")}\" data-type=\"calendar-drop-day\"",
   "getSafeViewMode",
   "getVisibleRange",
   "getCalendarTitle",
@@ -136,6 +138,7 @@ for (const term of [
   "displayDate",
   "buildDraftForDate",
   "getEditableEvent",
+  ".av__calendar-event, [data-type='calendar-new']",
 ]) {
   if (!calendarRender.includes(term)) {
     fail(`calendar render flow missing ${term}`);
