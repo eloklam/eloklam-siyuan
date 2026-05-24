@@ -31,7 +31,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Month, week, day, and schedule views.
 - Today marker in month, week, day, and schedule views.
 - Persistent calendar view mode.
-- Keyboard navigation for previous/next, today, view switching, new event, search focus, and search clearing.
+- Keyboard navigation for previous/next range, previous/next event, today, view switching, new event, search focus, and search clearing.
 - Accessibility shortcut metadata for Calendar keyboard commands.
 - Direct jump to a specific calendar date.
 - Jump to the previous or next matching event from the current Calendar anchor.
@@ -100,7 +100,7 @@ Also passed:
 - Calendar language keys used by code exist in every language file.
 - Calendar timed-event labels are present in every bundled language JSON file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, event type filtering, active query result counts, search/filter clearing, direct date jumping, previous/next event jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
+- Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, event type filtering, active query result counts, search/filter clearing, direct date jumping, previous/next event jumping, previous/next event keyboard shortcuts, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
 - Calendar SCSS selectors for container, focus-visible ring, responsive toolbar wrapping, event summary, month grid, event pill, recurrence marker, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
@@ -143,7 +143,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Jumping to a specific date updates the visible range.
 - Previous/next event controls jump to the nearest matching event date and respect active search/filter state.
 - Previous/next event controls show feedback when no matching event exists.
-- Keyboard navigation shortcuts update the visible range, switch views, open new events, focus search, and clear search.
+- Keyboard navigation shortcuts update the visible range, jump between events, switch views, open new events, focus search, and clear search.
 - Calendar shortcut controls expose `aria-keyshortcuts`.
 - Calendar title and event summary update through polite live regions.
 - Today is visibly marked in month, week, day, and schedule modes.
