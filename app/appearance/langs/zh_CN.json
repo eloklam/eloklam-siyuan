@@ -1793,6 +1793,7 @@
   "calendarUntil": "直到",
   "calendarWeekStart": "每周开始于",
   "calendarRecurrence": "重复",
+  "calendarTimed": "定时",
   "calendarExceptions": "例外",
   "calendarLocation": "地点",
   "calendarDescription": "描述",

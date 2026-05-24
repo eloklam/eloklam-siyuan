@@ -177,17 +177,18 @@ const renderModeSwitcher = (viewMode: number, editable = true) => {
 const renderEventSummary = (events: ICalendarNormalizedEvent[]) => {
     const allDayCount = events.filter(event => event.isAllDay).length;
     const timedCount = events.length - allDayCount;
-    return `<div class="av__calendar-summary" aria-live="polite" aria-label="${escapeAttr(`${events.length} events, ${allDayCount} all-day, ${timedCount} timed`)}">
+    const timedLabel = window.siyuan.languages.calendarTimed || "Timed";
+    return `<div class="av__calendar-summary" aria-live="polite" aria-label="${escapeAttr(`${events.length} events, ${allDayCount} ${window.siyuan.languages.allDay || "All day"}, ${timedCount} ${timedLabel}`)}">
         <span>${events.length}</span>
         <span>${window.siyuan.languages.allDay || "All day"} ${allDayCount}</span>
-        <span>Timed ${timedCount}</span>
+        <span>${timedLabel} ${timedCount}</span>
     </div>`;
 };
 
 const renderCalendarFilter = (filter: string) => {
     return `<select class="b3-select av__calendar-filter" data-type="calendar-filter" aria-label="${window.siyuan.languages.filter || "Filter"}">
         <option value="all"${filter === "all" ? " selected" : ""}>${window.siyuan.languages.all || "All"}</option>
-        <option value="timed"${filter === "timed" ? " selected" : ""}>Timed</option>
+        <option value="timed"${filter === "timed" ? " selected" : ""}>${window.siyuan.languages.calendarTimed || "Timed"}</option>
         <option value="all-day"${filter === "all-day" ? " selected" : ""}>${window.siyuan.languages.allDay || "All day"}</option>
         <option value="recurring"${filter === "recurring" ? " selected" : ""}>${window.siyuan.languages.calendarRecurrence || "Recurring"}</option>
     </select>`;

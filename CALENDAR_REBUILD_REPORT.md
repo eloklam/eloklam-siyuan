@@ -50,6 +50,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Event type filtering for all, timed, all-day, and recurring events.
 - Search result count and one-click search clearing.
 - Visible-range event summary for total, all-day, and timed events.
+- Localized timed-event labels in Calendar summary and filtering controls.
 - Field mapping for recurrence, exception, location, description, and color.
 - Color mapping for `select` and `mSelect` fields.
 - Recurrence parsing and expansion for daily, weekly, monthly, and yearly rules.
@@ -94,6 +95,7 @@ Also passed:
 
 - All `app/appearance/langs/*.json` parse as JSON.
 - Calendar language keys used by code exist in every language file.
+- Calendar timed-event labels are present in every bundled language JSON file.
 - Calendar frontend required files exist.
 - Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, event type filtering, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
