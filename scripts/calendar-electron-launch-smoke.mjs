@@ -279,6 +279,231 @@ exports.updateCalendarEvent = () => true;
   return {tempDir, renderModule: path.join(calendarTargetDir, "render.js")};
 };
 
+const compileCalendarDialogHarness = () => {
+  const tempDir = fs.mkdtempSync(path.join(appDir, ".calendar-electron-dialog-"));
+  const calendarSourceDir = path.join(appDir, "src/protyle/render/av/calendar");
+  const calendarTargetDir = path.join(tempDir, "src/protyle/render/av/calendar");
+  const compileCalendarFile = (file) => {
+    const source = fs.readFileSync(path.join(calendarSourceDir, file), "utf8");
+    const result = ts.transpileModule(source, {
+      compilerOptions: {
+        esModuleInterop: false,
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2020,
+      },
+      fileName: file,
+    });
+    writeFile(path.join(calendarTargetDir, file.replace(/\.ts$/, ".js")), result.outputText);
+  };
+  for (const file of ["model.ts", "mapped-fields.ts", "event-dialog.ts"]) {
+    compileCalendarFile(file);
+  }
+  writeFile(path.join(tempDir, "src/dialog/index.js"), `
+class Dialog {
+  constructor(options) {
+    this.destroyed = false;
+    this.element = document.createElement('div');
+    this.element.className = 'calendar-dialog-smoke';
+    this.element.innerHTML = '<div class="b3-dialog"><div class="b3-dialog__body">' + options.content + '</div></div>';
+    document.body.appendChild(this.element);
+    (globalThis.__calendarDialogInstances ||= []).push(this);
+  }
+  destroy() {
+    this.destroyed = true;
+    this.element.remove();
+  }
+}
+exports.Dialog = Dialog;
+`);
+  writeFile(path.join(tempDir, "src/constants.js"), "exports.Constants = {CB_GET_FOCUS: 'cb-get-focus'};\n");
+  writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = (message) => (globalThis.__calendarDialogMessages ||= []).push(message);\n");
+  writeFile(path.join(tempDir, "src/editor/util.js"), "exports.openFileById = (options) => (globalThis.__calendarDialogOpenBlocks ||= []).push({options, blockID: options && options.id});\n");
+  writeFile(path.join(tempDir, "src/mobile/editor.js"), "exports.openMobileFileById = (app, blockID) => (globalThis.__calendarDialogOpenBlocks ||= []).push({app, blockID, mobile: true});\n");
+  writeFile(path.join(tempDir, "src/util/escape.js"), `
+const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[item]));
+exports.escapeHtml = escapeHtml;
+exports.escapeAttr = escapeHtml;
+`);
+  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/transactions.js"), `
+const record = (type, payload) => {
+  (globalThis.__calendarDialogTxCalls ||= []).push({type, payload});
+  return true;
+};
+exports.createCalendarEvent = (payload) => record('create', payload);
+exports.createCalendarEventReplacingOccurrence = (payload) => record('replace-occurrence', payload);
+exports.updateCalendarEvent = (payload) => record('update', payload);
+exports.updateCalendarEventThisAndFuture = (payload) => record('future', payload);
+exports.deleteCalendarEvent = (payload) => record('delete', payload);
+exports.deleteCalendarOccurrence = (payload) => record('delete-occurrence', payload);
+`);
+  return {tempDir, dialogModule: path.join(calendarTargetDir, "event-dialog.js")};
+};
+
+const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
+  const fixture = {
+    avID: nodeID(),
+    blockID: nodeID(),
+    viewID: nodeID(),
+  };
+  const result = await evaluateInTarget(debugPort, `(async () => {
+    globalThis.dayjs = require('dayjs');
+    const dialogModule = require(${JSON.stringify(dialogModule)});
+    window.siyuan = window.siyuan || {};
+    window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en_US'});
+    window.siyuan.languages = Object.assign({
+      allDay: 'All day',
+      cancel: 'Cancel',
+      color: 'Color',
+      date: 'Date',
+      delete: 'Delete',
+      duplicate: 'Duplicate',
+      endDate: 'End date',
+      none: 'None',
+      save: 'Save',
+      title: 'Title',
+      calendarCount: 'Count',
+      calendarDaily: 'Daily',
+      calendarDeleteOccurrence: 'Delete occurrence',
+      calendarDescription: 'Description',
+      calendarInterval: 'Interval',
+      calendarLocation: 'Location',
+      calendarMonthly: 'Monthly',
+      calendarRecurringAdvancedReadOnly: 'Advanced recurrence is retained',
+      calendarThisAndFuture: 'This and future',
+      calendarUntil: 'Until',
+      calendarWeekly: 'Weekly',
+      calendarYearly: 'Yearly',
+    }, window.siyuan.languages || {});
+    window.Lute = window.Lute || {NewNodeID: () => 'dialog-generated-id'};
+    globalThis.__calendarDialogTxCalls = [];
+    globalThis.__calendarDialogMessages = [];
+    globalThis.__calendarDialogOpenBlocks = [];
+    globalThis.__calendarDialogInstances = [];
+
+    const field = (id, type, extra = {}) => ({id, type, name: id, desc: '', width: '', icon: '', wrap: false, pin: false, hidden: false, numberFormat: '', template: '', calc: {}, ...extra});
+    const host = document.createElement('div');
+    host.className = 'av';
+    host.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)});
+    host.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)});
+    document.body.appendChild(host);
+    const calendar = {
+      dateFieldID: 'date',
+      fields: [
+        field('date', 'date'),
+        field('recurrence', 'text'),
+        field('exception', 'text'),
+        field('location', 'text'),
+        field('description', 'text'),
+        field('color', 'select', {options: [{name: 'Focus', color: '1'}, {name: 'Rest', color: '2'}]}),
+      ],
+      fieldMapping: {
+        recurrenceFieldID: 'recurrence',
+        exceptionFieldID: 'exception',
+        locationFieldID: 'location',
+        descriptionFieldID: 'description',
+        colorFieldID: 'color',
+      },
+      cards: [],
+    };
+    const data = {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'};
+    const protyle = {disabled: false, block: {action: []}, app: {}};
+    let saves = 0;
+    let deletes = 0;
+
+    const newDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-01', onSave: () => saves++});
+    newDialog.element.querySelector('#av-event-title').value = 'Dialog smoke event';
+    newDialog.element.querySelector('#av-event-allday').checked = false;
+    newDialog.element.querySelector('#av-event-allday').dispatchEvent(new Event('change', {bubbles: true}));
+    const timeRowVisible = newDialog.element.querySelector('#av-event-time-row').style.display !== 'none';
+    newDialog.element.querySelector('#av-event-start').value = '09:30';
+    newDialog.element.querySelector('#av-event-end').value = '10:45';
+    newDialog.element.querySelector('#av-event-end-date').value = '2026-06-02';
+    newDialog.element.querySelector('#av-event-location').value = 'Dialog Room';
+    newDialog.element.querySelector('#av-event-description').value = 'Dialog details';
+    newDialog.element.querySelector('#av-event-color').value = 'Focus';
+    newDialog.element.querySelector('#av-event-recurrence-freq').value = 'WEEKLY';
+    newDialog.element.querySelector('#av-event-recurrence-freq').dispatchEvent(new Event('change', {bubbles: true}));
+    newDialog.element.querySelector('#av-event-recurrence-interval').value = '2';
+    newDialog.element.querySelector('#av-event-recurrence-count').value = '3';
+    newDialog.element.querySelector('#av-event-recurrence-until').value = '2026-05-01';
+    newDialog.element.querySelector('[data-type="calendar-recurrence-weekday"][value="MO"]').checked = true;
+    newDialog.element.querySelector('[data-type="calendar-recurrence-weekday"][value="WE"]').checked = true;
+    const weekdayVisible = newDialog.element.querySelector('[data-type="calendar-weekday-row"]').style.display !== 'none';
+    newDialog.element.querySelector('[data-type="event-save"]').click();
+    const createCall = globalThis.__calendarDialogTxCalls.find(call => call.type === 'create');
+
+    const event = {
+      id: 'row-dialog',
+      blockID: 'block-dialog',
+      title: 'Existing dialog event',
+      start: dayjs('2026-06-03T11:00:00'),
+      end: dayjs('2026-06-03T12:00:00'),
+      isAllDay: false,
+      recurrenceRaw: 'FREQ=WEEKLY;COUNT=5',
+      location: 'Old room',
+      description: 'Old details',
+      colorContent: 'Rest',
+    };
+    const readOnlyDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-03', event, readOnly: true});
+    const readOnlyDisabled = readOnlyDialog.element.querySelector('#av-event-title').disabled;
+    const readOnlyHasSave = !!readOnlyDialog.element.querySelector('[data-type="event-save"]');
+    readOnlyDialog.element.querySelector('[data-type="event-open-block"]').click();
+    const openedBlock = globalThis.__calendarDialogOpenBlocks[0]?.blockID || '';
+
+    const occurrence = {...event, id: 'row-dialog::2026-06-10', isOccurrence: true, occurrenceDate: '2026-06-10'};
+    const futureDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-10', event: occurrence, onSave: () => saves++});
+    const hasFutureButton = !!futureDialog.element.querySelector('[data-type="event-save-future"]');
+    futureDialog.element.querySelector('#av-event-title').value = 'Future dialog event';
+    futureDialog.element.querySelector('[data-type="event-save-future"]').click();
+    const futureCall = globalThis.__calendarDialogTxCalls.find(call => call.type === 'future');
+
+    const occurrenceDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-10', event: occurrence, onDelete: () => deletes++});
+    occurrenceDialog.element.querySelector('[data-type="event-delete"]').click();
+    const deleteOccurrenceCall = globalThis.__calendarDialogTxCalls.find(call => call.type === 'delete-occurrence');
+
+    const duplicateDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-03', event, onSave: () => saves++});
+    duplicateDialog.element.querySelector('[data-type="event-duplicate"]').click();
+    const duplicateCreateCall = globalThis.__calendarDialogTxCalls.filter(call => call.type === 'create').at(-1);
+
+    const advancedDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-03', event: {...event, recurrenceRaw: 'FREQ=WEEKLY;BYMONTH=1'}});
+    const advancedReadOnly = advancedDialog.element.querySelector('#av-event-recurrence-raw')?.readOnly || false;
+
+    return {
+      timeRowVisible,
+      weekdayVisible,
+      createDraft: createCall?.payload?.draft,
+      createDestroyed: newDialog.destroyed,
+      saves,
+      readOnlyDisabled,
+      readOnlyHasSave,
+      openedBlock,
+      hasFutureButton,
+      futureDraft: futureCall?.payload?.draft,
+      futureDestroyed: futureDialog.destroyed,
+      deleteOccurrenceType: deleteOccurrenceCall?.type || '',
+      deletes,
+      duplicateDraft: duplicateCreateCall?.payload?.draft,
+      advancedReadOnly,
+      messageCount: globalThis.__calendarDialogMessages.length,
+    };
+  })()`);
+  const draft = result?.createDraft || {};
+  const duplicateDraft = result?.duplicateDraft || {};
+  if (!result?.timeRowVisible || !result.weekdayVisible || !result.createDestroyed ||
+    result.saves < 2 || draft.title !== "Dialog smoke event" || draft.date !== "2026-06-01" ||
+    draft.endDate !== "2026-06-02" || draft.startTime !== "09:30" || draft.endTime !== "10:45" ||
+    draft.isAllDay !== false || draft.location !== "Dialog Room" || draft.description !== "Dialog details" ||
+    draft.colorContent !== "Focus" || draft.recurrenceRaw !== "FREQ=WEEKLY;INTERVAL=2;COUNT=3;UNTIL=2026-06-01;BYDAY=MO,WE" ||
+    !result.readOnlyDisabled || result.readOnlyHasSave || result.openedBlock !== "block-dialog" ||
+    !result.hasFutureButton || result.futureDraft?.title !== "Future dialog event" || !result.futureDestroyed ||
+    result.deleteOccurrenceType !== "delete-occurrence" || result.deletes !== 1 ||
+    duplicateDraft.title !== "Existing dialog event" || duplicateDraft.recurrenceRaw !== "" ||
+    !result.advancedReadOnly || result.messageCount !== 0) {
+    fail(`calendar Electron dialog smoke failed: ${JSON.stringify(result)}`);
+  }
+  return result;
+};
+
 const runCalendarRenderSmoke = async (debugPort, renderModule) => {
   const fixture = {
     avID: nodeID(),
@@ -512,11 +737,13 @@ const main = async () => {
   let kernel;
   let electron;
   let renderHarness;
+  let dialogHarness;
 
   try {
     fs.mkdirSync(siyuanConfig, {recursive: true});
     fs.writeFileSync(path.join(siyuanConfig, "workspace.json"), JSON.stringify([workspace]));
     renderHarness = compileCalendarRenderHarness();
+    dialogHarness = compileCalendarDialogHarness();
     if (!hadAppBuildDir) {
       if (!fs.existsSync(path.join(desktopBuildDir, "index.html"))) {
         fail(`desktop build output missing at ${desktopBuildDir}; run cd app && corepack pnpm run build:desktop first`);
@@ -593,6 +820,7 @@ const main = async () => {
     const debugInfo = await waitForElectronDebug(debugPort);
     const uiState = await waitForAppShell(debugPort);
     const renderState = await runCalendarRenderSmoke(debugPort, renderHarness.renderModule);
+    const dialogState = await runCalendarDialogSmoke(debugPort, dialogHarness.dialogModule);
     if (electron.exitCode !== null) {
       fail(`electron exited before launch smoke completed: ${electronOutput.slice(-2000)}`);
     }
@@ -600,7 +828,7 @@ const main = async () => {
     if (electron.exitCode !== null) {
       fail(`electron exited shortly after exposing debug target: ${electronOutput.slice(-2000)}`);
     }
-    console.log(`calendar electron launch smoke passed: workspace=${workspace} debugPort=${debugPort} browser=${debugInfo.browser} href=${uiState.href} renderedEvents=${renderState.eventCount}`);
+    console.log(`calendar electron launch smoke passed: workspace=${workspace} debugPort=${debugPort} browser=${debugInfo.browser} href=${uiState.href} renderedEvents=${renderState.eventCount} dialogSaves=${dialogState.saves}`);
   } finally {
     await stopProcessGroup(electron);
     if (kernel && kernel.exitCode === null) {
@@ -622,6 +850,9 @@ const main = async () => {
     }
     if (renderHarness?.tempDir) {
       fs.rmSync(renderHarness.tempDir, {recursive: true, force: true, maxRetries: 3});
+    }
+    if (dialogHarness?.tempDir) {
+      fs.rmSync(dialogHarness.tempDir, {recursive: true, force: true, maxRetries: 3});
     }
     if (process.env.SIYUAN_CALENDAR_KEEP_SMOKE_WORKSPACE !== "1") {
       fs.rmSync(workspace, {recursive: true, force: true, maxRetries: 3});

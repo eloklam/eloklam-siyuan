@@ -507,10 +507,19 @@ for (const term of [
   "waitForElectronDebug(debugPort)",
   "waitForAppShell(debugPort)",
   "compileCalendarRenderHarness",
+  "compileCalendarDialogHarness",
   "runCalendarRenderSmoke(debugPort, renderHarness.renderModule)",
+  "runCalendarDialogSmoke(debugPort, dialogHarness.dialogModule)",
   "renderModule.renderCalendar",
+  "dialogModule.openEventDialog",
   "Calendar UI render smoke event",
   "Calendar none smoke event",
+  "Dialog smoke event",
+  "event-save-future",
+  "futureDraft",
+  "delete-occurrence",
+  "av-event-recurrence-raw",
+  "FREQ=WEEKLY;INTERVAL=2;COUNT=3;UNTIL=2026-06-01;BYDAY=MO,WE",
   "search.dispatchEvent(new Event('input'",
   "calendar-prev-event",
   "calendar-next-event",
@@ -521,6 +530,7 @@ for (const term of [
   "weekMode",
   "scheduleMode",
   "renderedEvents=${renderState.eventCount}",
+  "dialogSaves=${dialogState.saves}",
   "hasOpenFileByURL",
   "hasSiYuanTarget",
   "stopProcessGroup(electron)",
@@ -532,4 +542,4 @@ for (const term of [
   }
 }
 
-console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions/electron smoke scripts`);
+console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions/electron render+dialog smoke scripts`);
