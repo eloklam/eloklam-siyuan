@@ -315,6 +315,22 @@ const getDraftFromDialog = (dialog: Dialog) => {
     };
 };
 
+const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, mapping: ReturnType<typeof getCalendarFieldMapping>) => {
+    if (!draft.title) {
+        showMessage(`${window.siyuan.languages.title || "Title"} ${window.siyuan.languages.invalid || "Invalid"}`);
+        return;
+    }
+    if (!isRealDateInputValue(draft.date)) {
+        showMessage(`${window.siyuan.languages.date || "Date"} ${window.siyuan.languages.invalid || "Invalid"}`);
+        return;
+    }
+    if (!mapping.dateFieldID) {
+        showMessage(window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field");
+        return;
+    }
+    showMessage(window.siyuan.languages._kernel[29]);
+};
+
 const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
@@ -322,7 +338,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
-        showMessage(window.siyuan.languages._kernel[29]);
+        showInvalidDraftMessage(draft, mapping);
         return;
     }
     if (options.event) {
@@ -386,7 +402,7 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!options.event || !options.event.isOccurrence || !draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {
-        showMessage(window.siyuan.languages._kernel[29]);
+        showInvalidDraftMessage(draft, mapping);
         return;
     }
     if (!updateCalendarEventThisAndFuture({
@@ -420,7 +436,7 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
-        showMessage(window.siyuan.languages._kernel[29]);
+        showInvalidDraftMessage(draft, mapping);
         return;
     }
     if (!createCalendarEvent({
