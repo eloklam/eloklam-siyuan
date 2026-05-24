@@ -300,7 +300,7 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
 const getDraftFromDialog = (dialog: Dialog) => {
     const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement).value;
     const endDateInput = (dialog.element.querySelector("#av-event-end-date") as HTMLInputElement).value;
-    const endDate = endDateInput && endDateInput >= date ? endDateInput : date;
+    const endDate = isRealDateInputValue(endDateInput) && endDateInput >= date ? endDateInput : date;
     return {
         title: (dialog.element.querySelector("#av-event-title") as HTMLInputElement).value.trim(),
         date,
@@ -321,7 +321,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const draft = getDraftFromDialog(dialog);
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    if (!draft.title || !draft.date || !avID || !blockID || !mapping.dateFieldID) {
+    if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
         showMessage(window.siyuan.languages._kernel[29]);
         return;
     }
@@ -376,7 +376,7 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const draft = getDraftFromDialog(dialog);
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    if (!options.event || !options.event.isOccurrence || !draft.title || !draft.date || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {
+    if (!options.event || !options.event.isOccurrence || !draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {
         showMessage(window.siyuan.languages._kernel[29]);
         return;
     }
@@ -407,7 +407,7 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     };
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    if (!draft.title || !draft.date || !avID || !blockID || !mapping.dateFieldID) {
+    if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
         showMessage(window.siyuan.languages._kernel[29]);
         return;
     }
