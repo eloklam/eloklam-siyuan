@@ -45,6 +45,14 @@ const parseRecurrenceUntilDate = (value: string) => {
 
 const isDateInputValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
+const getPositiveIntegerInputValue = (value: string, fallback?: number) => {
+    if (!/^\d+$/.test(value)) {
+        return fallback;
+    }
+    const parsed = parseInt(value, 10);
+    return parsed > 0 ? parsed : fallback;
+};
+
 const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     const raw = (value || "").trim();
     if (!raw || raw.toLowerCase() === "none") {
@@ -162,16 +170,16 @@ const getRecurrenceFromDialog = (dialog: Dialog) => {
     if (!freq) {
         return "";
     }
-    const interval = parseInt((dialog.element.querySelector("#av-event-recurrence-interval") as HTMLInputElement)?.value || "1", 10);
-    const count = parseInt((dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement)?.value || "", 10);
+    const interval = getPositiveIntegerInputValue((dialog.element.querySelector("#av-event-recurrence-interval") as HTMLInputElement)?.value || "", 1);
+    const count = getPositiveIntegerInputValue((dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement)?.value || "");
     const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement)?.value;
     const untilInput = (dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement)?.value;
     const until = untilInput && date && untilInput < date ? date : untilInput;
     const parts = [`FREQ=${freq}`];
-    if (interval > 1) {
+    if (interval && interval > 1) {
         parts.push(`INTERVAL=${interval}`);
     }
-    if (count > 0) {
+    if (count && count > 0) {
         parts.push(`COUNT=${count}`);
     }
     if (until) {
