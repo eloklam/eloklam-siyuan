@@ -449,7 +449,7 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
     if (options.event.isOccurrence && mapping.exceptionFieldID) {
-        deleteCalendarOccurrence({
+        if (!deleteCalendarOccurrence({
             protyle: options.protyle,
             avID,
             blockID,
@@ -458,18 +458,24 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             event: options.event,
             occurrenceDate: options.event.start.format("YYYY-MM-DD"),
             previousUpdated: options.blockElement.getAttribute("updated") || "",
-        });
+        })) {
+            showMessage(window.siyuan.languages._kernel[29]);
+            return;
+        }
         dialog.destroy();
         options.onDelete?.();
         return;
     }
-    deleteCalendarEvent({
+    if (!deleteCalendarEvent({
         protyle: options.protyle,
         avID,
         blockID,
         event: options.event,
         previousUpdated: options.blockElement.getAttribute("updated") || "",
-    });
+    })) {
+        showMessage(window.siyuan.languages._kernel[29]);
+        return;
+    }
     dialog.destroy();
     options.onDelete?.();
 };
