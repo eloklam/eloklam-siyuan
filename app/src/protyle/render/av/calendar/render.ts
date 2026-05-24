@@ -159,7 +159,7 @@ const getEventTooltip = (event: ICalendarNormalizedEvent) => {
         event.location ? `${window.siyuan.languages.calendarLocation || "Location"}: ${event.location}` : "",
         event.description ? `${window.siyuan.languages.calendarDescription || "Description"}: ${event.description}` : "",
         event.recurrenceRaw ? `${window.siyuan.languages.calendarRecurrence || "Recurrence"}: ${event.recurrenceRaw}` : "",
-        event.isOccurrence ? window.siyuan.languages.calendarDeleteOccurrence || "Recurring occurrence" : "",
+        event.isOccurrence ? window.siyuan.languages.calendarOccurrence || "Recurring occurrence" : "",
     ].filter(Boolean).join("\n");
 };
 

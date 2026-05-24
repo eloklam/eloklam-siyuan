@@ -45,6 +45,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Quick-copy events to the next day from the Calendar surface as independent one-off events.
 - Event date, end date, all-day, time, title, location, description, recurrence, exception, and color field handling.
 - Event tooltip and accessibility label with full date/time and mapped metadata.
+- Event tooltip and accessibility label use descriptive occurrence text for recurring occurrences.
 - Visible recurring-series and occurrence markers on event pills.
 - Drag move and timed resize for calendar events.
 - Schedule rows support drag/drop event moves.

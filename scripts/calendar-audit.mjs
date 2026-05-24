@@ -148,6 +148,7 @@ for (const term of [
   "getEventDateLabel",
   "title=\"${escapeAttr(eventTooltip)}\"",
   "aria-label=\"${escapeAttr(eventTooltip)}\"",
+  "window.siyuan.languages.calendarOccurrence || \"Recurring occurrence\"",
   "const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence",
   "event.isOccurrence ? \"O\" : \"R\"",
   "${recurrenceMarker}",

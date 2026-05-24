@@ -1793,6 +1793,7 @@
   "calendarUntil": "Until",
   "calendarWeekStart": "Week starts on",
   "calendarRecurrence": "Recurrence",
+  "calendarOccurrence": "Recurring occurrence",
   "calendarTimed": "Timed",
   "calendarEvents": "Events",
   "calendarPreviousEvent": "Previous event",
