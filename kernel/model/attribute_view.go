@@ -1667,10 +1667,36 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 			return fmt.Errorf("colorFieldID must be a string")
 		}
 	}
+	if err = validateCalendarFieldMappingUnique(&mapping); err != nil {
+		return
+	}
 
 	view.Calendar.FieldMapping = &mapping
 	err = av.SaveAttributeView(attrView)
 	ReloadAttrView(attrView.ID)
+	return
+}
+
+func validateCalendarFieldMappingUnique(mapping *av.CalendarFieldMapping) (err error) {
+	if nil == mapping {
+		return
+	}
+	seen := map[string]string{}
+	fields := map[string]string{
+		"recurrenceFieldID":  mapping.RecurrenceFieldID,
+		"exceptionFieldID":   mapping.ExceptionFieldID,
+		"locationFieldID":    mapping.LocationFieldID,
+		"descriptionFieldID": mapping.DescriptionFieldID,
+	}
+	for name, fieldID := range fields {
+		if "" == fieldID {
+			continue
+		}
+		if previous, exists := seen[fieldID]; exists {
+			return fmt.Errorf("calendar metadata field [%s] duplicates [%s]", name, previous)
+		}
+		seen[fieldID] = name
+	}
 	return
 }
 

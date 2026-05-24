@@ -1,5 +1,6 @@
 import {transaction} from "../../wysiwyg/transaction";
 import {Constants} from "../../../constants";
+import {showMessage} from "../../../dialog/message";
 import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {fetchSyncPost} from "../../../util/fetch";
 import {getCardAspectRatio} from "./gallery/util";
@@ -7,6 +8,23 @@ import {getFieldsByData} from "./view";
 
 const getWeekdayLabel = (day: 0 | 1) => {
     return new Intl.DateTimeFormat(window.siyuan.config.lang.replace("_", "-"), {weekday: "long"}).format(new Date(2020, 5, 7 + day));
+};
+
+const validateCalendarMetadataMapping = (mapping: Partial<NonNullable<IAVCalendar["fieldMapping"]>>, changedField?: string) => {
+    const names = ["recurrenceFieldID", "exceptionFieldID", "locationFieldID", "descriptionFieldID"];
+    const used = new Set<string>();
+    for (const name of names) {
+        const fieldID = mapping?.[name as keyof NonNullable<IAVCalendar["fieldMapping"]>];
+        if (!fieldID) {
+            continue;
+        }
+        if (used.has(fieldID)) {
+            showMessage((window.siyuan.languages.calendarDuplicateMetadataField || "Please choose different fields for ${x} metadata.").replace("${x}", changedField || ""));
+            return false;
+        }
+        used.add(fieldID);
+    }
+    return true;
 };
 
 export const getLayoutHTML = (data: IAV) => {
@@ -353,6 +371,10 @@ const bindCalendarLayoutEvent = (options: {
         item.addEventListener("change", () => {
             const previous = {...(calendarView.fieldMapping || {})};
             const next = {...previous, [item.dataset.field]: item.value};
+            if (!validateCalendarMetadataMapping(next, item.dataset.field)) {
+                item.value = previous[item.dataset.field as keyof NonNullable<IAVCalendar["fieldMapping"]>] || "";
+                return;
+            }
             transaction(options.protyle, [{
                 action: "setAttrViewCalendarFieldMapping",
                 avID,

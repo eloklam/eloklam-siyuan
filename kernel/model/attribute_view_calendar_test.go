@@ -40,6 +40,27 @@ func TestValidateCalendarMappingField(t *testing.T) {
 	}
 }
 
+func TestValidateCalendarFieldMappingUnique(t *testing.T) {
+	if err := validateCalendarFieldMappingUnique(nil); err != nil {
+		t.Fatalf("nil mapping should be accepted: %v", err)
+	}
+	if err := validateCalendarFieldMappingUnique(&av.CalendarFieldMapping{
+		RecurrenceFieldID:  "recurrence",
+		ExceptionFieldID:   "exception",
+		LocationFieldID:    "location",
+		DescriptionFieldID: "description",
+		ColorFieldID:       "recurrence",
+	}); err != nil {
+		t.Fatalf("color mapping may reuse text metadata field IDs because it has a different key type: %v", err)
+	}
+	if err := validateCalendarFieldMappingUnique(&av.CalendarFieldMapping{
+		RecurrenceFieldID: "metadata",
+		ExceptionFieldID:  "metadata",
+	}); err == nil {
+		t.Fatal("duplicate text metadata fields should be rejected")
+	}
+}
+
 func TestCalendarWeekStartFromOperationData(t *testing.T) {
 	weekStart, err := calendarWeekStartFromOperationData(float64(0))
 	if err != nil {
