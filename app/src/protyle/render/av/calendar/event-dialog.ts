@@ -32,6 +32,13 @@ const getWeekdayLabels = () => {
     return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + index)));
 };
 
+const isDateInputValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const isRealDateInputValue = (value: string) => {
+    const parsed = dayjs(value);
+    return isDateInputValue(value) && parsed.isValid() && parsed.format("YYYY-MM-DD") === value;
+};
+
 const parseRecurrenceUntilDate = (value: string) => {
     if (/^\d{8}$/.test(value)) {
         return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
@@ -42,8 +49,6 @@ const parseRecurrenceUntilDate = (value: string) => {
     }
     return value.slice(0, 10);
 };
-
-const isDateInputValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const getPositiveIntegerInputValue = (value: string, fallback?: number) => {
     if (!/^\d+$/.test(value)) {
@@ -97,7 +102,7 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
             }
         } else if (key === "UNTIL") {
             const until = parseRecurrenceUntilDate(val);
-            if (isDateInputValue(until)) {
+            if (isRealDateInputValue(until)) {
                 result.until = until;
             } else {
                 result.isAdvanced = true;
