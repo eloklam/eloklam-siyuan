@@ -38,8 +38,22 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
     };
 };
 
+const normalizeExceptionDate = (value: string) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return value;
+    }
+    if (/^\d{8}$/.test(value)) {
+        return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+    }
+    const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T\d{6}Z?$/);
+    if (dateTimeMatch) {
+        return `${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`;
+    }
+    return "";
+};
+
 const parseRecurrenceExceptions = (value = "") => {
-    return value.split(/[\s,;]+/).map(item => item.trim()).filter(item => /^\d{4}-\d{2}-\d{2}$/.test(item));
+    return value.split(/[\s,;]+/).map(item => normalizeExceptionDate(item.trim())).filter(Boolean);
 };
 
 export const normalizeCalendarEvents = (
