@@ -1,15 +1,22 @@
 import {ICalendarFieldMapping, ICalendarNormalizedEvent, getCellByFieldID, getTextFromCell} from "./model";
 
+const getMappedFieldID = (calendarData: IAVCalendar, fieldID: string | undefined, allowedTypes: TAVCol[]) => {
+    if (!fieldID) {
+        return undefined;
+    }
+    return calendarData.fields.some(field => field.id === fieldID && allowedTypes.includes(field.type)) ? fieldID : undefined;
+};
+
 export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFieldMapping => {
     const dateFieldID = calendarData.dateFieldID || "";
     const persisted = calendarData.fieldMapping || {};
     return {
         dateFieldID,
-        recurrenceFieldID: persisted.recurrenceFieldID,
-        exceptionFieldID: persisted.exceptionFieldID,
-        locationFieldID: persisted.locationFieldID,
-        descriptionFieldID: persisted.descriptionFieldID,
-        colorFieldID: persisted.colorFieldID,
+        recurrenceFieldID: getMappedFieldID(calendarData, persisted.recurrenceFieldID, ["text", "template"]),
+        exceptionFieldID: getMappedFieldID(calendarData, persisted.exceptionFieldID, ["text", "template"]),
+        locationFieldID: getMappedFieldID(calendarData, persisted.locationFieldID, ["text", "template"]),
+        descriptionFieldID: getMappedFieldID(calendarData, persisted.descriptionFieldID, ["text", "template"]),
+        colorFieldID: getMappedFieldID(calendarData, persisted.colorFieldID, ["select", "mSelect"]),
         hasDateField: !!dateFieldID && calendarData.fields.some(field => field.id === dateFieldID && field.type === "date"),
     };
 };
