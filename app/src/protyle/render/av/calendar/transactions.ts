@@ -175,9 +175,12 @@ const buildSelectValue = (field: IAVColumn, value?: string, oldValue?: IAVCellVa
         } : undefined;
     }
     const option = field.options?.find(item => item.name === content);
+    if (!option) {
+        return undefined;
+    }
     const selectValue = {
         content,
-        color: option?.color || "1",
+        color: option.color || "1",
     };
     const base = oldValue ? clone(oldValue) : {type: field.type, keyID: field.id} as IAVCellValue;
     base.type = field.type;
