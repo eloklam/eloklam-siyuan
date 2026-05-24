@@ -37,6 +37,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Configurable date field and week start.
 - Empty calendar date-field setup and date-field creation.
 - Event create, edit, delete, duplicate.
+- Event dialog can jump to the source block for existing events.
 - Double-click empty calendar day areas to create events.
 - Quick-copy events to the next day from the Calendar surface.
 - Event date, end date, all-day, time, title, location, description, recurrence, exception, and color field handling.
@@ -93,7 +94,7 @@ Also passed:
 - All `app/appearance/langs/*.json` parse as JSON.
 - Calendar language keys used by code exist in every language file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
+- Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
 - Calendar SCSS selectors for container, focus-visible ring, responsive toolbar wrapping, event summary, month grid, event pill, recurrence marker, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
@@ -117,6 +118,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Selecting an existing date field renders events.
 - Creating a date field from empty Calendar works and can be undone.
 - Creating, editing, duplicating, and deleting events refreshes the Calendar.
+- Opening an existing event from the dialog jumps to the source block.
 - Double-clicking empty day areas opens a new event dialog for that date.
 - Quick-copying an event creates an independent next-day event.
 - Editing date, end date, all-day, start/end time, title, location, description, recurrence, and color persists correctly.

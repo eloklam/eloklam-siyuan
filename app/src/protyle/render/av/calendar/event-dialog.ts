@@ -1,5 +1,10 @@
 import {Dialog} from "../../../../dialog";
+import {Constants} from "../../../../constants";
 import {showMessage} from "../../../../dialog/message";
+import {openFileById} from "../../../../editor/util";
+/// #if MOBILE
+import {openMobileFileById} from "../../../../mobile/editor";
+/// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent} from "./model";
@@ -244,6 +249,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
+        ${event?.blockID ? `<button class="b3-button b3-button--outline" data-type="event-open-block">${window.siyuan.languages.jumpTo || "Jump to"}</button><span class="fn__space"></span>` : ""}
         ${isEditing ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${deleteLabel}</button><span class="fn__space"></span>` : ""}
         ${canEditFuture ? `<button class="b3-button b3-button--outline" data-type="event-save-future">${window.siyuan.languages.calendarThisAndFuture || "This and future"}</button><span class="fn__space"></span>` : ""}
         <button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>
@@ -289,12 +295,30 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => saveFutureEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => deleteEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => duplicateEvent(dialog, options));
+    dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.key === "Enter") {
             event.preventDefault();
             saveEvent(dialog, options);
         }
     });
+};
+
+const openEventBlock = (dialog: Dialog, options: IEventDialogOptions) => {
+    const blockID = options.event?.blockID;
+    if (!blockID) {
+        return;
+    }
+    /// #if !MOBILE
+    openFileById({
+        app: options.protyle.app,
+        id: blockID,
+        action: [Constants.CB_GET_FOCUS],
+    });
+    /// #else
+    openMobileFileById(options.protyle.app, blockID, [Constants.CB_GET_FOCUS]);
+    /// #endif
+    dialog.destroy();
 };
 
 const getDraftFromDialog = (dialog: Dialog) => {

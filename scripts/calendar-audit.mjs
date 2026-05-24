@@ -53,6 +53,8 @@ const expectedFeatureTerms = [
   "dblclick",
   "calendar-resize",
   "calendar-duplicate-next-day",
+  "event-open-block",
+  "openEventBlock",
   "getEventTooltip",
   "av__calendar-recurring",
   "data-days",
@@ -191,6 +193,10 @@ for (const term of [
   "showInvalidDraftMessage",
   "window.siyuan.languages.calendarNeedDateField",
   "window.siyuan.languages.invalid",
+  "event?.blockID ? `<button class=\"b3-button b3-button--outline\" data-type=\"event-open-block\"",
+  "openFileById({",
+  "openMobileFileById(options.protyle.app, blockID, [Constants.CB_GET_FOCUS])",
+  "dialog.destroy();",
 ]) {
   if (!eventDialog.includes(term)) {
     fail(`event dialog missing validation feedback term: ${term}`);
