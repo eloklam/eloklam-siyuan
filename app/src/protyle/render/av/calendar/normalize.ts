@@ -17,7 +17,10 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
         return undefined;
     }
     const rawEnd = dateValue.hasEndDate && dateValue.content2 ? dayjs(dateValue.content2) : undefined;
-    const end = rawEnd?.isValid() ? rawEnd : (dateValue.isNotTime === false ? start.add(1, "hour") : start.endOf("day"));
+    let end = rawEnd?.isValid() ? rawEnd : (dateValue.isNotTime === false ? start.add(1, "hour") : start.endOf("day"));
+    if (end.isBefore(start)) {
+        end = dateValue.isNotTime === false ? start.add(1, "hour") : start.endOf("day");
+    }
     return {
         id: card.id,
         blockID: blockValue?.id,
