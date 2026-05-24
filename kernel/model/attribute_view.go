@@ -1455,12 +1455,10 @@ func setAttrViewCalendarDateField(operation *Operation) (err error) {
 
 	key, getErr := attrView.GetKey(dateFieldID)
 	if nil != getErr {
-		logging.LogWarnf("calendar date field [%s] not found: %s", dateFieldID, getErr)
-		return
+		return fmt.Errorf("calendar date field [%s] not found: %w", dateFieldID, getErr)
 	}
 	if av.KeyTypeDate != key.Type {
-		logging.LogWarnf("calendar date field [%s] is not a date type", dateFieldID)
-		return
+		return fmt.Errorf("calendar date field [%s] is not a date type", dateFieldID)
 	}
 
 	view.Calendar.DateFieldID = dateFieldID
