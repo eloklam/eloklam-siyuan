@@ -136,7 +136,8 @@ const getRecurrenceFromDialog = (dialog: Dialog) => {
 export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const {event, date} = options;
     const isEditing = !!event;
-    const canEditFuture = !!event?.isOccurrence && !!getCalendarFieldMapping(options.data.view as IAVCalendar).recurrenceFieldID;
+    const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
+    const canEditFuture = !!event?.isOccurrence && !!mapping.recurrenceFieldID;
     const content = `<div class="b3-dialog__content av__calendar-dialog">
     <div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}">
@@ -154,18 +155,18 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <span class="av__calendar-time-sep">-</span>
         <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${event?.end?.format("HH:mm") || "10:00"}">
     </div>
-    <div class="b3-form__space">
+    ${mapping.locationFieldID ? `<div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}">
-    </div>
-    <div class="b3-form__space">
+    </div>` : ""}
+    ${mapping.recurrenceFieldID ? `<div class="b3-form__space">
         ${renderRecurrenceFields(event)}
-    </div>
-    <div class="b3-form__space">
+    </div>` : ""}
+    ${mapping.descriptionFieldID ? `<div class="b3-form__space">
         <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${escapeHtml(event?.description || "")}</textarea>
-    </div>
-    <div class="b3-form__space">
+    </div>` : ""}
+    ${mapping.colorFieldID ? `<div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-color" placeholder="${window.siyuan.languages.color || "Color"}" value="${escapeAttr(event?.colorContent || "")}">
-    </div>
+    </div>` : ""}
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
