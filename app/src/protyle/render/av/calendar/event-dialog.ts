@@ -347,7 +347,12 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
 const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
-    const draft = getDraftFromDialog(dialog);
+    const currentDraft = getDraftFromDialog(dialog);
+    const draft = {
+        ...currentDraft,
+        recurrenceRaw: options.event?.isOccurrence ? "" : currentDraft.recurrenceRaw,
+        recurrenceExceptionRaw: "",
+    };
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!draft.title || !draft.date || !avID || !blockID || !mapping.dateFieldID) {
