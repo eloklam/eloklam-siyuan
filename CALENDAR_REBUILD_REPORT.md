@@ -41,6 +41,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Quick-copy events to the next day from the Calendar surface.
 - Event date, end date, all-day, time, title, location, description, recurrence, exception, and color field handling.
 - Event tooltip and accessibility label with full date/time and mapped metadata.
+- Visible recurring-series and occurrence markers on event pills.
 - Drag move and timed resize for calendar events.
 - Schedule rows support drag/drop event moves.
 - Direct all-day event duration resize by day.
@@ -92,10 +93,10 @@ Also passed:
 - All `app/appearance/langs/*.json` parse as JSON.
 - Calendar language keys used by code exist in every language file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
+- Static feature precheck covers create/update/delete, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
-- Calendar SCSS selectors for container, focus-visible ring, responsive toolbar wrapping, event summary, month grid, event pill, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
+- Calendar SCSS selectors for container, focus-visible ring, responsive toolbar wrapping, event summary, month grid, event pill, recurrence marker, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
 - Recurrence and normalization guards for `None`, strict `UNTIL`, duplicate parts, weekly `BYDAY`, count/until limits, exception parsing, and invalid end-date clamping are covered by `scripts/calendar-audit.mjs`.
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
@@ -123,6 +124,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Drag move and resize persist correctly.
 - Schedule mode day rows accept dropped events.
 - Recurring event expansion is visible; `None` does not create recurrence.
+- Recurring series and occurrence markers appear on event pills.
 - Deleting a single occurrence writes an exception.
 - Editing a single occurrence creates a replacement event.
 - This-and-future split truncates the old series and creates the new series.

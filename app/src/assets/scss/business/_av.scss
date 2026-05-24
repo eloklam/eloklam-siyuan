@@ -1290,6 +1290,17 @@ img.av__cellassetimg {
     padding-left: 4px;
   }
 
+  &-recurring {
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    flex: 0 0 auto;
+    font-size: 10px;
+    line-height: 14px;
+    min-width: 14px;
+    opacity: 0.78;
+    text-align: center;
+  }
+
   &-recurrence {
     display: grid;
     gap: 8px;

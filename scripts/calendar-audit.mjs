@@ -54,6 +54,7 @@ const expectedFeatureTerms = [
   "calendar-resize",
   "calendar-duplicate-next-day",
   "getEventTooltip",
+  "av__calendar-recurring",
   "data-days",
 ];
 
@@ -131,6 +132,9 @@ for (const term of [
   "getEventDateLabel",
   "title=\"${escapeAttr(eventTooltip)}\"",
   "aria-label=\"${escapeAttr(eventTooltip)}\"",
+  "const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence",
+  "event.isOccurrence ? \"O\" : \"R\"",
+  "${recurrenceMarker}",
   "jumpDateInput",
   "setCalendarAnchor",
   "getCurrentAnchor",
@@ -338,6 +342,7 @@ for (const term of [
   "&-month",
   "&-event",
   "&-resize",
+  "&-recurring",
   "&-recurrence",
   "&-week",
   "&-day-view",

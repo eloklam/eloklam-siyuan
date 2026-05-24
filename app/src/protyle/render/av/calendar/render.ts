@@ -138,8 +138,11 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
         `${formatCalendarDate(event.start, {month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {month: "short", day: "numeric"})} ` : "";
     const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
     const eventTooltip = getEventTooltip(event);
+    const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence ?
+        `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
     return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${editable ? "" : " disabled"}${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
+    ${recurrenceMarker}
     ${!editable ? "" : (event.isAllDay ?
         `<span class="av__calendar-resize" data-type="calendar-resize" data-days="-1">-1d</span><span class="av__calendar-resize" data-type="calendar-resize" data-days="1">+1d</span>` :
         `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`)}
