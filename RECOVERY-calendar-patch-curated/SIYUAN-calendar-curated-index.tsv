@@ -1,0 +1,14 @@
+target	label	status	size	patch_file
+kernel/model/attribute_view.go	backend_layout_support	SELECTED	200376	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/backend_layout_support__kernel_model_attribute_view.go.patch
+app/src/protyle/render/av/calendar/render.ts	calendar_render	SELECTED	200376	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/calendar_render__app_src_protyle_render_av_calendar_render.ts.patch
+app/src/protyle/render/av/calendar/event-dialog.ts	event_dialog	SELECTED	10676	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/event_dialog__app_src_protyle_render_av_calendar_event-dialog.ts.patch
+app/src/assets/scss/business/_av.scss	calendar_style	SELECTED	200376	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/calendar_style__app_src_assets_scss_business__av.scss.patch
+app/src/protyle/render/av/calendar/mapped-fields.ts	mapped_fields	SELECTED	4803	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/mapped_fields__app_src_protyle_render_av_calendar_mapped-fields.ts.patch
+app/src/protyle/render/av/calendar/normalize.ts	normalize	SELECTED	1582	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/normalize__app_src_protyle_render_av_calendar_normalize.ts.patch
+app/src/protyle/render/av/calendar/recurrence.ts	recurrence	SELECTED	662	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/recurrence__app_src_protyle_render_av_calendar_recurrence.ts.patch
+app/src/protyle/render/av/calendar/transactions.ts	transactions	SELECTED	200376	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/transactions__app_src_protyle_render_av_calendar_transactions.ts.patch
+app/src/protyle/render/av/layout.ts	layout_switch	SELECTED	200376	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/layout_switch__app_src_protyle_render_av_layout.ts.patch
+app/appearance/langs/de_DE.json	lang_de	SELECTED	1232	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/lang_de__app_appearance_langs_de_DE.json.patch
+app/appearance/langs/en_US.json	lang_en	SELECTED	1092	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/lang_en__app_appearance_langs_en_US.json.patch
+app/appearance/langs/zh_CHT.json	lang_zh_cht	SELECTED	812	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/lang_zh_cht__app_appearance_langs_zh_CHT.json.patch
+app/appearance/langs/zh_CN.json	lang_zh_cn	SELECTED	810	/mnt/recoveryssd/reconstruction-clean/SIYUAN-fork/calendar-patch-curated/patches/lang_zh_cn__app_appearance_langs_zh_CN.json.patch

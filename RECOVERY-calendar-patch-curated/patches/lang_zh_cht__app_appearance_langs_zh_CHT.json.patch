@@ -1,0 +1,16 @@
+diff --git a/app/appearance/langs/zh_CHT.json b/app/appearance/langs/zh_CHT.json
+index 79432c840..19ad320a5 100644
+--- a/app/appearance/langs/zh_CHT.json
++++ b/app/appearance/langs/zh_CHT.json
+@@ -1562,7 +1562,11 @@
+     "calendarEventCreateFailed": "建立事件失敗：${x}",
+     "calendarReadOnlyMode": "唯讀模式下無法建立事件",
+     "calendarEditReadOnlyMode": "唯讀模式下無法編輯事件",
++    "calendarRecurringAdvancedReadOnly": "進階重複規則將保留，不可在此處編輯。",
++    "calendarDuplicateMetadataField": "請為 ${x} 選擇不同的元資料欄位。",
+     "calendarNoDateField": "未找到日期欄位",
++    "calendarNeedDateField": "日曆需要一個日期欄位",
++    "calendarCreateDateColumn": "未找到日期欄位。是否建立\"${x}\"欄位並切換至日曆檢視？",
+     "calendarInvalidDate": "選擇的日期無效",
+     "calendarInvalidTime": "標題中的時間無效。小時必須是0-23，分鐘必須是0-59。",
+     "calendarInvalidTimezone": "無效的時區：${x}。請使用格式如\"Asia/Taipei\"或\"UTC+8\"。",

@@ -1,0 +1,139 @@
+diff --git a/app/src/protyle/render/av/calendar/mapped-fields.ts b/app/src/protyle/render/av/calendar/mapped-fields.ts
+index 5377d5e61..28e9e59a7 100644
+--- a/app/src/protyle/render/av/calendar/mapped-fields.ts
++++ b/app/src/protyle/render/av/calendar/mapped-fields.ts
+@@ -3,7 +3,7 @@
+  * Handles text-only metadata field updates with proper cell identity
+  */
+ 
+-import {ICalendarNormalizedEvent} from "./types";
++import {ICalendarFieldMapping, ICalendarNormalizedEvent} from "./types";
+ 
+ /**
+  * Result of building a cell update operation
+@@ -122,6 +122,83 @@ export const buildTextCellUpdate = (
+     };
+ };
+ 
++/**
++ * Build cell update operation for a text/template field.
++ * Used for recurrence which supports both text and template cells.
++ */
++export const buildTextOrTemplateCellUpdate = (
++    avID: string,
++    event: ICalendarNormalizedEvent,
++    fieldID: string,
++    newValue: string,
++    oldValue: string,
++    fields: IAVColumn[],
++    allowTemplate = false,
++): ICellUpdateResult | null => {
++    const targetType = getFieldType(fieldID, fields);
++    if (targetType !== "text" && !(allowTemplate && targetType === "template")) {
++        return null;
++    }
++
++    const existingCell = findExistingCell(event, fieldID);
++
++    // For edits, we MUST have an existing cell with an ID
++    if (!existingCell?.id) {
++        console.warn(`[Calendar] No existing cell found for field ${fieldID}`);
++        return null;
++    }
++
++    const cellID = existingCell.id;
++
++    const oldCellValue: IAVCellValue = existingCell.value
++        ? JSON.parse(JSON.stringify(existingCell.value))
++        : {
++            type: targetType,
++            id: cellID,
++            keyID: fieldID,
++            ...(targetType === "template" ? {template: {content: oldValue}} : {text: {content: oldValue}}),
++        };
++
++    // Ensure required properties
++    oldCellValue.id = cellID;
++    if (!oldCellValue.keyID) oldCellValue.keyID = fieldID;
++    if (!oldCellValue.type) oldCellValue.type = targetType;
++
++    const newCellValue: IAVCellValue = {
++        ...(JSON.parse(JSON.stringify(oldCellValue))),
++        type: targetType,
++        id: cellID,
++        keyID: fieldID,
++    };
++
++    if (targetType === "template") {
++        newCellValue.template = {content: newValue};
++        delete newCellValue.text;
++    } else {
++        newCellValue.text = {content: newValue};
++        delete newCellValue.template;
++    }
++
++    return {
++        doOp: {
++            action: "updateAttrViewCell",
++            id: cellID,
++            avID,
++            keyID: fieldID,
++            rowID: event.id,
++            data: newCellValue,
++        },
++        undoOp: {
++            action: "updateAttrViewCell",
++            id: cellID,
++            avID,
++            keyID: fieldID,
++            rowID: event.id,
++            data: oldCellValue,
++        },
++    };
++};
++
+ /**
+  * Build all metadata field updates for an event edit
+  * Combines recurrence, reminders, timezone, and extended fields
+@@ -166,12 +243,28 @@ export const buildMetadataUpdates = (
+     };
+ 
+     // Recurrence field
+-    if (fieldMapping.recurrenceFieldID) {
+-        addUpdateIfChanged(
+-            fieldMapping.recurrenceFieldID,
+-            values.recurrence,
+-            event.recurrence?.freq || ""
+-        );
++    if (fieldMapping.recurrenceFieldID && values.recurrence !== undefined) {
++        const recurrenceCell = findExistingCell(event, fieldMapping.recurrenceFieldID);
++        const oldRecurrenceValue = (recurrenceCell?.value?.template?.content || recurrenceCell?.value?.text?.content || "").trim();
++        const normalizedOldRecurrence = oldRecurrenceValue.toLowerCase() === "none" ? "" : oldRecurrenceValue;
++        const normalizedNewRecurrence = values.recurrence.trim().toLowerCase() === "none" ? "" : values.recurrence;
++
++        if (normalizedNewRecurrence !== normalizedOldRecurrence) {
++            const recurrenceResult = buildTextOrTemplateCellUpdate(
++                avID,
++                event,
++                fieldMapping.recurrenceFieldID,
++                normalizedNewRecurrence,
++                normalizedOldRecurrence,
++                fields,
++                true,
++            );
++
++            if (recurrenceResult) {
++                doOps.push(recurrenceResult.doOp);
++                undoOps.push(recurrenceResult.undoOp);
++            }
++        }
+     }
+ 
+     // Reminders field
+@@ -246,5 +339,5 @@ export const getMetadataFieldLabel = (fieldType: keyof ICalendarFieldMapping): s
+         tagFieldID: lang.calendarTags || "Tags",
+         targetFieldID: lang.calendarLinkedNote || "Linked Note"
+     };
+-    return labels[fieldType] || fieldType.replace("FieldID", "");
++    return labels[fieldType as string] || (fieldType as string).replace("FieldID", "");
+ };

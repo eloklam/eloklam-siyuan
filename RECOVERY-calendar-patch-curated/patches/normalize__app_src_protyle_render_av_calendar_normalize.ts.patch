@@ -1,0 +1,48 @@
+diff --git a/app/src/protyle/render/av/calendar/normalize.ts b/app/src/protyle/render/av/calendar/normalize.ts
+index 7b307c9cb..c9aec86ea 100644
+--- a/app/src/protyle/render/av/calendar/normalize.ts
++++ b/app/src/protyle/render/av/calendar/normalize.ts
+@@ -29,13 +29,16 @@ export const normalizeCalendarEvents = (
+     calendarData: IAVCalendar,
+     mapping: ICalendarFieldMapping,
+     range: ICalendarRange
+-): ICalendarNormalizedEvent[] => {
++): {events: ICalendarNormalizedEvent[]; baseEventsByID: Map<string, ICalendarNormalizedEvent>} => {
+     if (!mapping.hasDateField || !calendarData.cards) {
+-        return [];
++        return {
++            events: [],
++            baseEventsByID: new Map(),
++        };
+     }
+ 
+     const fields = calendarData.fields || [];
+-    const normalizedEvents: ICalendarNormalizedEvent[] = [];
++    const baseEvents: ICalendarNormalizedEvent[] = [];
+ 
+     // Pre-compute field indices for performance
+     const fieldIndices = {
+@@ -72,12 +75,21 @@ export const normalizeCalendarEvents = (
+         );
+ 
+         if (event) {
+-            normalizedEvents.push(event);
++            baseEvents.push(event);
+         }
+     });
+ 
+     // Expand recurring events within the visible range
+-    return expandRecurrences(normalizedEvents, range);
++    const events = expandRecurrences(baseEvents, range);
++    const baseEventsByID = new Map<string, ICalendarNormalizedEvent>();
++    baseEvents.forEach(event => {
++        baseEventsByID.set(event.id, event);
++    });
++
++    return {
++        events,
++        baseEventsByID,
++    };
+ };
+ 
+ /**
