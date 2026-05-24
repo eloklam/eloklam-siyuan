@@ -90,11 +90,11 @@ const getNavDate = (anchor: dayjs.Dayjs, viewMode: number, direction: -1 | 1) =>
     return anchor.add(direction, "day");
 };
 
-const eventButtonHTML = (event: ICalendarNormalizedEvent) => {
+const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Dayjs) => {
     const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ? `${event.start.format("MMM D")} - ${event.end.format("MMM D")} ` : "";
     const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
-    return `<button class="av__calendar-event" draggable="true" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}"${colorStyle}>
+    return `<button class="av__calendar-event" draggable="true" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}"${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
     ${event.isAllDay ? "" : `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`}
 </button>`;
@@ -131,7 +131,7 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
         html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-daynum" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${cursor.date()}</button>
-    <div class="av__calendar-events">${dayEvents.map(eventButtonHTML).join("")}</div>
+    <div class="av__calendar-events">${dayEvents.map(event => eventButtonHTML(event, cursor)).join("")}</div>
 </div>`;
         cursor = cursor.add(1, "day");
     }
@@ -152,8 +152,8 @@ const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[]) =
         const timedEvents = dayEvents.filter(event => !event.isAllDay);
         return `<div class="av__calendar-week-day" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
             <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}">${escapeHtml(`${formatCalendarDate(day, {weekday: "short"})} ${day.date()}`)}</button>
-            <div class="av__calendar-all-day">${allDayEvents.map(eventButtonHTML).join("")}</div>
-            <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+            <div class="av__calendar-all-day">${allDayEvents.map(event => eventButtonHTML(event, day)).join("")}</div>
+            <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, day)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
         </div>`;
     }).join("")}
 </div>`;
@@ -165,9 +165,9 @@ const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[]) => {
     const timedEvents = dayEvents.filter(event => !event.isAllDay);
     return `<div class="av__calendar-day-view" data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}">${escapeHtml(formatCalendarDate(anchor, {weekday: "long", month: "short", day: "numeric"}))}</button>
-    <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(event => eventButtonHTML(event, anchor)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
     <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
-    <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, anchor)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
 };
 
@@ -179,7 +179,7 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
         if (!hideEmpty || dayEvents.length > 0) {
             html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${cursor.format("YYYY-MM-DD")}</button>
-    <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => eventButtonHTML(event, cursor)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
         }
         cursor = cursor.add(1, "day");
@@ -448,7 +448,11 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
         item.addEventListener("dragstart", (event: DragEvent) => {
-            event.dataTransfer?.setData("text/plain", (item as HTMLElement).dataset.occurrence || (item as HTMLElement).dataset.id || "");
+            const eventElement = item as HTMLElement;
+            event.dataTransfer?.setData("text/plain", JSON.stringify({
+                id: eventElement.dataset.occurrence || eventElement.dataset.id || "",
+                displayDate: eventElement.dataset.date || "",
+            }));
             event.dataTransfer.effectAllowed = "move";
         });
     });
@@ -463,13 +467,24 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         item.addEventListener("drop", (event: DragEvent) => {
             event.preventDefault();
             (item as HTMLElement).classList.remove("av__calendar-day--dragover");
-            const eventID = event.dataTransfer?.getData("text/plain") || "";
+            const rawDragData = event.dataTransfer?.getData("text/plain") || "";
             const targetDate = (item as HTMLElement).dataset.date;
+            let eventID = rawDragData;
+            let displayDate = "";
+            try {
+                const parsed = JSON.parse(rawDragData);
+                eventID = parsed.id || "";
+                displayDate = parsed.displayDate || "";
+            } catch {
+                // Older drag payloads were plain event IDs.
+            }
             const sourceEvent = renderedEvents.get(eventID) || baseEvents.get(eventID);
             if (!sourceEvent || !targetDate) {
                 return;
             }
-            const draft = buildDraftForDate(sourceEvent, targetDate);
+            const dragOffsetDays = displayDate ? Math.max(dayjs(displayDate).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0) : 0;
+            const draftDate = dayjs(targetDate).subtract(dragOffsetDays, "day").format("YYYY-MM-DD");
+            const draft = buildDraftForDate(sourceEvent, draftDate);
             if (sourceEvent.isAllDay && sourceEvent.end && !sourceEvent.start.isSame(sourceEvent.end, "day")) {
                 draft.endTime = sourceEvent.end?.format("HH:mm") || "23:59";
             }
