@@ -1797,6 +1797,7 @@
   "calendarPreviousEvent": "上一个事件",
   "calendarNextEvent": "下一个事件",
   "calendarNoMatchingEvent": "没有匹配事件",
+  "calendarEditSeriesNotice": "此操作会编辑整个重复事件。若要编辑单次事件，请映射例外字段。",
   "calendarExceptions": "例外",
   "calendarLocation": "地点",
   "calendarDescription": "描述",

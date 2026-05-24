@@ -216,10 +216,12 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
     const colorField = (options.data.view as IAVCalendar).fields.find((field) => field.id === mapping.colorFieldID);
     const canEditFuture = !!event?.isOccurrence && !!mapping.recurrenceFieldID;
+    const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID;
     const deleteLabel = event?.isOccurrence ?
         (mapping.exceptionFieldID ? (window.siyuan.languages.calendarDeleteOccurrence || "Delete occurrence") : (window.siyuan.languages.calendarDeleteSeries || "Delete series")) :
         window.siyuan.languages.delete;
     const content = `<div class="b3-dialog__content av__calendar-dialog">
+    ${editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}">
     </div>

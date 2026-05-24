@@ -62,6 +62,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Recurrence exceptions and occurrence deletion.
 - Single occurrence replacement when exception mapping exists.
 - This-and-future split for recurring series.
+- Dialog notice when an occurrence edit will affect the whole recurring series.
 - Read-only and query-embed guards for calendar mutations.
 - Backend validation for calendar date field, view mode, week start, and field mappings.
 - Backend add/remove field synchronization for calendar fields and mappings.
@@ -134,6 +135,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Schedule mode day rows accept dropped events.
 - Recurring event expansion is visible; `None` does not create recurrence.
 - Recurring series and occurrence markers appear on event pills.
+- Editing an occurrence without exception mapping warns that the whole series will be edited.
 - Deleting a single occurrence writes an exception.
 - Editing a single occurrence creates a replacement event.
 - This-and-future split truncates the old series and creates the new series.

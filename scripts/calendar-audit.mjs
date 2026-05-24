@@ -222,6 +222,8 @@ for (const term of [
   "showInvalidDraftMessage",
   "window.siyuan.languages.calendarNeedDateField",
   "window.siyuan.languages.invalid",
+  "const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID",
+  "window.siyuan.languages.calendarEditSeriesNotice",
   "event?.blockID ? `<button class=\"b3-button b3-button--outline\" data-type=\"event-open-block\"",
   "openFileById({",
   "openMobileFileById(options.protyle.app, blockID, [Constants.CB_GET_FOCUS])",

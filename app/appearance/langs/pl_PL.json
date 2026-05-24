@@ -1797,6 +1797,7 @@
   "calendarPreviousEvent": "Previous event",
   "calendarNextEvent": "Next event",
   "calendarNoMatchingEvent": "No matching event",
+  "calendarEditSeriesNotice": "This will edit the recurring series. Map an exception field to edit a single occurrence.",
   "calendarExceptions": "Exceptions",
   "calendarLocation": "Location",
   "calendarDescription": "Description",
