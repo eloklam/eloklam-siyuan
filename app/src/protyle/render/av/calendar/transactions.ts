@@ -247,6 +247,9 @@ const pushUpdate = (ops: ICalendarOperationSet, options: {
     if (!options.keyID || !options.newValue) {
         return;
     }
+    if (options.oldValue && JSON.stringify(options.oldValue) === JSON.stringify(options.newValue)) {
+        return;
+    }
     ops.doOperations.push({
         action: "updateAttrViewCell",
         avID: options.avID,
