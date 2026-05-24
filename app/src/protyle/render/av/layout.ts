@@ -145,7 +145,7 @@ export const getLayoutHTML = (data: IAV) => {
     <div class="fn__block">
         <label class="ft__on-surface">${window.siyuan.languages.dateField || "Date Field"}</label>
         <select class="b3-select fn__block" data-type="calendar-date-field">
-            ${buildOptions(["date"], calendarView.dateFieldID, false)}
+            ${buildOptions(["date"], calendarView.dateFieldID)}
         </select>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarWeekStart || "Week starts on"}</label>
