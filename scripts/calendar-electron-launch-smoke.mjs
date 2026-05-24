@@ -251,7 +251,7 @@ exports.Constants = {
   CB_GET_AV_NO_CREATE: 'cb-get-av-no-create',
 };
 `);
-  writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = () => undefined;\n");
+  writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = (message) => (globalThis.__calendarRenderMessages ||= []).push(message);\n");
   writeFile(path.join(tempDir, "src/util/escape.js"), `
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[item]));
 exports.escapeHtml = escapeHtml;
@@ -268,13 +268,17 @@ exports.hasClosestByAttribute = (element, attr, value) => {
   return undefined;
 };
 `);
-  writeFile(path.join(tempDir, "src/protyle/wysiwyg/transaction.js"), "exports.transaction = () => undefined;\n");
+  writeFile(path.join(tempDir, "src/protyle/wysiwyg/transaction.js"), "exports.transaction = (protyle, doOperations, undoOperations) => (globalThis.__calendarRenderTransactions ||= []).push({doOperations, undoOperations});\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/render.js"), "exports.genTabHeaderHTML = () => '<div class=\"av__header\"></div>';\n");
-  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), "exports.openEventDialog = () => undefined;\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), "exports.openEventDialog = (options) => (globalThis.__calendarRenderDialogs ||= []).push(options);\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/calendar/transactions.js"), `
-exports.createCalendarEvent = () => true;
-exports.createCalendarEventReplacingOccurrence = () => true;
-exports.updateCalendarEvent = () => true;
+const record = (type, payload) => {
+  (globalThis.__calendarRenderTxCalls ||= []).push({type, payload});
+  return true;
+};
+exports.createCalendarEvent = (payload) => record('create', payload);
+exports.createCalendarEventReplacingOccurrence = (payload) => record('replace-occurrence', payload);
+exports.updateCalendarEvent = (payload) => record('update', payload);
 `);
   return {tempDir, renderModule: path.join(calendarTargetDir, "render.js")};
 };
@@ -541,6 +545,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       _kernel: {29: 'Failed'}
     }, window.siyuan.languages || {});
     window.Lute = window.Lute || {NewNodeID: () => String(Date.now()) + '-render'};
+    globalThis.__calendarRenderDialogs = [];
+    globalThis.__calendarRenderMessages = [];
+    globalThis.__calendarRenderTransactions = [];
+    globalThis.__calendarRenderTxCalls = [];
     const timestamp = (value) => new Date(value).getTime();
     const field = (id, type, extra = {}) => ({id, type, name: id, desc: '', width: '', icon: '', wrap: false, pin: false, hidden: false, numberFormat: '', template: '', calc: {}, ...extra});
     const cell = (rowID, keyID, type, value) => ({id: rowID + '-' + keyID, valueType: type, color: '', bgColor: '', value: {id: rowID + '-' + keyID, keyID, type, ...value}});
@@ -600,6 +608,18 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const initialEventCount = host.querySelectorAll('.av__calendar-event').length;
     const recurringCount = host.querySelectorAll('.av__calendar-recurring').length;
     const tooltip = host.querySelector('.av__calendar-event')?.getAttribute('title') || '';
+    host.querySelector('[data-type="calendar-new"]:not(.av__calendar-daynum)').click();
+    const toolbarNewDialog = globalThis.__calendarRenderDialogs.at(-1);
+    host.querySelector('.av__calendar-daynum[data-date="2026-05-26"]').click();
+    const dayNewDialog = globalThis.__calendarRenderDialogs.at(-1);
+    host.querySelector('.av__calendar-event[data-id="row-render"]').click();
+    const editDialog = globalThis.__calendarRenderDialogs.at(-1);
+    host.querySelector('.av__calendar-event[data-id="row-render"] [data-type="calendar-duplicate-next-day"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const duplicateCall = globalThis.__calendarRenderTxCalls.find(call => call.type === 'create');
+    host.querySelector('.av__calendar-event[data-id="row-render"] [data-type="calendar-resize"][data-delta="15"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const resizeCall = globalThis.__calendarRenderTxCalls.find(call => call.type === 'update');
     host.querySelector('[data-type="calendar-mode"][data-mode="1"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const weekMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
@@ -651,6 +671,43 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const readOnlyLocalMode = readOnlyHost.dataset.calendarViewMode || '';
     const readOnlyRenderedMode = readOnlyHost.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
 
+    const setupHost = document.createElement('div');
+    setupHost.className = 'av';
+    setupHost.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)} + '-setup');
+    setupHost.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)} + '-setup');
+    setupHost.innerHTML = '<div></div>';
+    document.body.appendChild(setupHost);
+    const setupTransactionStart = globalThis.__calendarRenderTransactions.length;
+    await renderModule.renderCalendar({
+      protyle: {disabled: false, block: {action: []}},
+      blockElement: setupHost,
+      renderAll: true,
+      data: {view: {...calendar, dateFieldID: '', cards: []}, viewID: ${JSON.stringify(fixture.viewID)} + '-setup', viewType: 'calendar'},
+    });
+    const setupSelect = setupHost.querySelector('[data-type="calendar-empty-date-field"]');
+    setupSelect.value = 'date';
+    setupSelect.dispatchEvent(new Event('change', {bubbles: true}));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const setupOperation = globalThis.__calendarRenderTransactions[setupTransactionStart]?.doOperations?.[0] || {};
+
+    const createFieldHost = document.createElement('div');
+    createFieldHost.className = 'av';
+    createFieldHost.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)} + '-create-field');
+    createFieldHost.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)} + '-create-field');
+    createFieldHost.innerHTML = '<div></div>';
+    document.body.appendChild(createFieldHost);
+    const createFieldTransactionStart = globalThis.__calendarRenderTransactions.length;
+    await renderModule.renderCalendar({
+      protyle: {disabled: false, block: {action: []}},
+      blockElement: createFieldHost,
+      renderAll: true,
+      data: {view: {...calendar, dateFieldID: '', fields: calendar.fields.filter(field => field.type !== 'date'), cards: []}, viewID: ${JSON.stringify(fixture.viewID)} + '-create-field', viewType: 'calendar'},
+    });
+    const createFieldHasButton = !!createFieldHost.querySelector('[data-type="calendar-create-date-field"]');
+    createFieldHost.querySelector('[data-type="calendar-create-date-field"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const createFieldOperations = globalThis.__calendarRenderTransactions[createFieldTransactionStart]?.doOperations?.map(op => op.action) || [];
+
     return {
       hasCalendar: !!calendarElement,
       eventCount: filteredEventCount,
@@ -663,6 +720,13 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       recurringCount,
       dataViewMode: calendarElement && calendarElement.getAttribute('data-view-mode'),
       tooltip,
+      dialogDates: globalThis.__calendarRenderDialogs.map(item => item.date),
+      toolbarNewDate: toolbarNewDialog?.date || '',
+      dayNewDate: dayNewDialog?.date || '',
+      editDialogEventID: editDialog?.event?.id || '',
+      duplicateDraft: duplicateCall?.payload?.draft,
+      resizeDraft: resizeCall?.payload?.draft,
+      persistedModeOperation: globalThis.__calendarRenderTransactions[0]?.doOperations?.[0]?.action || '',
       weekMode,
       dayMode,
       scheduleMode,
@@ -678,19 +742,31 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       readOnlyHasNewButton: !!readOnlyNewButton,
       readOnlyLocalMode,
       readOnlyRenderedMode,
+      setupHasSelect: !!setupSelect,
+      setupOperationAction: setupOperation.action || '',
+      setupOperationData: setupOperation.data || '',
+      createFieldHasButton,
+      createFieldOperations,
     };
   })()`);
   if (!result?.hasCalendar || result.modeCount !== 4 || !result.hasSummary || !result.hasSearch ||
     !result.hasJumpDate || !result.eventText.includes("Calendar UI render smoke event") ||
     !result.eventText.includes("Calendar none smoke event") || result.recurringCount < 1 ||
-    !result.tooltip.includes("Render Room") || result.weekMode !== "1" || result.dayMode !== "2" ||
+    !result.tooltip.includes("Render Room") || result.toolbarNewDate !== "2026-05-24" ||
+    result.dayNewDate !== "2026-05-26" || result.editDialogEventID !== "row-render" ||
+    result.duplicateDraft?.date !== "2026-05-25" || result.duplicateDraft?.recurrenceRaw !== "" ||
+    result.resizeDraft?.endTime !== "10:15" || result.persistedModeOperation !== "setAttrViewCalendarViewMode" ||
+    result.weekMode !== "1" || result.dayMode !== "2" ||
     result.scheduleMode !== "3" || result.modeAfterKeyboard !== "0" ||
     result.anchorAfterPrevEvent !== "2026-05-24" || result.anchorAfterNextEvent !== "2026-05-25" ||
     !result.filteredEventText.includes("Calendar none smoke event") ||
     result.filteredEventText.includes("Calendar UI render smoke event") ||
     result.searchState !== "none" || result.searchAfterClear || result.filterAfterClear ||
     !result.readOnlyHasEvent || result.readOnlyDraggable !== "false" || result.readOnlyHasNewButton ||
-    result.readOnlyLocalMode !== "2" || result.readOnlyRenderedMode !== "2") {
+    result.readOnlyLocalMode !== "2" || result.readOnlyRenderedMode !== "2" ||
+    !result.setupHasSelect || result.setupOperationAction !== "setAttrViewCalendarDateField" ||
+    result.setupOperationData !== "date" || !result.createFieldHasButton ||
+    result.createFieldOperations.join(",") !== "addAttrViewCol,setAttrViewCalendarDateField") {
     fail(`calendar Electron render smoke failed: ${JSON.stringify(result)}`);
   }
   return result;
