@@ -5,6 +5,15 @@ import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent} from "./model";
 import {createCalendarEvent, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
+interface IRecurrenceFormValue {
+    freq: string;
+    interval: string;
+    count: string;
+    until: string;
+    raw: string;
+    isAdvanced: boolean;
+}
+
 export interface IEventDialogOptions {
     event?: ICalendarNormalizedEvent;
     date: string;
@@ -14,6 +23,82 @@ export interface IEventDialogOptions {
     onSave?: () => void;
     onDelete?: () => void;
 }
+
+const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
+    const raw = (value || "").trim();
+    if (!raw || raw.toLowerCase() === "none") {
+        return {freq: "", interval: "1", count: "", until: "", raw: "", isAdvanced: false};
+    }
+    const upper = raw.toUpperCase();
+    if (["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(upper)) {
+        return {freq: upper, interval: "1", count: "", until: "", raw, isAdvanced: false};
+    }
+    const result: IRecurrenceFormValue = {freq: "", interval: "1", count: "", until: "", raw, isAdvanced: false};
+    const supportedKeys = ["FREQ", "INTERVAL", "COUNT", "UNTIL"];
+    upper.split(";").filter(Boolean).forEach(part => {
+        const [key, val] = part.split("=");
+        if (!supportedKeys.includes(key)) {
+            result.isAdvanced = true;
+            return;
+        }
+        if (key === "FREQ" && ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(val)) {
+            result.freq = val;
+        } else if (key === "INTERVAL" && parseInt(val, 10) > 0) {
+            result.interval = val;
+        } else if (key === "COUNT" && parseInt(val, 10) > 0) {
+            result.count = val;
+        } else if (key === "UNTIL") {
+            result.until = val.slice(0, 10);
+        }
+    });
+    result.isAdvanced = result.isAdvanced || !result.freq;
+    return result;
+};
+
+const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
+    const recurrence = parseRecurrenceFormValue(event?.recurrenceRaw || event?.recurrence?.freq || "");
+    if (recurrence.isAdvanced) {
+        return `<input class="b3-text-field fn__block" id="av-event-recurrence-raw" readonly value="${escapeAttr(recurrence.raw)}">
+<div class="ft__on-surface ft__smaller">${window.siyuan.languages.calendarRecurringAdvancedReadOnly || "Advanced recurrence is retained (not editable here)."}</div>`;
+    }
+    return `<div class="av__calendar-recurrence">
+    <select class="b3-select" id="av-event-recurrence-freq">
+        <option value=""${recurrence.freq ? "" : " selected"}>${window.siyuan.languages.none || "None"}</option>
+        <option value="DAILY"${recurrence.freq === "DAILY" ? " selected" : ""}>${window.siyuan.languages.calendarDaily || "Daily"}</option>
+        <option value="WEEKLY"${recurrence.freq === "WEEKLY" ? " selected" : ""}>${window.siyuan.languages.calendarWeekly || "Weekly"}</option>
+        <option value="MONTHLY"${recurrence.freq === "MONTHLY" ? " selected" : ""}>${window.siyuan.languages.calendarMonthly || "Monthly"}</option>
+        <option value="YEARLY"${recurrence.freq === "YEARLY" ? " selected" : ""}>${window.siyuan.languages.calendarYearly || "Yearly"}</option>
+    </select>
+    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-interval" aria-label="${window.siyuan.languages.calendarInterval || "Interval"}" value="${escapeAttr(recurrence.interval || "1")}">
+    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-count" aria-label="${window.siyuan.languages.calendarCount || "Count"}" placeholder="${window.siyuan.languages.calendarCount || "Count"}" value="${escapeAttr(recurrence.count)}">
+    <input type="date" class="b3-text-field" id="av-event-recurrence-until" aria-label="${window.siyuan.languages.calendarUntil || "Until"}" value="${escapeAttr(recurrence.until)}">
+</div>`;
+};
+
+const getRecurrenceFromDialog = (dialog: Dialog) => {
+    const rawInput = dialog.element.querySelector("#av-event-recurrence-raw") as HTMLInputElement;
+    if (rawInput) {
+        return rawInput.value;
+    }
+    const freq = (dialog.element.querySelector("#av-event-recurrence-freq") as HTMLSelectElement)?.value;
+    if (!freq) {
+        return "";
+    }
+    const interval = parseInt((dialog.element.querySelector("#av-event-recurrence-interval") as HTMLInputElement)?.value || "1", 10);
+    const count = parseInt((dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement)?.value || "", 10);
+    const until = (dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement)?.value;
+    const parts = [`FREQ=${freq}`];
+    if (interval > 1) {
+        parts.push(`INTERVAL=${interval}`);
+    }
+    if (count > 0) {
+        parts.push(`COUNT=${count}`);
+    }
+    if (until) {
+        parts.push(`UNTIL=${until}`);
+    }
+    return parts.join(";");
+};
 
 export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const {event, date} = options;
@@ -40,7 +125,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}">
     </div>
     <div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-recurrence" placeholder="${window.siyuan.languages.calendarRecurrence || "Recurrence"}" value="${escapeAttr(event?.recurrenceRaw || event?.recurrence?.freq || "")}">
+        ${renderRecurrenceFields(event)}
     </div>
     <div class="b3-form__space">
         <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${escapeHtml(event?.description || "")}</textarea>
@@ -102,7 +187,7 @@ const getDraftFromDialog = (dialog: Dialog) => {
         isAllDay: (dialog.element.querySelector("#av-event-allday") as HTMLInputElement).checked,
         startTime: (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00",
         endTime: (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00",
-        recurrenceRaw: (dialog.element.querySelector("#av-event-recurrence") as HTMLInputElement)?.value,
+        recurrenceRaw: getRecurrenceFromDialog(dialog),
         location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
         description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
         colorContent: (dialog.element.querySelector("#av-event-color") as HTMLInputElement)?.value,

@@ -1241,6 +1241,12 @@ img.av__cellassetimg {
     padding-left: 4px;
   }
 
+  &-recurrence {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(120px, 1.4fr) minmax(72px, .7fr) minmax(88px, .8fr) minmax(128px, 1fr);
+  }
+
   &-list {
     display: flex;
     flex-direction: column;
