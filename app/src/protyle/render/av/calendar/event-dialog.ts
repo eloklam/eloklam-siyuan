@@ -25,6 +25,13 @@ export interface IEventDialogOptions {
     onDelete?: () => void;
 }
 
+const getCalendarLocale = () => window.siyuan.config.lang.replace("_", "-");
+
+const getWeekdayLabels = () => {
+    const formatter = new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "short"});
+    return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + index)));
+};
+
 const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     const raw = (value || "").trim();
     if (!raw || raw.toLowerCase() === "none") {
@@ -61,14 +68,15 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
 
 const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
     const recurrence = parseRecurrenceFormValue(event?.recurrenceRaw || event?.recurrence?.freq || "");
+    const labels = getWeekdayLabels();
     const weekdays = [
-        {value: "SU", label: "Sun"},
-        {value: "MO", label: "Mon"},
-        {value: "TU", label: "Tue"},
-        {value: "WE", label: "Wed"},
-        {value: "TH", label: "Thu"},
-        {value: "FR", label: "Fri"},
-        {value: "SA", label: "Sat"},
+        {value: "SU", label: labels[0]},
+        {value: "MO", label: labels[1]},
+        {value: "TU", label: labels[2]},
+        {value: "WE", label: labels[3]},
+        {value: "TH", label: labels[4]},
+        {value: "FR", label: labels[5]},
+        {value: "SA", label: labels[6]},
     ];
     if (recurrence.isAdvanced) {
         return `<input class="b3-text-field fn__block" id="av-event-recurrence-raw" readonly value="${escapeAttr(recurrence.raw)}">
@@ -88,7 +96,7 @@ const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
     <div class="av__calendar-weekday" data-type="calendar-weekday-row">
         ${weekdays.map(day => `<label class="av__calendar-weekday-item">
             <input type="checkbox" data-type="calendar-recurrence-weekday" value="${day.value}"${recurrence.byDay.includes(day.value) ? " checked" : ""}>
-            <span>${day.label}</span>
+            <span>${escapeHtml(day.label)}</span>
         </label>`).join("")}
     </div>
 </div>`;

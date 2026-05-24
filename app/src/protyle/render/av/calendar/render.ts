@@ -42,6 +42,17 @@ const getViewModeLabel = (viewMode: number) => {
     return labels[viewMode] || labels[0];
 };
 
+const getCalendarLocale = () => window.siyuan.config.lang.replace("_", "-");
+
+const formatCalendarDate = (date: dayjs.Dayjs, options: Intl.DateTimeFormatOptions) => {
+    return new Intl.DateTimeFormat(getCalendarLocale(), options).format(date.toDate());
+};
+
+const getWeekdayLabels = () => {
+    const formatter = new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "short"});
+    return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + index)));
+};
+
 const getCalendarSearch = (blockElement: HTMLElement) => (blockElement.dataset.calendarSearch || "").trim();
 
 const eventMatchesSearch = (event: ICalendarNormalizedEvent, query: string) => {
@@ -105,7 +116,7 @@ const renderDateFieldSetup = (calendar: IAVCalendar) => {
 };
 
 const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalendarNormalizedEvent[]) => {
-    let html = `<div class="av__calendar-weekdays">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(day => `<div>${day}</div>`).join("")}</div><div class="av__calendar-month">`;
+    let html = `<div class="av__calendar-weekdays">${getWeekdayLabels().map(day => `<div>${escapeHtml(day)}</div>`).join("")}</div><div class="av__calendar-month">`;
     let cursor = range.start;
     while (!cursor.isAfter(range.end, "day")) {
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
@@ -131,7 +142,7 @@ const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[]) =
         const allDayEvents = dayEvents.filter(event => event.isAllDay);
         const timedEvents = dayEvents.filter(event => !event.isAllDay);
         return `<div class="av__calendar-week-day" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
-            <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}">${day.format("ddd D")}</button>
+            <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}">${escapeHtml(`${formatCalendarDate(day, {weekday: "short"})} ${day.date()}`)}</button>
             <div class="av__calendar-all-day">${allDayEvents.map(eventButtonHTML).join("")}</div>
             <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
         </div>`;
@@ -144,7 +155,7 @@ const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[]) => {
     const allDayEvents = dayEvents.filter(event => event.isAllDay);
     const timedEvents = dayEvents.filter(event => !event.isAllDay);
     return `<div class="av__calendar-day-view" data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
-    <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}">${anchor.format("dddd, MMM D")}</button>
+    <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}">${escapeHtml(formatCalendarDate(anchor, {weekday: "long", month: "short", day: "numeric"}))}</button>
     <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
     <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
     <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
