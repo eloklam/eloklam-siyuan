@@ -156,7 +156,7 @@ const renderModeSwitcher = (viewMode: number, editable = true) => {
 const renderEventSummary = (events: ICalendarNormalizedEvent[]) => {
     const allDayCount = events.filter(event => event.isAllDay).length;
     const timedCount = events.length - allDayCount;
-    return `<div class="av__calendar-summary" aria-label="${escapeAttr(`${events.length} events, ${allDayCount} all-day, ${timedCount} timed`)}">
+    return `<div class="av__calendar-summary" aria-live="polite" aria-label="${escapeAttr(`${events.length} events, ${allDayCount} all-day, ${timedCount} timed`)}">
         <span>${events.length}</span>
         <span>${window.siyuan.languages.allDay || "All day"} ${allDayCount}</span>
         <span>Timed ${timedCount}</span>
@@ -277,13 +277,13 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
-    return `<div class="av__calendar" data-view-mode="${viewMode}" tabindex="0" aria-keyshortcuts="ArrowLeft ArrowRight T N / Escape 1 2 3 4">
+    return `<div class="av__calendar" data-view-mode="${viewMode}" tabindex="0" role="region" aria-label="${escapeAttr(`${window.siyuan.languages.calendar || "Calendar"} ${title}`)}" aria-keyshortcuts="ArrowLeft ArrowRight T N / Escape 1 2 3 4">
     <div class="av__calendar-toolbar">
         <button class="block__icon block__icon--show" data-type="calendar-prev" aria-keyshortcuts="ArrowLeft"><svg><use xlink:href="#iconLeft"></use></svg></button>
         <button class="b3-button b3-button--outline" data-type="calendar-today" aria-keyshortcuts="T">${window.siyuan.languages.today || "Today"}</button>
         <button class="block__icon block__icon--show" data-type="calendar-next" aria-keyshortcuts="ArrowRight"><svg><use xlink:href="#iconRight"></use></svg></button>
         <input class="b3-text-field av__calendar-jump" type="date" data-type="calendar-jump-date" value="${safeAnchor.format("YYYY-MM-DD")}">
-        <div class="av__calendar-title">${escapeHtml(title)}</div>
+        <div class="av__calendar-title" aria-live="polite">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" aria-keyshortcuts="/" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
         ${search ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
         ${renderEventSummary(events)}
