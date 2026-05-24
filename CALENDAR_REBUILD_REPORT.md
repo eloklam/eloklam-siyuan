@@ -85,6 +85,7 @@ Also passed:
 - Recurrence and normalization guards for `None`, strict `UNTIL`, duplicate parts, weekly `BYDAY`, count/until limits, exception parsing, and invalid end-date clamping are covered by `scripts/calendar-audit.mjs`.
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
+- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, search rerendering, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 
 Known build warnings:
 

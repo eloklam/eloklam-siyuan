@@ -100,6 +100,36 @@ for (const term of [
   }
 }
 
+for (const term of [
+  "renderDateFieldSetup",
+  "calendar-empty-date-field",
+  "calendar-create-date-field",
+  "setAttrViewCalendarDateField",
+  "addAttrViewCol",
+  "renderMonth",
+  "renderWeek",
+  "renderDay",
+  "renderList",
+  "getSafeViewMode",
+  "getVisibleRange",
+  "getCalendarTitle",
+  "eventMatchesSearch",
+  "getCalendarSearch",
+  "calendarSearch",
+  "rerender(true, true)",
+  "getSafeWeekStart",
+  "startOfCalendarWeek",
+  "weekStart",
+  "dragOffsetDays",
+  "displayDate",
+  "buildDraftForDate",
+  "getEditableEvent",
+]) {
+  if (!calendarRender.includes(term)) {
+    fail(`calendar render flow missing ${term}`);
+  }
+}
+
 const eventDialog = read("app/src/protyle/render/av/calendar/event-dialog.ts");
 for (const term of [
   "showInvalidDraftMessage",
