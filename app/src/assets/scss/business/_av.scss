@@ -1156,6 +1156,14 @@ img.av__cellassetimg {
     min-width: 120px;
   }
 
+  &-search-count {
+    color: var(--b3-theme-on-surface);
+    flex: 0 0 auto;
+    font-size: 12px;
+    min-width: 44px;
+    text-align: right;
+  }
+
   &-jump {
     flex: 0 0 136px;
     min-width: 136px;

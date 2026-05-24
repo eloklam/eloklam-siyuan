@@ -227,6 +227,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
     const range = getVisibleRange(safeAnchor, viewMode, weekStart);
     const normalized = normalizeCalendarEvents(calendar, mapping, range);
     const search = getCalendarSearch(blockElement);
+    const totalEventCount = normalized.events.length;
     const events = normalized.events.filter(event => eventMatchesSearch(event, search));
     const title = getCalendarTitle(safeAnchor, range, viewMode);
     let body = renderMonth(safeAnchor, range, events, weekStart, editable);
@@ -249,6 +250,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <input class="b3-text-field av__calendar-jump" type="date" data-type="calendar-jump-date" value="${safeAnchor.format("YYYY-MM-DD")}">
         <div class="av__calendar-title">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
+        ${search ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
         ${renderModeSwitcher(viewMode, editable)}
         ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
     </div>
@@ -308,6 +310,10 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     const searchInput = calendarElement?.querySelector('[data-type="calendar-search"]') as HTMLInputElement;
     searchInput?.addEventListener("input", () => {
         options.blockElement.dataset.calendarSearch = searchInput.value.trim();
+        rerender(true, true);
+    });
+    calendarElement?.querySelector('[data-type="calendar-clear-search"]')?.addEventListener("click", () => {
+        delete options.blockElement.dataset.calendarSearch;
         rerender(true, true);
     });
     const emptyDateFieldElement = calendarElement?.querySelector('[data-type="calendar-empty-date-field"]') as HTMLSelectElement;
