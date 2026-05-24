@@ -505,8 +505,8 @@ export const buildDeleteEventOperations = (options: {
         blockID: options.blockID,
         previousID: "",
         srcs: [{
-            itemID: options.event.id,
-            id: blockValue?.block?.id || options.event.blockID || options.event.id,
+            itemID: Lute.NewNodeID(),
+            id: options.event.id,
             isDetached: blockValue?.isDetached ?? true,
             content: blockValue?.block?.content || options.event.title || "",
         }],
