@@ -66,6 +66,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - This-and-future split for recurring series.
 - Dialog notice when an occurrence edit will affect the whole recurring series.
 - Read-only and query-embed guards for calendar mutations.
+- Read-only and query-embed events remain inspectable in a read-only dialog with mutation controls hidden.
 - Backend validation for calendar date field, view mode, week start, and field mappings.
 - Backend add/remove field synchronization for calendar fields and mappings.
 - Language key coverage for all bundled language JSON files.
@@ -155,6 +156,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Month, week, day, and schedule modes are usable.
 - Week start changes affect visible week ranges.
 - Read-only/query embed views do not mutate data, while still allowing local Calendar mode switching.
+- Read-only/query embed events can still be opened for inspection without mutation controls.
 - Switching back to Table/Gallery/Kanban preserves visible data.
 
 ## Next Commands

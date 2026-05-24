@@ -111,6 +111,7 @@ for (const term of [
   "hasClosestByAttribute(options.blockElement, \"data-type\", \"NodeBlockQueryEmbed\")",
   "hasClosestByAttribute(e, \"data-type\", \"NodeBlockQueryEmbed\")",
   "draggable=\"${editable ? \"true\" : \"false\"}\"",
+  "av__calendar-event--readonly",
   "${editable ? \"\" : \" disabled\"}",
   "showMessage(window.siyuan.languages._kernel[29])",
 ]) {
@@ -213,6 +214,7 @@ for (const term of [
   "window.siyuan.languages.copy || \"Copy\"",
   "createCalendarEvent({",
   "getEditableEvent",
+  "readOnly: true",
   ".av__calendar-event, [data-type='calendar-new']",
 ]) {
   if (!calendarRender.includes(term)) {
@@ -233,6 +235,10 @@ for (const term of [
   "const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID",
   "window.siyuan.languages.calendarEditSeriesNotice",
   "event?.blockID ? `<button class=\"b3-button b3-button--outline\" data-type=\"event-open-block\"",
+  "readOnly?: boolean",
+  "const readOnly = !!options.readOnly",
+  "isEditing && !readOnly",
+  "if (options.readOnly)",
   "openFileById({",
   "openMobileFileById(options.protyle.app, blockID, [Constants.CB_GET_FOCUS])",
   "dialog.destroy();",
@@ -387,6 +393,7 @@ for (const term of [
   "&-filter",
   "&-month",
   "&-event",
+  "&--readonly",
   "&-resize",
   "&-recurring",
   "&-recurrence",
@@ -404,6 +411,7 @@ for (const term of [
   "Unresolved / Manual Verification Required",
   "Switch Table/Gallery/Kanban to Calendar and confirm no crash.",
   "Read-only/query embed views do not mutate data, while still allowing local Calendar mode switching.",
+  "Read-only/query embed events can still be opened for inspection without mutation controls.",
   "After automated checks, run the manual smoke checklist above in the SiYuan UI.",
 ]) {
   if (!report.includes(term)) {

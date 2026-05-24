@@ -171,7 +171,7 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     const eventTooltip = getEventTooltip(event);
     const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence ?
         `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
-    return `<button class="av__calendar-event" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${editable ? "" : " disabled"}${colorStyle}>
+    return `<button class="av__calendar-event${editable ? "" : " av__calendar-event--readonly"}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
     ${recurrenceMarker}
     ${!editable ? "" : (event.isAllDay ?
@@ -756,6 +756,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (calendarEvent && editable) {
                 const eventForDialog = getEditableEvent(calendarEvent);
                 openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
+            } else if (calendarEvent) {
+                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), readOnly: true});
             }
         });
     });

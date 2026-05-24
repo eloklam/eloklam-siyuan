@@ -1278,6 +1278,10 @@ img.av__cellassetimg {
     &[draggable="false"] {
       cursor: default;
     }
+
+    &--readonly {
+      cursor: pointer;
+    }
   }
 
   &-event-text {

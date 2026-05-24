@@ -28,6 +28,7 @@ export interface IEventDialogOptions {
     data: IAV;
     onSave?: () => void;
     onDelete?: () => void;
+    readOnly?: boolean;
 }
 
 const getCalendarLocale = () => window.siyuan.config.lang.replace("_", "-");
@@ -124,7 +125,7 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     return result;
 };
 
-const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
+const renderRecurrenceFields = (event?: ICalendarNormalizedEvent, readOnly = false) => {
     const recurrence = parseRecurrenceFormValue(event?.recurrenceRaw || event?.recurrence?.freq || "");
     const labels = getWeekdayLabels();
     const weekdays = [
@@ -140,27 +141,28 @@ const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
         return `<input class="b3-text-field fn__block" id="av-event-recurrence-raw" readonly value="${escapeAttr(recurrence.raw)}">
 <div class="ft__on-surface ft__smaller">${window.siyuan.languages.calendarRecurringAdvancedReadOnly || "Advanced recurrence is retained (not editable here)."}</div>`;
     }
+    const disabledAttr = readOnly ? " disabled" : "";
     return `<div class="av__calendar-recurrence">
-    <select class="b3-select" id="av-event-recurrence-freq">
+    <select class="b3-select" id="av-event-recurrence-freq"${disabledAttr}>
         <option value=""${recurrence.freq ? "" : " selected"}>${window.siyuan.languages.none || "None"}</option>
         <option value="DAILY"${recurrence.freq === "DAILY" ? " selected" : ""}>${window.siyuan.languages.calendarDaily || "Daily"}</option>
         <option value="WEEKLY"${recurrence.freq === "WEEKLY" ? " selected" : ""}>${window.siyuan.languages.calendarWeekly || "Weekly"}</option>
         <option value="MONTHLY"${recurrence.freq === "MONTHLY" ? " selected" : ""}>${window.siyuan.languages.calendarMonthly || "Monthly"}</option>
         <option value="YEARLY"${recurrence.freq === "YEARLY" ? " selected" : ""}>${window.siyuan.languages.calendarYearly || "Yearly"}</option>
     </select>
-    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-interval" aria-label="${window.siyuan.languages.calendarInterval || "Interval"}" value="${escapeAttr(recurrence.interval || "1")}">
-    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-count" aria-label="${window.siyuan.languages.calendarCount || "Count"}" placeholder="${window.siyuan.languages.calendarCount || "Count"}" value="${escapeAttr(recurrence.count)}">
-    <input type="date" class="b3-text-field" id="av-event-recurrence-until" aria-label="${window.siyuan.languages.calendarUntil || "Until"}" value="${escapeAttr(recurrence.until)}">
+    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-interval" aria-label="${window.siyuan.languages.calendarInterval || "Interval"}" value="${escapeAttr(recurrence.interval || "1")}"${disabledAttr}>
+    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-count" aria-label="${window.siyuan.languages.calendarCount || "Count"}" placeholder="${window.siyuan.languages.calendarCount || "Count"}" value="${escapeAttr(recurrence.count)}"${disabledAttr}>
+    <input type="date" class="b3-text-field" id="av-event-recurrence-until" aria-label="${window.siyuan.languages.calendarUntil || "Until"}" value="${escapeAttr(recurrence.until)}"${disabledAttr}>
     <div class="av__calendar-weekday" data-type="calendar-weekday-row">
         ${weekdays.map(day => `<label class="av__calendar-weekday-item">
-            <input type="checkbox" data-type="calendar-recurrence-weekday" value="${day.value}"${recurrence.byDay.includes(day.value) ? " checked" : ""}>
+            <input type="checkbox" data-type="calendar-recurrence-weekday" value="${day.value}"${recurrence.byDay.includes(day.value) ? " checked" : ""}${disabledAttr}>
             <span>${escapeHtml(day.label)}</span>
         </label>`).join("")}
     </div>
 </div>`;
 };
 
-const renderColorField = (field?: IAVColumn, event?: ICalendarNormalizedEvent) => {
+const renderColorField = (field?: IAVColumn, event?: ICalendarNormalizedEvent, readOnly = false) => {
     if (!field || !["select", "mSelect"].includes(field.type)) {
         return "";
     }
@@ -169,7 +171,7 @@ const renderColorField = (field?: IAVColumn, event?: ICalendarNormalizedEvent) =
     const staleOption = selected && !hasSelectedOption ?
         `<option value="${escapeAttr(selected)}" selected disabled>${escapeHtml(selected)}</option>` : "";
     return `<div class="b3-form__space">
-        <select class="b3-select fn__block" id="av-event-color" aria-label="${window.siyuan.languages.color || "Color"}">
+        <select class="b3-select fn__block" id="av-event-color" aria-label="${window.siyuan.languages.color || "Color"}"${readOnly ? " disabled" : ""}>
             <option value=""${selected ? "" : " selected"}>${window.siyuan.languages.none || "None"}</option>
             ${staleOption}
             ${(field.options || []).map((option) => `<option value="${escapeAttr(option.name)}"${option.name === selected ? " selected" : ""}>${escapeHtml(option.name)}</option>`).join("")}
@@ -213,48 +215,50 @@ const getRecurrenceFromDialog = (dialog: Dialog) => {
 export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const {event, date} = options;
     const isEditing = !!event;
+    const readOnly = !!options.readOnly;
     const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
     const colorField = (options.data.view as IAVCalendar).fields.find((field) => field.id === mapping.colorFieldID);
-    const canEditFuture = !!event?.isOccurrence && !!mapping.recurrenceFieldID;
+    const canEditFuture = !readOnly && !!event?.isOccurrence && !!mapping.recurrenceFieldID;
     const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID;
     const deleteLabel = event?.isOccurrence ?
         (mapping.exceptionFieldID ? (window.siyuan.languages.calendarDeleteOccurrence || "Delete occurrence") : (window.siyuan.languages.calendarDeleteSeries || "Delete series")) :
         window.siyuan.languages.delete;
+    const disabledAttr = readOnly ? " disabled" : "";
     const content = `<div class="b3-dialog__content av__calendar-dialog">
-    ${editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
+    ${!readOnly && editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}">
+        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}"${disabledAttr}>
     </div>
     <div class="b3-form__space fn__flex">
-        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${event?.start.format("YYYY-MM-DD") || date}">
-        <input type="date" class="b3-text-field fn__flex-1" id="av-event-end-date" aria-label="${window.siyuan.languages.endDate || "End date"}" value="${event?.end?.format("YYYY-MM-DD") || event?.start.format("YYYY-MM-DD") || date}">
+        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${event?.start.format("YYYY-MM-DD") || date}"${disabledAttr}>
+        <input type="date" class="b3-text-field fn__flex-1" id="av-event-end-date" aria-label="${window.siyuan.languages.endDate || "End date"}" value="${event?.end?.format("YYYY-MM-DD") || event?.start.format("YYYY-MM-DD") || date}"${disabledAttr}>
         <label class="fn__flex-center av__calendar-check">
-            <input type="checkbox" id="av-event-allday" ${event?.isAllDay ?? true ? "checked" : ""}>
+            <input type="checkbox" id="av-event-allday" ${event?.isAllDay ?? true ? "checked" : ""}${disabledAttr}>
             <span>${window.siyuan.languages.allDay || "All day"}</span>
         </label>
     </div>
     <div class="b3-form__space fn__flex" id="av-event-time-row" style="${event?.isAllDay ?? true ? "display:none" : ""}">
-        <input type="time" class="b3-text-field fn__flex-1" id="av-event-start" value="${event?.start.format("HH:mm") || "09:00"}">
+        <input type="time" class="b3-text-field fn__flex-1" id="av-event-start" value="${event?.start.format("HH:mm") || "09:00"}"${disabledAttr}>
         <span class="av__calendar-time-sep">-</span>
-        <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${event?.end?.format("HH:mm") || "10:00"}">
+        <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${event?.end?.format("HH:mm") || "10:00"}"${disabledAttr}>
     </div>
     ${mapping.locationFieldID ? `<div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}">
+        <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}"${disabledAttr}>
     </div>` : ""}
     ${mapping.recurrenceFieldID ? `<div class="b3-form__space">
-        ${renderRecurrenceFields(event)}
+        ${renderRecurrenceFields(event, readOnly)}
     </div>` : ""}
     ${mapping.descriptionFieldID ? `<div class="b3-form__space">
-        <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${escapeHtml(event?.description || "")}</textarea>
+        <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}"${disabledAttr}>${escapeHtml(event?.description || "")}</textarea>
     </div>` : ""}
-    ${renderColorField(colorField, event)}
+    ${renderColorField(colorField, event, readOnly)}
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
         ${event?.blockID ? `<button class="b3-button b3-button--outline" data-type="event-open-block">${window.siyuan.languages.jumpTo || "Jump to"}</button><span class="fn__space"></span>` : ""}
-        ${isEditing ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${deleteLabel}</button><span class="fn__space"></span>` : ""}
+        ${isEditing && !readOnly ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${deleteLabel}</button><span class="fn__space"></span>` : ""}
         ${canEditFuture ? `<button class="b3-button b3-button--outline" data-type="event-save-future">${window.siyuan.languages.calendarThisAndFuture || "This and future"}</button><span class="fn__space"></span>` : ""}
-        <button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>
+        ${readOnly ? "" : `<button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>`}
     </div>
 </div>`;
     const dialog = new Dialog({
@@ -293,6 +297,10 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     recurrenceFreq?.addEventListener("change", updateWeekdayVisibility);
     updateWeekdayVisibility();
     dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
+    if (options.readOnly) {
+        dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
+        return;
+    }
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => saveEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => saveFutureEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => deleteEvent(dialog, options));
