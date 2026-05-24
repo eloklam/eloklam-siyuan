@@ -656,12 +656,15 @@ export const updateCalendarEvent = (options: {
     draft: ICalendarEventDraft;
     previousUpdated?: string;
 }) => {
+    if (!isRealDateInputValue(options.draft.date)) {
+        return false;
+    }
     const ops = buildUpdateEventOperations(options);
     if (ops.doOperations.length > 0) {
         transaction(options.protyle, ops.doOperations, ops.undoOperations);
         return true;
     }
-    return false;
+    return true;
 };
 
 export const updateCalendarEventThisAndFuture = (options: {
@@ -676,12 +679,15 @@ export const updateCalendarEventThisAndFuture = (options: {
     occurrenceDate: string;
     previousUpdated?: string;
 }) => {
+    if (!isRealDateInputValue(options.draft.date)) {
+        return false;
+    }
     const ops = buildSplitSeriesOperations(options);
     if (ops.doOperations.length > 0) {
         transaction(options.protyle, ops.doOperations, ops.undoOperations);
         return true;
     }
-    return false;
+    return true;
 };
 
 export const deleteCalendarEvent = (options: {
