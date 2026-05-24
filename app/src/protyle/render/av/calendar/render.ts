@@ -149,7 +149,7 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
 
 const renderModeSwitcher = (viewMode: number, editable = true) => {
     return `<div class="av__calendar-modes">
-        ${[0, 1, 2, 3].map(mode => `<button class="b3-button${viewMode === mode ? " b3-button--text" : " b3-button--outline"}" data-type="calendar-mode" data-mode="${mode}"${editable ? "" : " disabled"}>${getViewModeLabel(mode)}</button>`).join("")}
+        ${[0, 1, 2, 3].map(mode => `<button class="b3-button${viewMode === mode ? " b3-button--text" : " b3-button--outline"}" data-type="calendar-mode" data-mode="${mode}" aria-keyshortcuts="${mode + 1}"${editable ? "" : " disabled"}>${getViewModeLabel(mode)}</button>`).join("")}
     </div>`;
 };
 
@@ -277,18 +277,18 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
-    return `<div class="av__calendar" data-view-mode="${viewMode}" tabindex="0">
+    return `<div class="av__calendar" data-view-mode="${viewMode}" tabindex="0" aria-keyshortcuts="ArrowLeft ArrowRight T N / Escape 1 2 3 4">
     <div class="av__calendar-toolbar">
-        <button class="block__icon block__icon--show" data-type="calendar-prev"><svg><use xlink:href="#iconLeft"></use></svg></button>
-        <button class="b3-button b3-button--outline" data-type="calendar-today">${window.siyuan.languages.today || "Today"}</button>
-        <button class="block__icon block__icon--show" data-type="calendar-next"><svg><use xlink:href="#iconRight"></use></svg></button>
+        <button class="block__icon block__icon--show" data-type="calendar-prev" aria-keyshortcuts="ArrowLeft"><svg><use xlink:href="#iconLeft"></use></svg></button>
+        <button class="b3-button b3-button--outline" data-type="calendar-today" aria-keyshortcuts="T">${window.siyuan.languages.today || "Today"}</button>
+        <button class="block__icon block__icon--show" data-type="calendar-next" aria-keyshortcuts="ArrowRight"><svg><use xlink:href="#iconRight"></use></svg></button>
         <input class="b3-text-field av__calendar-jump" type="date" data-type="calendar-jump-date" value="${safeAnchor.format("YYYY-MM-DD")}">
         <div class="av__calendar-title">${escapeHtml(title)}</div>
-        <input class="b3-text-field av__calendar-search" data-type="calendar-search" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
-        ${search ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
+        <input class="b3-text-field av__calendar-search" data-type="calendar-search" aria-keyshortcuts="/" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
+        ${search ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
         ${renderEventSummary(events)}
         ${renderModeSwitcher(viewMode, editable)}
-        ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
+        ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" aria-keyshortcuts="N" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
     </div>
     ${body}
 </div>`;
