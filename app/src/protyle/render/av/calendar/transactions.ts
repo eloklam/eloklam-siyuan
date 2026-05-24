@@ -142,7 +142,11 @@ const isRealDateInputValue = (value?: string) => {
 };
 
 const getTimeInputValue = (value: string | undefined, fallback: string) => {
-    return value && /^\d{2}:\d{2}$/.test(value) ? value : fallback;
+    if (!value || !/^\d{2}:\d{2}$/.test(value)) {
+        return fallback;
+    }
+    const [hour, minute] = value.split(":").map(item => parseInt(item, 10));
+    return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 ? value : fallback;
 };
 
 const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue | undefined => {
