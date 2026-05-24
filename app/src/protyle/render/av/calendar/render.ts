@@ -207,7 +207,7 @@ const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], e
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, day)));
         const allDayEvents = dayEvents.filter(event => event.isAllDay);
         const timedEvents = dayEvents.filter(event => !event.isAllDay);
-        return `<div class="av__calendar-week-day" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
+        return `<div class="av__calendar-week-day${day.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
             <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(`${formatCalendarDate(day, {weekday: "short"})} ${day.date()}`)}</button>
             <div class="av__calendar-all-day">${allDayEvents.map(event => eventButtonHTML(event, day, editable)).join("")}</div>
             <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, day, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
@@ -220,7 +220,7 @@ const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[], edit
     const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, anchor)));
     const allDayEvents = dayEvents.filter(event => event.isAllDay);
     const timedEvents = dayEvents.filter(event => !event.isAllDay);
-    return `<div class="av__calendar-day-view" data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
+    return `<div class="av__calendar-day-view${anchor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}" data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(formatCalendarDate(anchor, {weekday: "long", month: "short", day: "numeric"}))}</button>
     <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(event => eventButtonHTML(event, anchor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
     <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
@@ -236,7 +236,7 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
         if (!hideEmpty || dayEvents.length > 0) {
             renderedDays++;
-            html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
+            html += `<div class="av__calendar-list-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(formatCalendarDate(cursor, {weekday: "short", year: "numeric", month: "short", day: "numeric"}))}</button>
     <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => eventButtonHTML(event, cursor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;

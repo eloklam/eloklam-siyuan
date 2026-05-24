@@ -29,6 +29,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Visible focus ring for keyboard navigation on the Calendar surface.
 - Calendar region and polite live updates for changing title and event summary.
 - Month, week, day, and schedule views.
+- Today marker in month, week, day, and schedule views.
 - Persistent calendar view mode.
 - Keyboard navigation for previous/next, today, view switching, new event, search focus, and search clearing.
 - Accessibility shortcut metadata for Calendar keyboard commands.
@@ -91,14 +92,14 @@ Also passed:
 - All `app/appearance/langs/*.json` parse as JSON.
 - Calendar language keys used by code exist in every language file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
+- Static feature precheck covers create/update/delete, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
 - Calendar SCSS selectors for container, focus-visible ring, responsive toolbar wrapping, event summary, month grid, event pill, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
 - Recurrence and normalization guards for `None`, strict `UNTIL`, duplicate parts, weekly `BYDAY`, count/until limits, exception parsing, and invalid end-date clamping are covered by `scripts/calendar-audit.mjs`.
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
-- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, event tooltips, event summary, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, search result count, search clearing, direct date jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
+- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, event tooltips, event summary, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, search result count, search clearing, direct date jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 
 Known build warnings:
 
@@ -132,6 +133,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Keyboard navigation shortcuts update the visible range, switch views, open new events, focus search, and clear search.
 - Calendar shortcut controls expose `aria-keyshortcuts`.
 - Calendar title and event summary update through polite live regions.
+- Today is visibly marked in month, week, day, and schedule modes.
 - Month, week, day, and schedule modes are usable.
 - Week start changes affect visible week ranges.
 - Read-only/query embed views do not mutate data.
