@@ -10,7 +10,7 @@ import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {openEventDialog} from "./event-dialog";
-import {createCalendarEventReplacingOccurrence, updateCalendarEvent} from "./transactions";
+import {createCalendarEvent, createCalendarEventReplacingOccurrence, updateCalendarEvent} from "./transactions";
 
 interface IRenderCalendarOptions {
     protyle: IProtyle;
@@ -143,6 +143,7 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     ${!editable ? "" : (event.isAllDay ?
         `<span class="av__calendar-resize" data-type="calendar-resize" data-days="-1">-1d</span><span class="av__calendar-resize" data-type="calendar-resize" data-days="1">+1d</span>` :
         `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`)}
+    ${editable ? `<span class="av__calendar-resize" data-type="calendar-duplicate-next-day">copy</span>` : ""}
 </button>`;
 };
 
@@ -516,6 +517,33 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             colorContent: sourceEvent.colorContent,
         };
     };
+    const duplicateEventToNextDay = (sourceEvent: ICalendarNormalizedEvent) => {
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        if (!avID || !blockID || !mapping.dateFieldID) {
+            return;
+        }
+        const draft = buildDraftForDate(sourceEvent, sourceEvent.start.add(1, "day").format("YYYY-MM-DD"));
+        if (sourceEvent.isOccurrence) {
+            draft.recurrenceRaw = "";
+            draft.recurrenceExceptionRaw = "";
+        }
+        const saved = createCalendarEvent({
+            protyle: options.protyle,
+            avID,
+            blockID,
+            dateFieldID: mapping.dateFieldID,
+            fields: calendar.fields,
+            mapping,
+            draft,
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        });
+        if (saved) {
+            rerender();
+        } else {
+            showMessage(window.siyuan.languages._kernel[29]);
+        }
+    };
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
         item.addEventListener("click", (event: MouseEvent) => {
             const resizeElement = (event.target as HTMLElement).closest('[data-type="calendar-resize"]') as HTMLElement;
@@ -575,6 +603,19 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                     description: targetEvent.description,
                     colorContent: targetEvent.colorContent,
                 });
+                return;
+            }
+            const duplicateElement = (event.target as HTMLElement).closest('[data-type="calendar-duplicate-next-day"]') as HTMLElement;
+            if (duplicateElement) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!editable) {
+                    return;
+                }
+                const sourceEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
+                if (sourceEvent) {
+                    duplicateEventToNextDay(sourceEvent);
+                }
                 return;
             }
             const calendarEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");

@@ -48,6 +48,7 @@ const expectedFeatureTerms = [
   "calendar-drop-day",
   "dblclick",
   "calendar-resize",
+  "calendar-duplicate-next-day",
   "getEventTooltip",
   "data-days",
 ];
@@ -137,6 +138,9 @@ for (const term of [
   "deltaDays",
   "displayDate",
   "buildDraftForDate",
+  "duplicateEventToNextDay",
+  "draft.recurrenceRaw = \"\"",
+  "createCalendarEvent({",
   "getEditableEvent",
   ".av__calendar-event, [data-type='calendar-new']",
 ]) {
