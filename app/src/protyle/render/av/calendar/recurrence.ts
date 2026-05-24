@@ -33,14 +33,16 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
     }
     const result: Partial<ICalendarRecurrence> = {raw};
     let isMalformed = false;
+    const seenKeys = new Set<string>();
     str.split(";").filter(Boolean).forEach(part => {
         const separatorIndex = part.indexOf("=");
         const key = separatorIndex > -1 ? part.slice(0, separatorIndex) : "";
         const val = separatorIndex > -1 ? part.slice(separatorIndex + 1) : "";
-        if (!key || !val || !supportedKeys.includes(key)) {
+        if (!key || !val || !supportedKeys.includes(key) || seenKeys.has(key)) {
             isMalformed = true;
             return;
         }
+        seenKeys.add(key);
         if (key === "FREQ" && isValidFreq(val)) {
             result.freq = val as ICalendarRecurrence["freq"];
         } else if (key === "INTERVAL") {
@@ -70,7 +72,7 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
             if (byDay.length > 0) {
                 result.byDay = byDay;
             }
-            if (byDay.length !== values.length) {
+            if (byDay.length !== values.length || new Set(byDay).size !== byDay.length) {
                 isMalformed = true;
             }
         } else {
