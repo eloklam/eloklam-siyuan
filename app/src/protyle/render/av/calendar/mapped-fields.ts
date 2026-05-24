@@ -6,6 +6,7 @@ export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFie
     return {
         dateFieldID,
         recurrenceFieldID: persisted.recurrenceFieldID,
+        exceptionFieldID: persisted.exceptionFieldID,
         locationFieldID: persisted.locationFieldID,
         descriptionFieldID: persisted.descriptionFieldID,
         colorFieldID: persisted.colorFieldID,
@@ -28,6 +29,7 @@ export const getMappedMetadata = (card: IAVGalleryItem, mapping: ICalendarFieldM
     const color = getSelectColor(getCellByFieldID(card, mapping.colorFieldID));
     return {
         recurrence: getTextFromCell(getCellByFieldID(card, mapping.recurrenceFieldID)),
+        recurrenceException: getTextFromCell(getCellByFieldID(card, mapping.exceptionFieldID)),
         location: getTextFromCell(getCellByFieldID(card, mapping.locationFieldID)),
         description: getTextFromCell(getCellByFieldID(card, mapping.descriptionFieldID)),
         color: color.color,

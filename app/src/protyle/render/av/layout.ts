@@ -131,6 +131,11 @@ export const getLayoutHTML = (data: IAV) => {
             ${buildOptions(["text", "template"], mapping.recurrenceFieldID)}
         </select>
         <div class="fn__hr"></div>
+        <label class="ft__on-surface">${window.siyuan.languages.calendarExceptions || "Exceptions"}</label>
+        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="exceptionFieldID">
+            ${buildOptions(["text", "template"], mapping.exceptionFieldID)}
+        </select>
+        <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarLocation || "Location"}</label>
         <select class="b3-select fn__block" data-type="calendar-map-field" data-field="locationFieldID">
             ${buildOptions(["text", "template"], mapping.locationFieldID)}

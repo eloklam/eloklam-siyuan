@@ -46,6 +46,7 @@ type LayoutCalendar struct {
 
 type CalendarFieldMapping struct {
 	RecurrenceFieldID  string `json:"recurrenceFieldID,omitempty"`
+	ExceptionFieldID   string `json:"exceptionFieldID,omitempty"`
 	LocationFieldID    string `json:"locationFieldID,omitempty"`
 	DescriptionFieldID string `json:"descriptionFieldID,omitempty"`
 	ColorFieldID       string `json:"colorFieldID,omitempty"`

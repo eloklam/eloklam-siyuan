@@ -872,6 +872,7 @@ func (av *AttributeView) Clone() (ret *AttributeView) {
 			}
 			if nil != view.Calendar.FieldMapping {
 				view.Calendar.FieldMapping.RecurrenceFieldID = keyIDMap[view.Calendar.FieldMapping.RecurrenceFieldID]
+				view.Calendar.FieldMapping.ExceptionFieldID = keyIDMap[view.Calendar.FieldMapping.ExceptionFieldID]
 				view.Calendar.FieldMapping.LocationFieldID = keyIDMap[view.Calendar.FieldMapping.LocationFieldID]
 				view.Calendar.FieldMapping.DescriptionFieldID = keyIDMap[view.Calendar.FieldMapping.DescriptionFieldID]
 				view.Calendar.FieldMapping.ColorFieldID = keyIDMap[view.Calendar.FieldMapping.ColorFieldID]

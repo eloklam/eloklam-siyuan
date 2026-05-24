@@ -143,6 +143,34 @@ const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
     });
 };
 
+export const buildOccurrenceExceptionOperations = (options: {
+    avID: string;
+    blockID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    occurrenceDate: string;
+    previousUpdated?: string;
+}): ICalendarOperationSet => {
+    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
+    const oldCell = getCellByFieldID(options.event.sourceCard, options.mapping.exceptionFieldID);
+    const existing = (options.event.recurrenceExceptions || []).filter(item => item !== options.occurrenceDate);
+    existing.push(options.occurrenceDate);
+    existing.sort();
+    addMetadataUpdate(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        fields: options.fields,
+        fieldID: options.mapping.exceptionFieldID,
+        value: existing.join(","),
+        oldCell,
+    });
+    if (ops.doOperations.length > 0) {
+        pushUpdated(ops, options.blockID, options.previousUpdated);
+    }
+    return ops;
+};
+
 const addColorUpdate = (ops: ICalendarOperationSet, options: {
     avID: string;
     rowID: string;
@@ -370,4 +398,20 @@ export const deleteCalendarEvent = (options: {
 }) => {
     const ops = buildDeleteEventOperations(options);
     transaction(options.protyle, ops.doOperations, ops.undoOperations);
+};
+
+export const deleteCalendarOccurrence = (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    occurrenceDate: string;
+    previousUpdated?: string;
+}) => {
+    const ops = buildOccurrenceExceptionOperations(options);
+    if (ops.doOperations.length > 0) {
+        transaction(options.protyle, ops.doOperations, ops.undoOperations);
+    }
 };

@@ -8,6 +8,7 @@ export interface ICalendarRange {
 export interface ICalendarFieldMapping {
     dateFieldID: string;
     recurrenceFieldID?: string;
+    exceptionFieldID?: string;
     locationFieldID?: string;
     descriptionFieldID?: string;
     colorFieldID?: string;
@@ -31,6 +32,7 @@ export interface ICalendarEventDraft {
     startTime: string;
     endTime: string;
     recurrenceRaw?: string;
+    recurrenceExceptionRaw?: string;
     location?: string;
     description?: string;
     color?: string;
@@ -47,6 +49,8 @@ export interface ICalendarNormalizedEvent {
     dateCell?: IAVCell;
     recurrence?: ICalendarRecurrence;
     recurrenceRaw?: string;
+    recurrenceExceptionRaw?: string;
+    recurrenceExceptions?: string[];
     location?: string;
     description?: string;
     color?: string;

@@ -1558,6 +1558,16 @@ func setAttrViewCalendarFieldMapping(operation *Operation) (err error) {
 			return fmt.Errorf("recurrenceFieldID must be a string")
 		}
 	}
+	if val, exists := dataMap["exceptionFieldID"]; exists {
+		if fieldID, ok := val.(string); ok {
+			if err = validateCalendarMappingField(attrView, fieldID, "exceptionFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {
+				return
+			}
+			mapping.ExceptionFieldID = fieldID
+		} else if nil != val {
+			return fmt.Errorf("exceptionFieldID must be a string")
+		}
+	}
 	if val, exists := dataMap["locationFieldID"]; exists {
 		if fieldID, ok := val.(string); ok {
 			if err = validateCalendarMappingField(attrView, fieldID, "locationFieldID", av.KeyTypeText, av.KeyTypeTemplate); err != nil {

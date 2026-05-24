@@ -66,6 +66,7 @@ const addFreq = (date: dayjs.Dayjs, recurrence: ICalendarRecurrence) => {
 export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICalendarRange): ICalendarNormalizedEvent[] => {
     const expanded: ICalendarNormalizedEvent[] = [];
     events.forEach(event => {
+        const isException = (date: dayjs.Dayjs) => event.recurrenceExceptions?.includes(date.format("YYYY-MM-DD"));
         if (!event.recurrence) {
             if (!event.end?.isBefore(range.start, "day") && !event.start.isAfter(range.end, "day")) {
                 expanded.push(event);
@@ -94,7 +95,8 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
                         if (event.recurrence.until && occurrenceStart.isAfter(event.recurrence.until)) {
                             break;
                         }
-                        if (!occurrenceStart.isAfter(range.end, "day") &&
+                        if (!isException(occurrenceStart) &&
+                            !occurrenceStart.isAfter(range.end, "day") &&
                             !(event.end ? occurrenceStart.add(duration, "millisecond").isBefore(range.start, "day") : occurrenceStart.isBefore(range.start, "day"))) {
                             expanded.push({
                                 ...event,
@@ -124,7 +126,8 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
             if (event.recurrence.until && occurrenceStart.isAfter(event.recurrence.until)) {
                 break;
             }
-            if (!(event.end ? occurrenceStart.add(duration, "millisecond").isBefore(range.start, "day") : occurrenceStart.isBefore(range.start, "day"))) {
+            if (!isException(occurrenceStart) &&
+                !(event.end ? occurrenceStart.add(duration, "millisecond").isBefore(range.start, "day") : occurrenceStart.isBefore(range.start, "day"))) {
                 expanded.push({
                     ...event,
                     start: occurrenceStart,

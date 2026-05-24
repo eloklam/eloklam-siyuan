@@ -3,7 +3,7 @@ import {showMessage} from "../../../../dialog/message";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent} from "./model";
-import {createCalendarEvent, deleteCalendarEvent, updateCalendarEvent} from "./transactions";
+import {createCalendarEvent, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent} from "./transactions";
 
 export interface IEventDialogOptions {
     event?: ICalendarNormalizedEvent;
@@ -160,6 +160,23 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!options.event || !avID || !blockID) {
+        return;
+    }
+    const calendarData = options.data.view as IAVCalendar;
+    const mapping = getCalendarFieldMapping(calendarData);
+    if (options.event.isOccurrence && mapping.exceptionFieldID) {
+        deleteCalendarOccurrence({
+            protyle: options.protyle,
+            avID,
+            blockID,
+            fields: calendarData.fields,
+            mapping,
+            event: options.event,
+            occurrenceDate: options.event.start.format("YYYY-MM-DD"),
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        });
+        dialog.destroy();
+        options.onDelete?.();
         return;
     }
     deleteCalendarEvent({

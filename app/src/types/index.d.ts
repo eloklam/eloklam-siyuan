@@ -985,6 +985,7 @@ interface IAVCalendar extends IAVView {
     cardCount: number;
     fieldMapping?: {
         recurrenceFieldID?: string;
+        exceptionFieldID?: string;
         locationFieldID?: string;
         descriptionFieldID?: string;
         colorFieldID?: string;

@@ -28,12 +28,18 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
         dateCell,
         recurrence: parseRecurrence(metadata.recurrence),
         recurrenceRaw: metadata.recurrence,
+        recurrenceExceptionRaw: metadata.recurrenceException,
+        recurrenceExceptions: parseRecurrenceExceptions(metadata.recurrenceException),
         location: metadata.location,
         description: metadata.description,
         color: metadata.color,
         colorContent: metadata.colorContent,
         sourceCard: card,
     };
+};
+
+const parseRecurrenceExceptions = (value = "") => {
+    return value.split(/[\s,;]+/).map(item => item.trim()).filter(item => /^\d{4}-\d{2}-\d{2}$/.test(item));
 };
 
 export const normalizeCalendarEvents = (

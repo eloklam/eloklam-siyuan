@@ -225,7 +225,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     const range = getVisibleRange(dayjs(options.blockElement.dataset.calendarDate || undefined), calendar.viewMode || 0);
     const mapping = getCalendarFieldMapping(calendar);
-    const baseEvents = normalizeCalendarEvents(calendar, mapping, range).baseEventsByID;
+    const normalizedForEvents = normalizeCalendarEvents(calendar, mapping, range);
+    const baseEvents = normalizedForEvents.baseEventsByID;
+    const renderedEvents = new Map<string, ICalendarNormalizedEvent>();
+    normalizedForEvents.events.forEach(event => {
+        renderedEvents.set(event.occurrenceID || event.id, event);
+    });
     const updateEventWithDraft = (sourceEvent: ICalendarNormalizedEvent, draft: ICalendarEventDraft) => {
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
@@ -266,7 +271,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (resizeElement) {
                 event.preventDefault();
                 event.stopPropagation();
-                const sourceEvent = baseEvents.get((item as HTMLElement).dataset.id || "");
+                const sourceEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
                 if (!sourceEvent || sourceEvent.isAllDay) {
                     return;
                 }
@@ -276,7 +281,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 if (!nextEnd.isAfter(sourceEvent.start)) {
                     return;
                 }
-                updateEventWithDraft(sourceEvent, {
+                updateEventWithDraft(baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent, {
                     title: sourceEvent.title,
                     date: sourceEvent.start.format("YYYY-MM-DD"),
                     endDate: nextEnd.format("YYYY-MM-DD"),
@@ -290,7 +295,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 });
                 return;
             }
-            const calendarEvent = baseEvents.get((item as HTMLElement).dataset.id || "");
+            const calendarEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
             if (calendarEvent) {
                 openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
             }
@@ -298,7 +303,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
         item.addEventListener("dragstart", (event: DragEvent) => {
-            event.dataTransfer?.setData("text/plain", (item as HTMLElement).dataset.id || "");
+            event.dataTransfer?.setData("text/plain", (item as HTMLElement).dataset.occurrence || (item as HTMLElement).dataset.id || "");
             event.dataTransfer.effectAllowed = "move";
         });
     });
@@ -315,15 +320,16 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             (item as HTMLElement).classList.remove("av__calendar-day--dragover");
             const eventID = event.dataTransfer?.getData("text/plain") || "";
             const targetDate = (item as HTMLElement).dataset.date;
-            const sourceEvent = baseEvents.get(eventID);
+            const sourceEvent = renderedEvents.get(eventID) || baseEvents.get(eventID);
             if (!sourceEvent || !targetDate) {
                 return;
             }
+            const baseEvent = baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent;
             const draft = buildDraftForDate(sourceEvent, targetDate);
             if (sourceEvent.isAllDay && sourceEvent.end && !sourceEvent.start.isSame(sourceEvent.end, "day")) {
                 draft.endTime = sourceEvent.end?.format("HH:mm") || "23:59";
             }
-            updateEventWithDraft(sourceEvent, draft);
+            updateEventWithDraft(baseEvent, draft);
         });
     });
 };
