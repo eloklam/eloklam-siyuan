@@ -47,6 +47,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Schedule rows support drag/drop event moves.
 - Direct all-day event duration resize by day.
 - Search over title, metadata, recurrence, dates, and times.
+- Event type filtering for all, timed, all-day, and recurring events.
 - Search result count and one-click search clearing.
 - Visible-range event summary for total, all-day, and timed events.
 - Field mapping for recurrence, exception, location, description, and color.
@@ -94,14 +95,14 @@ Also passed:
 - All `app/appearance/langs/*.json` parse as JSON.
 - Calendar language keys used by code exist in every language file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
+- Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, event type filtering, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
 - Calendar SCSS selectors for container, focus-visible ring, responsive toolbar wrapping, event summary, month grid, event pill, recurrence marker, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
 - Recurrence and normalization guards for `None`, strict `UNTIL`, duplicate parts, weekly `BYDAY`, count/until limits, exception parsing, and invalid end-date clamping are covered by `scripts/calendar-audit.mjs`.
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
-- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, event tooltips, event summary, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, search result count, search clearing, direct date jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
+- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, event tooltips, event summary, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, event type filtering, search result count, search clearing, direct date jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 
 Known build warnings:
 
@@ -131,6 +132,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Editing a single occurrence creates a replacement event.
 - This-and-future split truncates the old series and creates the new series.
 - Search filters expected events.
+- Event type filtering narrows to timed, all-day, and recurring events as expected.
 - Search result count and clear search button update correctly.
 - Event summary reflects current visible/filter result counts.
 - Jumping to a specific date updates the visible range.

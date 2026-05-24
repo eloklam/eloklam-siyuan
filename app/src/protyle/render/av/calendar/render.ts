@@ -77,6 +77,11 @@ const getWeekdayLabels = (weekStart = 0) => {
 
 const getCalendarSearch = (blockElement: HTMLElement) => (blockElement.dataset.calendarSearch || "").trim();
 
+const getCalendarFilter = (blockElement: HTMLElement) => {
+    const filter = blockElement.dataset.calendarFilter || "all";
+    return ["all", "timed", "all-day", "recurring"].includes(filter) ? filter : "all";
+};
+
 const eventMatchesSearch = (event: ICalendarNormalizedEvent, query: string) => {
     if (!query) {
         return true;
@@ -94,6 +99,19 @@ const eventMatchesSearch = (event: ICalendarNormalizedEvent, query: string) => {
         event.recurrence?.freq,
     ].filter(Boolean).join("\n").toLowerCase();
     return query.toLowerCase().split(/\s+/).every(term => haystack.includes(term));
+};
+
+const eventMatchesCalendarFilter = (event: ICalendarNormalizedEvent, filter: string) => {
+    if (filter === "timed") {
+        return !event.isAllDay;
+    }
+    if (filter === "all-day") {
+        return event.isAllDay;
+    }
+    if (filter === "recurring") {
+        return !!(event.recurrenceRaw || event.recurrence || event.isOccurrence);
+    }
+    return true;
 };
 
 const getNavDate = (anchor: dayjs.Dayjs, viewMode: number, direction: -1 | 1) => {
@@ -164,6 +182,15 @@ const renderEventSummary = (events: ICalendarNormalizedEvent[]) => {
         <span>${window.siyuan.languages.allDay || "All day"} ${allDayCount}</span>
         <span>Timed ${timedCount}</span>
     </div>`;
+};
+
+const renderCalendarFilter = (filter: string) => {
+    return `<select class="b3-select av__calendar-filter" data-type="calendar-filter" aria-label="${window.siyuan.languages.filter || "Filter"}">
+        <option value="all"${filter === "all" ? " selected" : ""}>${window.siyuan.languages.all || "All"}</option>
+        <option value="timed"${filter === "timed" ? " selected" : ""}>Timed</option>
+        <option value="all-day"${filter === "all-day" ? " selected" : ""}>${window.siyuan.languages.allDay || "All day"}</option>
+        <option value="recurring"${filter === "recurring" ? " selected" : ""}>${window.siyuan.languages.calendarRecurrence || "Recurring"}</option>
+    </select>`;
 };
 
 const renderDateFieldSetup = (calendar: IAVCalendar, editable = true) => {
@@ -265,8 +292,10 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
     const range = getVisibleRange(safeAnchor, viewMode, weekStart);
     const normalized = normalizeCalendarEvents(calendar, mapping, range);
     const search = getCalendarSearch(blockElement);
-    const totalEventCount = normalized.events.length;
-    const events = normalized.events.filter(event => eventMatchesSearch(event, search));
+    const filter = getCalendarFilter(blockElement);
+    const filteredEvents = normalized.events.filter(event => eventMatchesCalendarFilter(event, filter));
+    const totalEventCount = filteredEvents.length;
+    const events = filteredEvents.filter(event => eventMatchesSearch(event, search));
     const title = getCalendarTitle(safeAnchor, range, viewMode);
     let body = renderMonth(safeAnchor, range, events, weekStart, editable);
     if (viewMode === 1) {
@@ -276,7 +305,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
     } else if (viewMode === 3) {
         body = renderList(range, events, true, editable);
     }
-    if (search && events.length === 0 && viewMode !== 3) {
+    if ((search || filter !== "all") && events.length === 0 && viewMode !== 3) {
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
@@ -288,6 +317,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <input class="b3-text-field av__calendar-jump" type="date" data-type="calendar-jump-date" value="${safeAnchor.format("YYYY-MM-DD")}">
         <div class="av__calendar-title" aria-live="polite">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" aria-keyshortcuts="/" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
+        ${renderCalendarFilter(filter)}
         ${search ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
         ${renderEventSummary(events)}
         ${renderModeSwitcher(viewMode, editable)}
@@ -387,6 +417,15 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         options.blockElement.dataset.calendarSearch = searchInput.value.trim();
         rerender(true, true);
     });
+    const filterSelect = calendarElement?.querySelector('[data-type="calendar-filter"]') as HTMLSelectElement;
+    filterSelect?.addEventListener("change", () => {
+        if (filterSelect.value === "all") {
+            delete options.blockElement.dataset.calendarFilter;
+        } else {
+            options.blockElement.dataset.calendarFilter = filterSelect.value;
+        }
+        rerender(false, true);
+    });
     calendarElement?.querySelector('[data-type="calendar-clear-search"]')?.addEventListener("click", () => {
         delete options.blockElement.dataset.calendarSearch;
         rerender(true, true);
@@ -412,9 +451,10 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         } else if (event.key === "/") {
             event.preventDefault();
             (calendarElement.querySelector('[data-type="calendar-search"]') as HTMLInputElement)?.focus();
-        } else if (event.key === "Escape" && getCalendarSearch(options.blockElement)) {
+        } else if (event.key === "Escape" && (getCalendarSearch(options.blockElement) || getCalendarFilter(options.blockElement) !== "all")) {
             event.preventDefault();
             delete options.blockElement.dataset.calendarSearch;
+            delete options.blockElement.dataset.calendarFilter;
             rerender();
         } else if (/^[1-4]$/.test(event.key)) {
             event.preventDefault();

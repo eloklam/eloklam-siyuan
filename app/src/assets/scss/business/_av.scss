@@ -1163,6 +1163,11 @@ img.av__cellassetimg {
     min-width: 120px;
   }
 
+  &-filter {
+    flex: 0 0 112px;
+    min-width: 112px;
+  }
+
   &-search-count {
     color: var(--b3-theme-on-surface);
     flex: 0 0 auto;
