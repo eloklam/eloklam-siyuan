@@ -61,6 +61,10 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
             result.isAdvanced = true;
             return;
         }
+        if (!val) {
+            result.isAdvanced = true;
+            return;
+        }
         if (key === "FREQ" && ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(val)) {
             result.freq = val;
         } else if (key === "INTERVAL" && parseInt(val, 10) > 0) {

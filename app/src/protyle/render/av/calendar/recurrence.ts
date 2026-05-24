@@ -33,6 +33,9 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
     const result: Partial<ICalendarRecurrence> = {raw};
     str.split(";").forEach(part => {
         const [key, val] = part.split("=");
+        if (!val) {
+            return;
+        }
         if (key === "FREQ" && isValidFreq(val)) {
             result.freq = val as ICalendarRecurrence["freq"];
         } else if (key === "INTERVAL") {
