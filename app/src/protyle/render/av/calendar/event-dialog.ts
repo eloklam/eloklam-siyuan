@@ -3,7 +3,7 @@ import {showMessage} from "../../../../dialog/message";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent} from "./model";
-import {createCalendarEvent, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent} from "./transactions";
+import {createCalendarEvent, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent} from "./transactions";
 
 export interface IEventDialogOptions {
     event?: ICalendarNormalizedEvent;
@@ -105,6 +105,23 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         return;
     }
     if (options.event) {
+        if (options.event.isOccurrence && mapping.exceptionFieldID) {
+            createCalendarEventReplacingOccurrence({
+                protyle: options.protyle,
+                avID,
+                blockID,
+                dateFieldID: mapping.dateFieldID,
+                fields: calendarData.fields,
+                mapping,
+                event: options.event,
+                draft,
+                occurrenceDate: options.event.start.format("YYYY-MM-DD"),
+                previousUpdated: options.blockElement.getAttribute("updated") || "",
+            });
+            dialog.destroy();
+            options.onSave?.();
+            return;
+        }
         updateCalendarEvent({
             protyle: options.protyle,
             avID,

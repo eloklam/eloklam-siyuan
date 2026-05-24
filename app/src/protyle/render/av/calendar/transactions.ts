@@ -372,6 +372,43 @@ export const createCalendarEvent = (options: {
     transaction(options.protyle, ops.doOperations, ops.undoOperations);
 };
 
+export const createCalendarEventReplacingOccurrence = (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    draft: ICalendarEventDraft;
+    occurrenceDate: string;
+    previousUpdated?: string;
+}) => {
+    const exceptionOps = buildOccurrenceExceptionOperations({
+        avID: options.avID,
+        blockID: options.blockID,
+        fields: options.fields,
+        mapping: options.mapping,
+        event: options.event,
+        occurrenceDate: options.occurrenceDate,
+        previousUpdated: options.previousUpdated,
+    });
+    const createOps = buildCreateEventOperations({
+        avID: options.avID,
+        blockID: options.blockID,
+        dateFieldID: options.dateFieldID,
+        fields: options.fields,
+        mapping: options.mapping,
+        draft: {
+            ...options.draft,
+            recurrenceRaw: "",
+            recurrenceExceptionRaw: "",
+        },
+        previousUpdated: options.previousUpdated,
+    });
+    transaction(options.protyle, [...exceptionOps.doOperations, ...createOps.doOperations], [...createOps.undoOperations, ...exceptionOps.undoOperations]);
+};
+
 export const updateCalendarEvent = (options: {
     protyle: IProtyle;
     avID: string;
