@@ -77,6 +77,39 @@ const addFreq = (date: dayjs.Dayjs, recurrence: ICalendarRecurrence) => {
     return date.add(interval, "year");
 };
 
+const getExpansionStart = (range: ICalendarRange, duration: number) => range.start.subtract(Math.max(duration, 0), "millisecond");
+
+const getAlignedRecurringStart = (event: ICalendarNormalizedEvent, expansionStart: dayjs.Dayjs) => {
+    if (!event.recurrence || event.recurrence.count || !event.start.isBefore(expansionStart)) {
+        return {occurrenceStart: event.start, index: 0};
+    }
+    const interval = event.recurrence.interval || 1;
+    const unit = event.recurrence.freq === "DAILY" ? "day" : (event.recurrence.freq === "WEEKLY" ? "week" : (event.recurrence.freq === "MONTHLY" ? "month" : "year"));
+    const diff = Math.max(expansionStart.diff(event.start, unit), 0);
+    let index = Math.max(Math.floor(diff / interval), 0);
+    let occurrenceStart = event.start.add(index * interval, unit);
+    while (occurrenceStart.isBefore(expansionStart)) {
+        occurrenceStart = occurrenceStart.add(interval, unit);
+        index++;
+    }
+    return {occurrenceStart, index};
+};
+
+const getAlignedRecurringWeekStart = (event: ICalendarNormalizedEvent, expansionStart: dayjs.Dayjs) => {
+    let weekCursor = event.start.startOf("week");
+    if (event.recurrence?.count || !weekCursor.isBefore(expansionStart, "week")) {
+        return weekCursor;
+    }
+    const interval = event.recurrence?.interval || 1;
+    const diff = Math.max(expansionStart.startOf("week").diff(event.start.startOf("week"), "week"), 0);
+    const skipped = Math.max(Math.floor(diff / interval), 0);
+    weekCursor = weekCursor.add(skipped * interval, "week");
+    while (weekCursor.isBefore(expansionStart, "week")) {
+        weekCursor = weekCursor.add(interval, "week");
+    }
+    return weekCursor;
+};
+
 export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICalendarRange): ICalendarNormalizedEvent[] => {
     const expanded: ICalendarNormalizedEvent[] = [];
     events.forEach(event => {
@@ -88,8 +121,9 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
             return;
         }
         const duration = event.end ? event.end.diff(event.start) : 0;
+        const expansionStart = getExpansionStart(range, duration);
         if (event.recurrence.freq === "WEEKLY" && event.recurrence.byDay?.length > 0) {
-            let weekCursor = event.start.startOf("week");
+            let weekCursor = getAlignedRecurringWeekStart(event, expansionStart);
             let index = 0;
             while (!weekCursor.isAfter(range.end, "day")) {
                 const weeksFromStart = weekCursor.diff(event.start.startOf("week"), "week");
@@ -131,8 +165,7 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
             }
             return;
         }
-        let occurrenceStart = event.start;
-        let index = 0;
+        let {occurrenceStart, index} = getAlignedRecurringStart(event, expansionStart);
         while (!occurrenceStart.isAfter(range.end, "day")) {
             if (event.recurrence.count && index >= event.recurrence.count) {
                 break;
