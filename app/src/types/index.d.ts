@@ -916,7 +916,7 @@ interface IBazaarItem {
 interface IAV {
     id: string;
     name: string;
-    view: IAVTable | IAVGallery;
+    view: IAVTable | IAVGallery | IAVKanban | IAVCalendar;
     viewID: string;
     viewType: TAVView;
     views: IAVView[];

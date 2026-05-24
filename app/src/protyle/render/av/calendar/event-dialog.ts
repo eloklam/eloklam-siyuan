@@ -1,9 +1,9 @@
 import {Dialog} from "../../../../dialog";
-import {transaction} from "../../../wysiwyg/transaction";
 import {showMessage} from "../../../../dialog/message";
-import {genUUID as genID} from "../../../../util/genID";
-import * as dayjs from "dayjs";
+import {escapeAttr} from "../../../../util/escape";
+import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent} from "./model";
+import {createCalendarEvent, deleteCalendarEvent, updateCalendarEvent} from "./transactions";
 
 export interface IEventDialogOptions {
     event?: ICalendarNormalizedEvent;
@@ -18,264 +18,108 @@ export interface IEventDialogOptions {
 export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const {event, date} = options;
     const isEditing = !!event;
-
-    const title = event?.title || "";
-    const dateStr = event?.start?.format("YYYY-MM-DD") || date;
-    const isAllDay = event?.isAllDay ?? true;
-    const startTime = event?.start?.format("HH:mm") || "09:00";
-    const endTime = event?.end?.format("HH:mm") || "10:00";
-
-    const formHTML = buildEventFormHTML({
-        title,
-        date: dateStr,
-        isAllDay,
-        startTime,
-        endTime,
-        isEditing
-    });
-
+    const content = `<div class="b3-dialog__content av__calendar-dialog">
+    <div class="b3-form__space">
+        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}">
+    </div>
+    <div class="b3-form__space fn__flex">
+        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" value="${event?.start.format("YYYY-MM-DD") || date}">
+        <label class="fn__flex-center av__calendar-check">
+            <input type="checkbox" id="av-event-allday" ${event?.isAllDay ?? true ? "checked" : ""}>
+            <span>${window.siyuan.languages.allDay || "All day"}</span>
+        </label>
+    </div>
+    <div class="b3-form__space fn__flex" id="av-event-time-row" style="${event?.isAllDay ?? true ? "display:none" : ""}">
+        <input type="time" class="b3-text-field fn__flex-1" id="av-event-start" value="${event?.start.format("HH:mm") || "09:00"}">
+        <span class="av__calendar-time-sep">-</span>
+        <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${event?.end?.format("HH:mm") || "10:00"}">
+    </div>
+    ${isEditing ? `<div class="b3-form__space">
+        <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event.location || "")}">
+    </div>
+    <div class="b3-form__space">
+        <input class="b3-text-field fn__block" id="av-event-recurrence" placeholder="${window.siyuan.languages.calendarRecurrence || "Recurrence"}" value="${escapeAttr(event.recurrence?.freq || "")}">
+    </div>
+    <div class="b3-form__space">
+        <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${event.description || ""}</textarea>
+    </div>` : ""}
+    <div class="b3-dialog__action">
+        <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
+        <span class="fn__space"></span>
+        ${isEditing ? `<button class="b3-button b3-button--remove" data-type="event-delete">${window.siyuan.languages.delete}</button><span class="fn__space"></span>` : ""}
+        <button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>
+    </div>
+</div>`;
     const dialog = new Dialog({
-        title: isEditing ? "Edit Event" : "New Event",
-        content: formHTML,
-        width: "480px"
+        title: isEditing ? (window.siyuan.languages.edit || "Edit") : (window.siyuan.languages.newEvent || "New Event"),
+        content,
+        width: "480px",
     });
-
     bindFormEvents(dialog, options);
     return dialog;
 };
 
-interface IFormData {
-    title: string;
-    date: string;
-    isAllDay: boolean;
-    startTime: string;
-    endTime: string;
-    isEditing: boolean;
-}
-
-const buildEventFormHTML = (formData: IFormData): string => {
-    const {title, date, isAllDay, startTime, endTime, isEditing} = formData;
-
-    const div = document.createElement("div");
-    div.textContent = title;
-    const escapedTitle = div.innerHTML;
-
-    return `
-        <div class="b3-dialog__content" style="padding: 16px;">
-            <div class="b3-form__space">
-                <input class="b3-text-field fn__block" id="av-event-title" placeholder="Event title" value="${escapedTitle}">
-            </div>
-
-            <div class="b3-form__space fn__flex">
-                <input type="date" class="b3-text-field" id="av-event-date" value="${date}" style="flex: 1;">
-                <label class="fn__flex-center" style="margin-left: 12px; display: flex; align-items: center; gap: 6px;">
-                    <input type="checkbox" id="av-event-allday" ${isAllDay ? "checked" : ""}>
-                    <span>All day</span>
-                </label>
-            </div>
-
-            <div class="b3-form__space fn__flex" id="av-event-time-row" style="${isAllDay ? "display:none" : ""}; gap: 8px;">
-                <input type="time" class="b3-text-field" id="av-event-start" value="${startTime}" style="flex: 1;">
-                <span style="line-height: 28px;">to</span>
-                <input type="time" class="b3-text-field" id="av-event-end" value="${endTime}" style="flex: 1;">
-            </div>
-
-            <div class="b3-dialog__action" style="margin-top: 20px; padding: 0;">
-                <button class="b3-button b3-button--cancel" data-type="event-cancel">Cancel</button>
-                <span class="fn__space"></span>
-                ${isEditing ? `<button class="b3-button b3-button--remove" data-type="event-delete">Delete</button><span class="fn__space"></span>` : ""}
-                <button class="b3-button b3-button--text" data-type="event-save">Save</button>
-            </div>
-        </div>
-    `;
-};
-
 const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
-    const {event} = options;
-    const isEditing = !!event;
-
-    const el = dialog.element;
-
-    const allDayCheckbox = el.querySelector("#av-event-allday") as HTMLInputElement;
-    const timeRow = el.querySelector("#av-event-time-row") as HTMLElement;
-
+    const allDayCheckbox = dialog.element.querySelector("#av-event-allday") as HTMLInputElement;
+    const timeRow = dialog.element.querySelector("#av-event-time-row") as HTMLElement;
     allDayCheckbox?.addEventListener("change", () => {
         timeRow.style.display = allDayCheckbox.checked ? "none" : "flex";
     });
-
-    el.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => {
-        dialog.destroy();
-    });
-
-    if (isEditing) {
-        el.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => {
-            deleteEvent(dialog, options);
-        });
-    }
-
-    el.querySelector('[data-type="event-save"]')?.addEventListener("click", () => {
-        saveEvent(dialog, options);
-    });
-
-    const titleInput = el.querySelector("#av-event-title") as HTMLInputElement;
-    titleInput?.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
+    dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
+    dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => saveEvent(dialog, options));
+    dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => deleteEvent(dialog, options));
+    dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
             saveEvent(dialog, options);
         }
     });
 };
 
 const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
-    const {event, protyle, blockElement, data, onSave} = options;
-    const calendarData = data.view as IAVCalendar;
-    const isEditing = !!event;
-
-    const el = dialog.element;
-    const title = (el.querySelector("#av-event-title") as HTMLInputElement)?.value?.trim();
-    const dateVal = (el.querySelector("#av-event-date") as HTMLInputElement)?.value;
-    const isAllDay = (el.querySelector("#av-event-allday") as HTMLInputElement)?.checked;
-    const startTime = (el.querySelector("#av-event-start") as HTMLInputElement)?.value || "09:00";
-    const endTime = (el.querySelector("#av-event-end") as HTMLInputElement)?.value || "10:00";
-
-    if (!title) {
-        showMessage("Please enter an event title");
+    const calendarData = options.data.view as IAVCalendar;
+    const mapping = getCalendarFieldMapping(calendarData);
+    const title = (dialog.element.querySelector("#av-event-title") as HTMLInputElement).value.trim();
+    const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement).value;
+    const isAllDay = (dialog.element.querySelector("#av-event-allday") as HTMLInputElement).checked;
+    const startTime = (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00";
+    const endTime = (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00";
+    const avID = options.blockElement.getAttribute("data-av-id");
+    const blockID = options.blockElement.getAttribute("data-node-id");
+    if (!title || !date || !avID || !blockID || !mapping.dateFieldID) {
+        showMessage(window.siyuan.languages._kernel[29]);
         return;
     }
-    if (!dateVal) {
-        showMessage("Please select a date");
-        return;
-    }
-    if (!calendarData.dateFieldID) {
-        showMessage("No date field configured");
-        return;
-    }
-
-    const avID = blockElement.getAttribute("data-av-id");
-    const blockID = blockElement.getAttribute("data-node-id");
-    const dateFieldID = calendarData.dateFieldID;
-
-    if (isEditing && event) {
-        updateExistingEvent(event, title, dateVal, isAllDay, startTime, endTime, dateFieldID, avID, blockID, protyle);
-    } else {
-        createNewEvent(title, dateVal, isAllDay, startTime, endTime, dateFieldID, avID, blockID, protyle);
-    }
-
-    dialog.destroy();
-    onSave?.();
-};
-
-const updateExistingEvent = (event: ICalendarNormalizedEvent, title: string, dateVal: string, isAllDay: boolean, startTime: string, endTime: string, dateFieldID: string, avID: string | null, blockID: string | null, protyle: IProtyle) => {
-    const startDateTime = isAllDay ? dayjs(dateVal).startOf("day") : dayjs(`${dateVal}T${startTime}`);
-    const endDateTime = isAllDay ? dayjs(dateVal).endOf("day") : dayjs(`${dateVal}T${endTime}`);
-
-    const doOps: IOperation[] = [];
-    const undoOps: IOperation[] = [];
-
-    if (event.dateCell) {
-        doOps.push({
-            action: "updateAttrViewCell",
-            id: event.dateCell.id,
+    if (options.event) {
+        updateCalendarEvent({
+            protyle: options.protyle,
             avID,
-            keyID: dateFieldID,
-            rowID: event.id,
-            data: {
-                date: {
-                    content: startDateTime.valueOf(),
-                    isNotEmpty: true,
-                    content2: endDateTime.valueOf(),
-                    isNotEmpty2: true,
-                    hasEndDate: true,
-                    isNotTime: isAllDay
-                }
-            }
+            dateFieldID: mapping.dateFieldID,
+            event: options.event,
+            title,
+            date,
+            isAllDay,
+            startTime,
+            endTime,
+            mapping,
+            recurrence: (dialog.element.querySelector("#av-event-recurrence") as HTMLInputElement)?.value,
+            location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
+            description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
         });
+    } else {
+        createCalendarEvent({protyle: options.protyle, avID, blockID, dateFieldID: mapping.dateFieldID, title, date, isAllDay, startTime, endTime});
     }
-
-    if (doOps.length > 0) {
-        transaction(protyle, doOps, undoOps);
-    }
-};
-
-const createNewEvent = (title: string, dateVal: string, isAllDay: boolean, startTime: string, endTime: string, dateFieldID: string, avID: string | null, blockID: string | null, protyle: IProtyle) => {
-    const newNodeID = genID();
-    const itemID = genID();
-    const startDateTime = isAllDay ? dayjs(dateVal).startOf("day") : dayjs(`${dateVal}T${startTime}`);
-    const endDateTime = isAllDay ? dayjs(dateVal).endOf("day") : dayjs(`${dateVal}T${endTime}`);
-
-    transaction(protyle, [{
-        action: "insertAttrViewBlock",
-        avID,
-        previousID: "",
-        srcs: [{
-            itemID,
-            id: newNodeID,
-            isDetached: true,
-            content: title
-        }],
-        blockID
-    }], [{
-        action: "removeAttrViewBlock",
-        id: newNodeID,
-        avID,
-        blockID
-    }]);
-
-    setTimeout(() => {
-        transaction(protyle, [{
-            action: "updateAttrViewCell",
-            id: itemID,
-            avID,
-            keyID: dateFieldID,
-            rowID: newNodeID,
-            data: {
-                date: {
-                    content: startDateTime.valueOf(),
-                    isNotEmpty: true,
-                    content2: endDateTime.valueOf(),
-                    isNotEmpty2: true,
-                    hasEndDate: true,
-                    isNotTime: isAllDay
-                }
-            }
-        }], [{
-            action: "updateAttrViewCell",
-            id: itemID,
-            avID,
-            keyID: dateFieldID,
-            rowID: newNodeID,
-            data: {date: null}
-        }]);
-    }, 100);
+    dialog.destroy();
+    options.onSave?.();
 };
 
 const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
-    const {event, protyle, blockElement, onDelete} = options;
-    if (!event) {
+    const avID = options.blockElement.getAttribute("data-av-id");
+    const blockID = options.blockElement.getAttribute("data-node-id");
+    if (!options.event || !avID || !blockID) {
         return;
     }
-
-    const avID = blockElement.getAttribute("data-av-id");
-    const blockID = blockElement.getAttribute("data-node-id");
-
-    transaction(protyle, [{
-        action: "removeAttrViewBlock",
-        id: event.id,
-        avID,
-        blockID
-    }], [{
-        action: "insertAttrViewBlock",
-        avID,
-        previousID: "",
-        srcs: [{
-            itemID: event.dateCell?.id || genID(),
-            id: event.id,
-            isDetached: true,
-            content: event.title || ""
-        }],
-        blockID
-    }]);
-
+    deleteCalendarEvent({protyle: options.protyle, avID, blockID, event: options.event});
     dialog.destroy();
-    onDelete?.();
+    options.onDelete?.();
 };

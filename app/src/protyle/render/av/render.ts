@@ -23,6 +23,7 @@ import {showMessage} from "../../../dialog/message";
 import {activeBlur} from "../../../mobile/util/keyboardToolbar";
 /// #endif
 import {renderKanban} from "./kanban/render";
+import {renderCalendar} from "./calendar/render";
 
 interface IIds {
     groupId: string,
@@ -477,6 +478,10 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
             await renderKanban({blockElement: e, protyle, cb, renderAll});
             continue;
         }
+        if (e.getAttribute("data-av-type") === "calendar") {
+            await renderCalendar({blockElement: e, protyle, cb, renderAll});
+            continue;
+        }
 
         let selectCellId;
         const selectCellElement = e.querySelector(".av__cell--select") as HTMLElement;
@@ -582,6 +587,11 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
         if (data.viewType === "kanban") {
             e.setAttribute("data-av-type", data.viewType);
             await renderKanban({blockElement: e, protyle, cb, renderAll, data});
+            continue;
+        }
+        if (data.viewType === "calendar") {
+            e.setAttribute("data-av-type", data.viewType);
+            await renderCalendar({blockElement: e, protyle, cb, renderAll, data});
             continue;
         }
         const view = data.view as IAVTable;
