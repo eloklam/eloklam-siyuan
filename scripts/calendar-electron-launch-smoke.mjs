@@ -257,7 +257,7 @@ const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => (
 exports.escapeHtml = escapeHtml;
 exports.escapeAttr = escapeHtml;
 `);
-  writeFile(path.join(tempDir, "src/util/fetch.js"), "exports.fetchSyncPost = async () => ({data: {}});\n");
+  writeFile(path.join(tempDir, "src/util/fetch.js"), "exports.fetchSyncPost = async () => globalThis.__calendarRenderFetchResponse || {data: {}};\n");
   writeFile(path.join(tempDir, "src/protyle/util/hasClosest.js"), `
 exports.hasClosestByAttribute = (element, attr, value) => {
   let current = element;
@@ -363,6 +363,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       ],
       cardCount: 2,
     };
+    globalThis.__calendarRenderFetchResponse = {data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'}};
     await renderModule.renderCalendar({
       protyle: {disabled: false, block: {action: []}},
       blockElement: host,
@@ -370,27 +371,101 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'},
     });
     const calendarElement = host.querySelector('.av__calendar');
+    const initialEventText = Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n');
+    const initialEventCount = host.querySelectorAll('.av__calendar-event').length;
+    const recurringCount = host.querySelectorAll('.av__calendar-recurring').length;
+    const tooltip = host.querySelector('.av__calendar-event')?.getAttribute('title') || '';
+    host.querySelector('[data-type="calendar-mode"][data-mode="1"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const weekMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
+    host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const dayMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
+    host.querySelector('[data-type="calendar-mode"][data-mode="3"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const scheduleMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
+    host.querySelector('[data-type="calendar-prev-event"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const anchorAfterPrevEvent = host.dataset.calendarDate || '';
+    host.querySelector('[data-type="calendar-next-event"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const anchorAfterNextEvent = host.dataset.calendarDate || '';
+    host.querySelector('.av__calendar').dispatchEvent(new KeyboardEvent('keydown', {key: '1', bubbles: true}));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const modeAfterKeyboard = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
     const search = host.querySelector('[data-type="calendar-search"]');
     search.value = 'none';
     search.dispatchEvent(new Event('input', {bubbles: true}));
     await new Promise(resolve => setTimeout(resolve, 100));
+    const filteredEventText = Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n');
+    const filteredEventCount = host.querySelectorAll('.av__calendar-event').length;
+    const searchState = host.dataset.calendarSearch;
+    host.querySelector('[data-type="calendar-clear-search"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const searchAfterClear = host.dataset.calendarSearch || '';
+    const filterAfterClear = host.dataset.calendarFilter || '';
+
+    const readOnlyHost = document.createElement('div');
+    readOnlyHost.className = 'av';
+    readOnlyHost.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)} + '-readonly');
+    readOnlyHost.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)} + '-readonly');
+    readOnlyHost.setAttribute('data-type', 'NodeBlockQueryEmbed');
+    readOnlyHost.dataset.calendarDate = '2026-05-24';
+    readOnlyHost.innerHTML = '<div></div>';
+    document.body.appendChild(readOnlyHost);
+    await renderModule.renderCalendar({
+      protyle: {disabled: false, block: {action: []}},
+      blockElement: readOnlyHost,
+      renderAll: true,
+      data: {view: {...calendar, viewMode: 0}, viewID: ${JSON.stringify(fixture.viewID)} + '-readonly', viewType: 'calendar'},
+    });
+    const readOnlyEvent = readOnlyHost.querySelector('.av__calendar-event');
+    const readOnlyNewButton = readOnlyHost.querySelector('[data-type="calendar-new"]:not(.av__calendar-daynum)');
+    readOnlyHost.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const readOnlyLocalMode = readOnlyHost.dataset.calendarViewMode || '';
+    const readOnlyRenderedMode = readOnlyHost.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
+
     return {
       hasCalendar: !!calendarElement,
-      eventCount: host.querySelectorAll('.av__calendar-event').length,
-      eventText: Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n'),
+      eventCount: filteredEventCount,
+      initialEventCount,
+      eventText: initialEventText,
       modeCount: host.querySelectorAll('[data-type="calendar-mode"]').length,
       hasSummary: !!host.querySelector('.av__calendar-summary'),
       hasSearch: !!host.querySelector('[data-type="calendar-search"]'),
       hasJumpDate: !!host.querySelector('[data-type="calendar-jump-date"]'),
-      recurringCount: host.querySelectorAll('.av__calendar-recurring').length,
+      recurringCount,
       dataViewMode: calendarElement && calendarElement.getAttribute('data-view-mode'),
-      filteredEventText: Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n'),
-      searchState: host.dataset.calendarSearch,
+      tooltip,
+      weekMode,
+      dayMode,
+      scheduleMode,
+      modeAfterKeyboard,
+      anchorAfterPrevEvent,
+      anchorAfterNextEvent,
+      filteredEventText,
+      searchState,
+      searchAfterClear,
+      filterAfterClear,
+      readOnlyHasEvent: !!readOnlyEvent,
+      readOnlyDraggable: readOnlyEvent?.getAttribute('draggable') || '',
+      readOnlyHasNewButton: !!readOnlyNewButton,
+      readOnlyLocalMode,
+      readOnlyRenderedMode,
     };
   })()`);
   if (!result?.hasCalendar || result.modeCount !== 4 || !result.hasSummary || !result.hasSearch ||
-    !result.hasJumpDate || !result.eventText.includes("Calendar none smoke event") ||
-    result.searchState !== "none") {
+    !result.hasJumpDate || !result.eventText.includes("Calendar UI render smoke event") ||
+    !result.eventText.includes("Calendar none smoke event") || result.recurringCount < 1 ||
+    !result.tooltip.includes("Render Room") || result.weekMode !== "1" || result.dayMode !== "2" ||
+    result.scheduleMode !== "3" || result.modeAfterKeyboard !== "0" ||
+    result.anchorAfterPrevEvent !== "2026-05-24" || result.anchorAfterNextEvent !== "2026-05-25" ||
+    !result.filteredEventText.includes("Calendar none smoke event") ||
+    result.filteredEventText.includes("Calendar UI render smoke event") ||
+    result.searchState !== "none" || result.searchAfterClear || result.filterAfterClear ||
+    !result.readOnlyHasEvent || result.readOnlyDraggable !== "false" || result.readOnlyHasNewButton ||
+    result.readOnlyLocalMode !== "2" || result.readOnlyRenderedMode !== "2") {
     fail(`calendar Electron render smoke failed: ${JSON.stringify(result)}`);
   }
   return result;
