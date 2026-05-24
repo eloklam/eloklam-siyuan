@@ -5,15 +5,23 @@ const isValidFreq = (value: string) => ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].
 const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
 const supportedKeys = ["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"];
 
+const parseDateStrict = (value: string, format: string) => {
+    const date = dayjs(value);
+    return date.isValid() && date.format(format) === value ? date : undefined;
+};
+
 const parseUntil = (value: string) => {
     if (/^\d{8}$/.test(value)) {
-        return dayjs(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`);
+        return parseDateStrict(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`, "YYYY-MM-DD");
     }
     const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T\d{6}Z?$/);
     if (dateTimeMatch) {
-        return dayjs(`${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`);
+        return parseDateStrict(`${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`, "YYYY-MM-DD");
     }
-    return dayjs(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return parseDateStrict(value, "YYYY-MM-DD");
+    }
+    return undefined;
 };
 
 export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined => {
@@ -61,7 +69,7 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
             }
         } else if (key === "UNTIL") {
             const until = parseUntil(val);
-            if (until.isValid()) {
+            if (until) {
                 result.until = until.endOf("day");
             } else {
                 isMalformed = true;
