@@ -66,6 +66,7 @@ Passed:
 git diff --check
 cd kernel && go test -vet=off ./av ./model ./sql
 cd app && corepack pnpm run build:desktop
+node scripts/calendar-audit.mjs
 ```
 
 Also passed:
@@ -74,6 +75,7 @@ Also passed:
 - Calendar language keys used by code exist in every language file.
 - Calendar frontend required files exist.
 - Static feature precheck covers create/update/delete, occurrence replacement, this-and-future split, recurrence, search, view switching, drag/drop, and resize terms.
+- Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 
 Known build warnings:
 
@@ -106,6 +108,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 cd /home/eloklam/recovered-projects/SiYuan-recovered
 git status --short
 git diff --check
+node scripts/calendar-audit.mjs
 cd kernel && go test -vet=off ./av ./model ./sql
 cd ../app && corepack pnpm run build:desktop
 ```
