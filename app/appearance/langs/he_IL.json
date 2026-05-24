@@ -92,6 +92,7 @@
   "newRowInRelation": "צור ערך חדש ב-${x} <b class='ft__on-surface'>${y}</b>",
   "copyKeyContent": "העתק טקסט מפתח ראשי",
   "addDesc": "הוסף תיאור",
+  "calendar": "Calendar",
   "calendarRecurringAdvancedReadOnly": "Advanced recurrence is retained (not editable here).",
   "calendarDuplicateMetadataField": "Please choose different fields for ${x} metadata.",
   "calendarNeedDateField": "Calendar requires a date field",

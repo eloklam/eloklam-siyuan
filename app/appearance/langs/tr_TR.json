@@ -92,6 +92,7 @@
   "newRowInRelation": "${x} içinde yeni bir kayıt oluştur <b class='ft__on-surface'>${y}</b>",
   "copyKeyContent": "Birincil anahtar metnini kopyala",
   "addDesc": "Açıklama ekle",
+  "calendar": "Calendar",
   "calendarRecurringAdvancedReadOnly": "Advanced recurrence is retained (not editable here).",
   "calendarDuplicateMetadataField": "Please choose different fields for ${x} metadata.",
   "calendarNeedDateField": "Calendar requires a date field",

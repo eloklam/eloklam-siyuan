@@ -92,6 +92,7 @@
   "newRowInRelation": "在 ${x} 中新建条目 <b class='ft__on-surface'>${y}</b>",
   "copyKeyContent": "复制主键文本",
   "addDesc": "添加描述",
+  "calendar": "日历",
   "dataRepoAutoPurgeIndexRetentionDays": "数据快照保留天数",
   "dataRepoAutoPurgeRetentionIndexesDaily": "数据快照每天保留个数",
   "fields": "字段",

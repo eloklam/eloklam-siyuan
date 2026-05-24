@@ -92,6 +92,7 @@
   "newRowInRelation": "Créer une nouvelle entrée dans ${x} <b class='ft__on-surface'>${y}</b>",
   "copyKeyContent": "Copier le texte de la clé principale",
   "addDesc": "Ajouter une description",
+  "calendar": "Calendar",
   "calendarRecurringAdvancedReadOnly": "Advanced recurrence is retained (not editable here).",
   "calendarDuplicateMetadataField": "Please choose different fields for ${x} metadata.",
   "calendarNeedDateField": "Calendar requires a date field",

@@ -92,6 +92,7 @@
   "newRowInRelation": "Erstellen Sie einen neuen Eintrag in ${x} <b class='ft__on-surface'>${y}</b>",
   "copyKeyContent": "Primärschlüsseltext kopieren",
   "addDesc": "Beschreibung hinzufügen",
+  "calendar": "Kalender",
   "dataRepoAutoPurgeIndexRetentionDays": "Daten-Snapshot-Aufbewahrungstage",
   "dataRepoAutoPurgeRetentionIndexesDaily": "Daten-Snapshots pro Tag",
   "fields": "Attribut",

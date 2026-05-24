@@ -92,6 +92,7 @@
   "newRowInRelation": "${x}에 새 항목 <b class='ft__on-surface'>${y}</b> 생성",
   "copyKeyContent": "기본 키 텍스트 복사",
   "addDesc": "설명 추가",
+  "calendar": "Calendar",
   "calendarRecurringAdvancedReadOnly": "Advanced recurrence is retained (not editable here).",
   "calendarDuplicateMetadataField": "Please choose different fields for ${x} metadata.",
   "calendarNeedDateField": "Calendar requires a date field",
