@@ -137,7 +137,9 @@ const getRecurrenceFromDialog = (dialog: Dialog) => {
     }
     const interval = parseInt((dialog.element.querySelector("#av-event-recurrence-interval") as HTMLInputElement)?.value || "1", 10);
     const count = parseInt((dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement)?.value || "", 10);
-    const until = (dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement)?.value;
+    const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement)?.value;
+    const untilInput = (dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement)?.value;
+    const until = untilInput && date && untilInput < date ? date : untilInput;
     const parts = [`FREQ=${freq}`];
     if (interval > 1) {
         parts.push(`INTERVAL=${interval}`);
@@ -221,6 +223,10 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     dateInput?.addEventListener("change", () => {
         if (!endDateInput.value || endDateInput.value < dateInput.value) {
             endDateInput.value = dateInput.value;
+        }
+        const recurrenceUntilInput = dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement;
+        if (recurrenceUntilInput?.value && recurrenceUntilInput.value < dateInput.value) {
+            recurrenceUntilInput.value = dateInput.value;
         }
     });
     const recurrenceFreq = dialog.element.querySelector("#av-event-recurrence-freq") as HTMLSelectElement;
