@@ -2,6 +2,7 @@ import * as dayjs from "dayjs";
 import {ICalendarNormalizedEvent, ICalendarRange, ICalendarRecurrence} from "./model";
 
 const isValidFreq = (value: string) => ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(value);
+const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
 
 export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined => {
     if (typeof value !== "string") {
@@ -18,7 +19,7 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
     if (isValidFreq(str)) {
         return {freq: str as ICalendarRecurrence["freq"]};
     }
-    const result: Partial<ICalendarRecurrence> = {};
+    const result: Partial<ICalendarRecurrence> = {raw};
     str.split(";").forEach(part => {
         const [key, val] = part.split("=");
         if (key === "FREQ" && isValidFreq(val)) {
@@ -37,6 +38,11 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
             const until = dayjs(val);
             if (until.isValid()) {
                 result.until = until.endOf("day");
+            }
+        } else if (key === "BYDAY") {
+            const byDay = val.split(",").filter(day => weekdayMap[day] !== undefined);
+            if (byDay.length > 0) {
+                result.byDay = byDay;
             }
         }
     });
@@ -67,6 +73,48 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
             return;
         }
         const duration = event.end ? event.end.diff(event.start) : 0;
+        if (event.recurrence.freq === "WEEKLY" && event.recurrence.byDay?.length > 0) {
+            let weekCursor = event.start.startOf("week");
+            let index = 0;
+            while (!weekCursor.isAfter(range.end, "day")) {
+                const weeksFromStart = weekCursor.diff(event.start.startOf("week"), "week");
+                if (weeksFromStart >= 0 && weeksFromStart % (event.recurrence.interval || 1) === 0) {
+                    for (const byDay of event.recurrence.byDay) {
+                        const occurrenceStart = weekCursor.day(weekdayMap[byDay])
+                            .hour(event.start.hour())
+                            .minute(event.start.minute())
+                            .second(event.start.second())
+                            .millisecond(event.start.millisecond());
+                        if (occurrenceStart.isBefore(event.start)) {
+                            continue;
+                        }
+                        if (event.recurrence.count && index >= event.recurrence.count) {
+                            break;
+                        }
+                        if (event.recurrence.until && occurrenceStart.isAfter(event.recurrence.until)) {
+                            break;
+                        }
+                        if (!occurrenceStart.isAfter(range.end, "day") &&
+                            !(event.end ? occurrenceStart.add(duration, "millisecond").isBefore(range.start, "day") : occurrenceStart.isBefore(range.start, "day"))) {
+                            expanded.push({
+                                ...event,
+                                start: occurrenceStart,
+                                end: event.end ? occurrenceStart.add(duration, "millisecond") : undefined,
+                                isOccurrence: index > 0 || !occurrenceStart.isSame(event.start),
+                                occurrenceID: `${event.id}:${occurrenceStart.format("YYYYMMDD")}`,
+                                baseEventID: event.id,
+                            });
+                        }
+                        index++;
+                    }
+                }
+                if (event.recurrence.count && index >= event.recurrence.count) {
+                    break;
+                }
+                weekCursor = weekCursor.add(1, "week");
+            }
+            return;
+        }
         let occurrenceStart = event.start;
         let index = 0;
         while (!occurrenceStart.isAfter(range.end, "day")) {
@@ -76,7 +124,7 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
             if (event.recurrence.until && occurrenceStart.isAfter(event.recurrence.until)) {
                 break;
             }
-            if (!occurrenceStart.isBefore(range.start, "day")) {
+            if (!(event.end ? occurrenceStart.add(duration, "millisecond").isBefore(range.start, "day") : occurrenceStart.isBefore(range.start, "day"))) {
                 expanded.push({
                     ...event,
                     start: occurrenceStart,
@@ -92,4 +140,3 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
     });
     return expanded.sort((a, b) => a.start.valueOf() - b.start.valueOf());
 };
-

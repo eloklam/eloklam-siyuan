@@ -6,7 +6,7 @@ import {hasClosestByAttribute} from "../../../util/hasClosest";
 import {genTabHeaderHTML} from "../render";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarNormalizedEvent, ICalendarRange} from "./model";
-import {normalizeCalendarEvents} from "./normalize";
+import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {openEventDialog} from "./event-dialog";
 
 interface IRenderCalendarOptions {
@@ -31,8 +31,10 @@ const getVisibleRange = (anchor: dayjs.Dayjs, viewMode: number): ICalendarRange 
 };
 
 const eventButtonHTML = (event: ICalendarNormalizedEvent) => {
+    const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
+    const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ? `${event.start.format("MMM D")} - ${event.end.format("MMM D")} ` : "";
     return `<button class="av__calendar-event" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}">
-    <span>${event.isAllDay ? "" : `${event.start.format("HH:mm")} `}${escapeHtml(event.title)}</span>
+    <span>${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
 </button>`;
 };
 
@@ -40,7 +42,7 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
     let html = `<div class="av__calendar-weekdays">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(day => `<div>${day}</div>`).join("")}</div><div class="av__calendar-month">`;
     let cursor = range.start;
     while (!cursor.isAfter(range.end, "day")) {
-        const dayEvents = events.filter(event => event.start.isSame(cursor, "day"));
+        const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
         html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}" data-date="${cursor.format("YYYY-MM-DD")}">
     <button class="av__calendar-daynum" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${cursor.date()}</button>
     <div class="av__calendar-events">${dayEvents.map(eventButtonHTML).join("")}</div>
@@ -50,15 +52,17 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
     return `${html}</div>`;
 };
 
-const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[]) => {
+const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], hideEmpty = false) => {
     let cursor = range.start.startOf("day");
     let html = '<div class="av__calendar-list">';
     while (!cursor.isAfter(range.end, "day")) {
-        const dayEvents = events.filter(event => event.start.isSame(cursor, "day"));
-        html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}">
+        const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
+        if (!hideEmpty || dayEvents.length > 0) {
+            html += `<div class="av__calendar-list-day" data-date="${cursor.format("YYYY-MM-DD")}">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}">${cursor.format("YYYY-MM-DD")}</button>
     <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(eventButtonHTML).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
+        }
         cursor = cursor.add(1, "day");
     }
     return `${html}</div>`;
@@ -77,7 +81,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
     const range = getVisibleRange(safeAnchor, calendar.viewMode || 0);
     const normalized = normalizeCalendarEvents(calendar, mapping, range);
     const title = calendar.viewMode === 1 ? `${range.start.format("MMM D")} - ${range.end.format("MMM D, YYYY")}` : safeAnchor.format(calendar.viewMode === 2 ? "MMM D, YYYY" : "MMMM YYYY");
-    const body = calendar.viewMode === 0 ? renderMonth(safeAnchor, range, normalized.events) : renderList(range, normalized.events);
+    const body = calendar.viewMode === 0 ? renderMonth(safeAnchor, range, normalized.events) : renderList(range, normalized.events, calendar.viewMode === 3);
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
     return `<div class="av__calendar" data-view-mode="${calendar.viewMode || 0}">
     <div class="av__calendar-toolbar">
@@ -158,4 +162,3 @@ export const renderCalendar = async (options: IRenderCalendarOptions) => {
     bindCalendarEvents(options, data);
     options.cb?.(data);
 };
-

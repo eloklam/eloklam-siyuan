@@ -16,13 +16,14 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
     if (!start.isValid()) {
         return undefined;
     }
-    const end = dateValue.hasEndDate && dateValue.content2 ? dayjs(dateValue.content2) : undefined;
+    const rawEnd = dateValue.hasEndDate && dateValue.content2 ? dayjs(dateValue.content2) : undefined;
+    const end = rawEnd?.isValid() ? rawEnd : (dateValue.isNotTime === false ? start.add(1, "hour") : start.endOf("day"));
     return {
         id: card.id,
         blockID: blockValue?.id,
         title: blockValue?.content || getTextFromCell(blockCell) || window.siyuan.languages.untitled,
         start,
-        end: end?.isValid() ? end : undefined,
+        end,
         isAllDay: dateValue.isNotTime !== false,
         dateCell,
         recurrence: parseRecurrence(metadata.recurrence),
@@ -51,7 +52,31 @@ export const normalizeCalendarEvents = (
     const baseEventsByID = new Map<string, ICalendarNormalizedEvent>();
     baseEvents.forEach(event => baseEventsByID.set(event.id, event));
     return {
-        events: expandRecurrences(baseEvents, range),
+        events: sortCalendarEvents(expandRecurrences(baseEvents, range)),
         baseEventsByID,
     };
+};
+
+export const eventOverlapsDay = (event: ICalendarNormalizedEvent, day: dayjs.Dayjs) => {
+    const dayStart = day.startOf("day");
+    const dayEnd = day.endOf("day");
+    const eventEnd = event.end || event.start;
+    return !eventEnd.isBefore(dayStart) && !event.start.isAfter(dayEnd);
+};
+
+export const sortCalendarEvents = (events: ICalendarNormalizedEvent[]) => {
+    return [...events].sort((a, b) => {
+        if (a.isAllDay !== b.isAllDay) {
+            return a.isAllDay ? -1 : 1;
+        }
+        const startDiff = a.start.valueOf() - b.start.valueOf();
+        if (startDiff !== 0) {
+            return startDiff;
+        }
+        const endDiff = (a.end?.valueOf() || a.start.valueOf()) - (b.end?.valueOf() || b.start.valueOf());
+        if (endDiff !== 0) {
+            return endDiff;
+        }
+        return a.title.localeCompare(b.title);
+    });
 };
