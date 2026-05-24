@@ -34,6 +34,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Keyboard navigation for previous/next, today, view switching, new event, search focus, and search clearing.
 - Accessibility shortcut metadata for Calendar keyboard commands.
 - Direct jump to a specific calendar date.
+- Jump to the previous or next matching event from the current Calendar anchor.
 - Configurable date field and week start.
 - Empty calendar date-field setup and date-field creation.
 - Event create, edit, delete, duplicate.
@@ -98,14 +99,14 @@ Also passed:
 - Calendar language keys used by code exist in every language file.
 - Calendar timed-event labels are present in every bundled language JSON file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, event type filtering, active query result counts, search/filter clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
+- Static feature precheck covers create/update/delete, source-block jumping, keyboard navigation, keyboard shortcut metadata, live region metadata, today markers, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, recurring/occurrence event markers, event tooltips, event summary, search, event type filtering, active query result counts, search/filter clearing, direct date jumping, previous/next event jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
 - Calendar SCSS selectors for container, focus-visible ring, responsive toolbar wrapping, event summary, month grid, event pill, recurrence marker, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
 - Recurrence and normalization guards for `None`, strict `UNTIL`, duplicate parts, weekly `BYDAY`, count/until limits, exception parsing, and invalid end-date clamping are covered by `scripts/calendar-audit.mjs`.
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
-- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, event tooltips, event summary, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, event type filtering, active query result count, search/filter clearing, direct date jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
+- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, event tooltips, event summary, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, event type filtering, active query result count, search/filter clearing, direct date jumping, previous/next event jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 
 Known build warnings:
 
@@ -139,6 +140,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - Search/filter result count and clear button update correctly.
 - Event summary reflects current visible/filter result counts.
 - Jumping to a specific date updates the visible range.
+- Previous/next event controls jump to the nearest matching event date and respect active search/filter state.
 - Keyboard navigation shortcuts update the visible range, switch views, open new events, focus search, and clear search.
 - Calendar shortcut controls expose `aria-keyshortcuts`.
 - Calendar title and event summary update through polite live regions.

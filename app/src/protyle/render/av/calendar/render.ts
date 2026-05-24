@@ -127,6 +127,11 @@ const getNavDate = (anchor: dayjs.Dayjs, viewMode: number, direction: -1 | 1) =>
     return anchor.add(direction, "day");
 };
 
+const getEventSeekRange = (anchor: dayjs.Dayjs): ICalendarRange => ({
+    start: anchor.subtract(1, "year").startOf("day"),
+    end: anchor.add(1, "year").endOf("day"),
+});
+
 const getEventDateLabel = (event: ICalendarNormalizedEvent) => {
     if (event.isAllDay) {
         return event.end && !event.start.isSame(event.end, "day") ?
@@ -316,6 +321,8 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <button class="block__icon block__icon--show" data-type="calendar-prev" aria-keyshortcuts="ArrowLeft"><svg><use xlink:href="#iconLeft"></use></svg></button>
         <button class="b3-button b3-button--outline" data-type="calendar-today" aria-keyshortcuts="T">${window.siyuan.languages.today || "Today"}</button>
         <button class="block__icon block__icon--show" data-type="calendar-next" aria-keyshortcuts="ArrowRight"><svg><use xlink:href="#iconRight"></use></svg></button>
+        <button class="block__icon block__icon--show" data-type="calendar-prev-event" aria-label="${window.siyuan.languages.calendarPreviousEvent || "Previous event"}"><svg><use xlink:href="#iconUp"></use></svg></button>
+        <button class="block__icon block__icon--show" data-type="calendar-next-event" aria-label="${window.siyuan.languages.calendarNextEvent || "Next event"}"><svg><use xlink:href="#iconDown"></use></svg></button>
         <input class="b3-text-field av__calendar-jump" type="date" data-type="calendar-jump-date" value="${safeAnchor.format("YYYY-MM-DD")}">
         <div class="av__calendar-title" aria-live="polite">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" aria-keyshortcuts="/" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
@@ -354,6 +361,23 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
         return anchor.isValid() ? anchor : dayjs();
     };
+    const seekEvent = (direction: -1 | 1) => {
+        const mapping = getCalendarFieldMapping(calendar);
+        if (!mapping.hasDateField) {
+            return;
+        }
+        const anchor = getCurrentAnchor();
+        const search = getCalendarSearch(options.blockElement);
+        const filter = getCalendarFilter(options.blockElement);
+        const events = normalizeCalendarEvents(calendar, mapping, getEventSeekRange(anchor)).events
+            .filter(event => eventMatchesCalendarFilter(event, filter))
+            .filter(event => eventMatchesSearch(event, search))
+            .filter(event => direction > 0 ? event.start.isAfter(anchor, "day") : event.start.isBefore(anchor, "day"));
+        const target = direction > 0 ? sortCalendarEvents(events)[0] : sortCalendarEvents(events).reverse()[0];
+        if (target) {
+            setCalendarAnchor(target.start);
+        }
+    };
     const setCalendarViewMode = (mode: number) => {
         if (!editable || mode === viewMode || ![0, 1, 2, 3].includes(mode)) {
             return;
@@ -385,6 +409,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     calendarElement?.querySelector('[data-type="calendar-next"]')?.addEventListener("click", () => {
         setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, 1));
     });
+    calendarElement?.querySelector('[data-type="calendar-prev-event"]')?.addEventListener("click", () => seekEvent(-1));
+    calendarElement?.querySelector('[data-type="calendar-next-event"]')?.addEventListener("click", () => seekEvent(1));
     calendarElement?.querySelector('[data-type="calendar-today"]')?.addEventListener("click", () => {
         setCalendarAnchor(dayjs());
     });
