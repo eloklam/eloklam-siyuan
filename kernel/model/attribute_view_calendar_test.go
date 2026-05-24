@@ -60,8 +60,39 @@ func TestCalendarWeekStartFromOperationData(t *testing.T) {
 	if _, err = calendarWeekStartFromOperationData(float64(2)); err == nil {
 		t.Fatal("invalid week start should be rejected")
 	}
+	if _, err = calendarWeekStartFromOperationData(float64(1.5)); err == nil {
+		t.Fatal("fractional week start should be rejected")
+	}
 	if _, err = calendarWeekStartFromOperationData("1"); err == nil {
 		t.Fatal("non-number week start should be rejected")
+	}
+}
+
+func TestCalendarViewModeFromOperationData(t *testing.T) {
+	viewMode, err := calendarViewModeFromOperationData(float64(0))
+	if err != nil {
+		t.Fatalf("float month should be accepted: %v", err)
+	}
+	if viewMode != av.ViewModeMonth {
+		t.Fatalf("expected month, got %d", viewMode)
+	}
+
+	viewMode, err = calendarViewModeFromOperationData(3)
+	if err != nil {
+		t.Fatalf("int schedule should be accepted: %v", err)
+	}
+	if viewMode != av.ViewModeSchedule {
+		t.Fatalf("expected schedule, got %d", viewMode)
+	}
+
+	if _, err = calendarViewModeFromOperationData(float64(4)); err == nil {
+		t.Fatal("invalid view mode should be rejected")
+	}
+	if _, err = calendarViewModeFromOperationData(float64(1.5)); err == nil {
+		t.Fatal("fractional view mode should be rejected")
+	}
+	if _, err = calendarViewModeFromOperationData("1"); err == nil {
+		t.Fatal("non-number view mode should be rejected")
 	}
 }
 

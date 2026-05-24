@@ -1506,18 +1506,41 @@ func setAttrViewCalendarViewMode(operation *Operation) (err error) {
 		return
 	}
 
-	var viewMode av.ViewMode
-	if dataFloat, ok := operation.Data.(float64); ok {
-		viewMode = av.ViewMode(dataFloat)
-	} else if dataInt, ok := operation.Data.(int); ok {
-		viewMode = av.ViewMode(dataInt)
-	} else {
+	viewMode, err := calendarViewModeFromOperationData(operation.Data)
+	if err != nil {
 		return
 	}
 
 	view.Calendar.ViewMode = viewMode
 	err = av.SaveAttributeView(attrView)
 	ReloadAttrView(attrView.ID)
+	return
+}
+
+func calendarNumberFromOperationData(data any, name string) (number int, err error) {
+	if dataFloat, ok := data.(float64); ok {
+		number = int(dataFloat)
+		if dataFloat != float64(number) {
+			return number, fmt.Errorf("calendar %s data must be an integer", name)
+		}
+		return
+	}
+	if dataInt, ok := data.(int); ok {
+		number = dataInt
+		return
+	}
+	return number, fmt.Errorf("calendar %s data must be a number", name)
+}
+
+func calendarViewModeFromOperationData(data any) (viewMode av.ViewMode, err error) {
+	number, err := calendarNumberFromOperationData(data, "view mode")
+	if err != nil {
+		return
+	}
+	viewMode = av.ViewMode(number)
+	if av.ViewModeMonth != viewMode && av.ViewModeWeek != viewMode && av.ViewModeDay != viewMode && av.ViewModeSchedule != viewMode {
+		return viewMode, fmt.Errorf("calendar view mode [%d] is invalid", viewMode)
+	}
 	return
 }
 
@@ -1556,13 +1579,11 @@ func setAttrViewCalendarWeekStart(operation *Operation) (err error) {
 }
 
 func calendarWeekStartFromOperationData(data any) (weekStart av.WeekStart, err error) {
-	if dataFloat, ok := data.(float64); ok {
-		weekStart = av.WeekStart(dataFloat)
-	} else if dataInt, ok := data.(int); ok {
-		weekStart = av.WeekStart(dataInt)
-	} else {
-		return weekStart, fmt.Errorf("calendar week start data must be a number")
+	number, err := calendarNumberFromOperationData(data, "week start")
+	if err != nil {
+		return
 	}
+	weekStart = av.WeekStart(number)
 	if av.WeekStartSunday != weekStart && av.WeekStartMonday != weekStart {
 		return weekStart, fmt.Errorf("calendar week start [%d] is invalid", weekStart)
 	}
