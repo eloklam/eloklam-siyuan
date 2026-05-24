@@ -102,6 +102,19 @@ const renderRecurrenceFields = (event?: ICalendarNormalizedEvent) => {
 </div>`;
 };
 
+const renderColorField = (field?: IAVColumn, event?: ICalendarNormalizedEvent) => {
+    if (!field || !["select", "mSelect"].includes(field.type)) {
+        return "";
+    }
+    const selected = event?.colorContent || "";
+    return `<div class="b3-form__space">
+        <select class="b3-select fn__block" id="av-event-color" aria-label="${window.siyuan.languages.color || "Color"}">
+            <option value=""${selected ? "" : " selected"}>${window.siyuan.languages.none || "None"}</option>
+            ${(field.options || []).map((option) => `<option value="${escapeAttr(option.name)}"${option.name === selected ? " selected" : ""}>${escapeHtml(option.name)}</option>`).join("")}
+        </select>
+    </div>`;
+};
+
 const getRecurrenceFromDialog = (dialog: Dialog) => {
     const rawInput = dialog.element.querySelector("#av-event-recurrence-raw") as HTMLInputElement;
     if (rawInput) {
@@ -137,6 +150,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const {event, date} = options;
     const isEditing = !!event;
     const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
+    const colorField = (options.data.view as IAVCalendar).fields.find((field) => field.id === mapping.colorFieldID);
     const canEditFuture = !!event?.isOccurrence && !!mapping.recurrenceFieldID;
     const deleteLabel = event?.isOccurrence ?
         (mapping.exceptionFieldID ? (window.siyuan.languages.calendarDeleteOccurrence || "Delete occurrence") : (window.siyuan.languages.calendarDeleteSeries || "Delete series")) :
@@ -167,9 +181,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     ${mapping.descriptionFieldID ? `<div class="b3-form__space">
         <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}">${escapeHtml(event?.description || "")}</textarea>
     </div>` : ""}
-    ${mapping.colorFieldID ? `<div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-color" placeholder="${window.siyuan.languages.color || "Color"}" value="${escapeAttr(event?.colorContent || "")}">
-    </div>` : ""}
+    ${renderColorField(colorField, event)}
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
@@ -236,7 +248,7 @@ const getDraftFromDialog = (dialog: Dialog) => {
         recurrenceRaw: getRecurrenceFromDialog(dialog),
         location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
         description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
-        colorContent: (dialog.element.querySelector("#av-event-color") as HTMLInputElement)?.value,
+        colorContent: (dialog.element.querySelector("#av-event-color") as HTMLSelectElement)?.value,
     };
 };
 
