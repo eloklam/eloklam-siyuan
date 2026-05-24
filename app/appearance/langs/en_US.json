@@ -1777,5 +1777,7 @@
     "284": "Access denied",
     "285": "Password is incorrect",
     "286": "[%s] has already been rolled back"
-  }
+  },
+  "calendarSearch": "Search calendar",
+  "calendarThisAndFuture": "This and future"
 }

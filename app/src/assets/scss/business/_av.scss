@@ -1146,6 +1146,11 @@ img.av__cellassetimg {
     text-align: center;
   }
 
+  &-search {
+    flex: 0 1 180px;
+    min-width: 120px;
+  }
+
   &-modes {
     display: flex;
     gap: 4px;
@@ -1284,6 +1289,14 @@ img.av__cellassetimg {
     grid-template-columns: 120px 1fr;
     min-height: 32px;
     padding: 8px 0;
+  }
+
+  &-no-results {
+    border: 1px dashed var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    margin-bottom: 8px;
+    padding: 12px;
+    text-align: center;
   }
 
   &-dialog {

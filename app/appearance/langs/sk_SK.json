@@ -1773,5 +1773,7 @@
     "284": "Prístup zakázaný",
     "285": "Nesprávne heslo",
     "286": "[%s] bol vrátený"
-  }
+  },
+  "calendarSearch": "Search calendar",
+  "calendarThisAndFuture": "This and future"
 }

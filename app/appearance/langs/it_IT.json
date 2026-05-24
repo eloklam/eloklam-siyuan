@@ -1773,5 +1773,7 @@
     "284": "Accesso negato",
     "285": "La password è errata",
     "286": "[%s] è già stato ripristinato"
-  }
+  },
+  "calendarSearch": "Search calendar",
+  "calendarThisAndFuture": "This and future"
 }
