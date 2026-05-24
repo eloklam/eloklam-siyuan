@@ -267,7 +267,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.emptyContent}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
-    return `<div class="av__calendar" data-view-mode="${viewMode}">
+    return `<div class="av__calendar" data-view-mode="${viewMode}" tabindex="0">
     <div class="av__calendar-toolbar">
         <button class="block__icon block__icon--show" data-type="calendar-prev"><svg><use xlink:href="#iconLeft"></use></svg></button>
         <button class="b3-button b3-button--outline" data-type="calendar-today">${window.siyuan.languages.today || "Today"}</button>
@@ -300,19 +300,22 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             searchInput?.setSelectionRange(searchInput.value.length, searchInput.value.length);
         });
     };
-    calendarElement?.querySelector('[data-type="calendar-prev"]')?.addEventListener("click", () => {
-        const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
-        options.blockElement.dataset.calendarDate = getNavDate(anchor.isValid() ? anchor : dayjs(), viewMode, -1).format("YYYY-MM-DD");
+    const setCalendarAnchor = (date: dayjs.Dayjs) => {
+        options.blockElement.dataset.calendarDate = date.format("YYYY-MM-DD");
         rerender();
+    };
+    const getCurrentAnchor = () => {
+        const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
+        return anchor.isValid() ? anchor : dayjs();
+    };
+    calendarElement?.querySelector('[data-type="calendar-prev"]')?.addEventListener("click", () => {
+        setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, -1));
     });
     calendarElement?.querySelector('[data-type="calendar-next"]')?.addEventListener("click", () => {
-        const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
-        options.blockElement.dataset.calendarDate = getNavDate(anchor.isValid() ? anchor : dayjs(), viewMode, 1).format("YYYY-MM-DD");
-        rerender();
+        setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, 1));
     });
     calendarElement?.querySelector('[data-type="calendar-today"]')?.addEventListener("click", () => {
-        options.blockElement.dataset.calendarDate = dayjs().format("YYYY-MM-DD");
-        rerender();
+        setCalendarAnchor(dayjs());
     });
     const jumpDateInput = calendarElement?.querySelector('[data-type="calendar-jump-date"]') as HTMLInputElement;
     jumpDateInput?.addEventListener("change", () => {
@@ -348,6 +351,33 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     calendarElement?.querySelector('[data-type="calendar-clear-search"]')?.addEventListener("click", () => {
         delete options.blockElement.dataset.calendarSearch;
         rerender(true, true);
+    });
+    calendarElement?.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes((event.target as HTMLElement).tagName)) {
+            return;
+        }
+        if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, -1));
+        } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, 1));
+        } else if (event.key.toLowerCase() === "t") {
+            event.preventDefault();
+            setCalendarAnchor(dayjs());
+        } else if (event.key.toLowerCase() === "n") {
+            event.preventDefault();
+            if (editable) {
+                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: getCurrentAnchor().format("YYYY-MM-DD"), onSave: rerender});
+            }
+        } else if (event.key === "/") {
+            event.preventDefault();
+            (calendarElement.querySelector('[data-type="calendar-search"]') as HTMLInputElement)?.focus();
+        } else if (event.key === "Escape" && getCalendarSearch(options.blockElement)) {
+            event.preventDefault();
+            delete options.blockElement.dataset.calendarSearch;
+            rerender();
+        }
     });
     const emptyDateFieldElement = calendarElement?.querySelector('[data-type="calendar-empty-date-field"]') as HTMLSelectElement;
     emptyDateFieldElement?.addEventListener("change", () => {
