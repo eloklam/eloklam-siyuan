@@ -62,7 +62,15 @@ const getViewModeLabel = (viewMode: number) => {
     return labels[viewMode] || labels[0];
 };
 
-const getCalendarLocale = () => window.siyuan.config.lang.replace("_", "-");
+const getCalendarLocale = () => {
+    if (window.siyuan.config.lang === "zh_CHT") {
+        return "zh-Hant";
+    }
+    if (window.siyuan.config.lang === "zh_CN") {
+        return "zh-Hans";
+    }
+    return window.siyuan.config.lang.replace("_", "-");
+};
 
 const formatCalendarDate = (date: dayjs.Dayjs, options: Intl.DateTimeFormatOptions) => {
     return new Intl.DateTimeFormat(getCalendarLocale(), options).format(date.toDate());

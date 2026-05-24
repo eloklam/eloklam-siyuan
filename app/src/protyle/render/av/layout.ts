@@ -6,8 +6,18 @@ import {fetchSyncPost} from "../../../util/fetch";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
 
+const getCalendarLocale = () => {
+    if (window.siyuan.config.lang === "zh_CHT") {
+        return "zh-Hant";
+    }
+    if (window.siyuan.config.lang === "zh_CN") {
+        return "zh-Hans";
+    }
+    return window.siyuan.config.lang.replace("_", "-");
+};
+
 const getWeekdayLabel = (day: 0 | 1) => {
-    return new Intl.DateTimeFormat(window.siyuan.config.lang.replace("_", "-"), {weekday: "long"}).format(new Date(2020, 5, 7 + day));
+    return new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "long"}).format(new Date(2020, 5, 7 + day));
 };
 
 const validateCalendarMetadataMapping = (mapping: Partial<NonNullable<IAVCalendar["fieldMapping"]>>, changedField?: string) => {

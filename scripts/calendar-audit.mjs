@@ -25,6 +25,7 @@ const requiredFiles = [
   "scripts/calendar-recurrence-smoke.mjs",
   "scripts/calendar-transactions-smoke.mjs",
   "scripts/calendar-electron-launch-smoke.mjs",
+  "scripts/calendar-electron-document-flow-smoke.mjs",
 ];
 
 for (const file of requiredFiles) {
@@ -552,4 +553,35 @@ for (const term of [
   }
 }
 
-console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions/electron render+dialog smoke scripts`);
+const electronDocumentFlowSmoke = read("scripts/calendar-electron-document-flow-smoke.mjs");
+for (const term of [
+  "createCalendarFixture(baseURL)",
+  "\"/api/filetree/createDocWithMd\"",
+  "\"/api/av/changeAttrViewLayout\"",
+  "\"/api/attr/setBlockAttrs\"",
+  "\"custom-sy-av-view\"",
+  "window.openFileByURL",
+  "siyuan://blocks/${fixture.docID}",
+  "siyuan://blocks/${fixture.avBlockID}?focus=1",
+  "__calendarDocFlowFetches",
+  "__calendarDocFlowErrors",
+  ".av__calendar-event",
+  "Calendar document flow event",
+  "calendar electron document flow smoke passed",
+]) {
+  if (!electronDocumentFlowSmoke.includes(term)) {
+    fail(`calendar electron document flow smoke missing ${term}`);
+  }
+}
+
+for (const [file, term] of [
+  ["app/src/protyle/render/av/calendar/render.ts", "return \"zh-Hant\""],
+  ["app/src/protyle/render/av/calendar/event-dialog.ts", "return \"zh-Hant\""],
+  ["app/src/protyle/render/av/layout.ts", "return \"zh-Hant\""],
+]) {
+  if (!read(file).includes(term)) {
+    fail(`${file} missing Traditional Chinese Intl locale guard`);
+  }
+}
+
+console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions/electron render+dialog/document smoke scripts`);

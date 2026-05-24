@@ -129,6 +129,8 @@ Also passed:
 - `scripts/calendar-electron-launch-smoke.mjs` builds or reuses the ignored local desktop kernel binary, starts an isolated kernel on port 6806 with a temporary workspace, maps the desktop build output to Electron's local `/stage/build/app/` dev URL when needed, opens the Electron desktop shell under isolated `HOME` / `XDG_CONFIG_HOME`, verifies through Chromium remote debugging that the SiYuan app shell exposes `window.siyuan`, layout DOM, and `window.openFileByURL`, then transpiles the Calendar render modules into an isolated harness and calls the real `renderCalendar()` in the Electron DOM.
 - The Electron Calendar render harness verifies Calendar toolbar controls, jump-date input, search input, summary, four view-mode controls, rendered event text, recurrence-backed data, editable new-event dialogs from toolbar/day cells, event click-to-edit routing, quick-copy transaction drafts, timed resize update drafts, drag/drop move update drafts, persisted mode-switch transactions, empty date-field selection transactions, new date-field creation transactions, editable month/week/day/schedule switching, previous/next event jumping, search rerendering/filter state, search clearing, read-only event drag guards, hidden read-only mutation controls, and read-only local mode switching inside a real desktop renderer process.
 - The Electron Calendar dialog harness transpiles the real `event-dialog.ts` into the desktop renderer and verifies event creation, all-day/time toggling, weekly recurrence form output, `UNTIL` date clamping, mapped location/description/color fields, read-only disabled controls, source-block opening, this-and-future occurrence editing, occurrence deletion, duplicate-as-one-off behavior, and advanced recurrence read-only retention.
+- `scripts/calendar-electron-document-flow-smoke.mjs` creates a real notebook/document/AV in an isolated workspace, changes the AV to Calendar, persists the Calendar view ID on the AV block, opens the document through `window.openFileByURL("siyuan://blocks/...")` in the desktop renderer, and verifies the real document DOM contains the Calendar event.
+- Calendar date formatting now maps SiYuan `zh_CHT` / `zh_CN` language codes to valid Intl locales before rendering Calendar views, Calendar dialogs, and layout week-start labels.
 
 Isolated launch smoke also passed without touching the real note vault:
 
@@ -141,7 +143,7 @@ Isolated launch smoke also passed without touching the real note vault:
 - Added repeatable `node scripts/calendar-kernel-smoke.mjs` coverage for the Calendar API setup and mapped metadata path.
 - Added repeatable `node scripts/calendar-electron-launch-smoke.mjs` coverage for the isolated Electron desktop launch path.
 - Added repeatable Electron renderer coverage for the Calendar event dialog's create, read-only inspect, source-block jump, this-and-future edit, occurrence delete, duplicate, and advanced recurrence paths.
-- A CDP attempt to open a generated Calendar AV document through the normal document tab flow showed `window.openFileByURL` can request the document and the fixture notebook appears in the file tree, but the editor remained on the built-in user guide in this sandbox. That is not counted as completed document-level Calendar interaction coverage.
+- Added repeatable `node scripts/calendar-electron-document-flow-smoke.mjs` coverage for the normal document tab path, including a real generated Calendar AV opened through `window.openFileByURL` in Traditional Chinese desktop mode.
 
 Known build warnings:
 

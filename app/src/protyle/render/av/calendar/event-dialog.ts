@@ -31,7 +31,15 @@ export interface IEventDialogOptions {
     readOnly?: boolean;
 }
 
-const getCalendarLocale = () => window.siyuan.config.lang.replace("_", "-");
+const getCalendarLocale = () => {
+    if (window.siyuan.config.lang === "zh_CHT") {
+        return "zh-Hant";
+    }
+    if (window.siyuan.config.lang === "zh_CN") {
+        return "zh-Hans";
+    }
+    return window.siyuan.config.lang.replace("_", "-");
+};
 
 const getWeekdayLabels = () => {
     const formatter = new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "short"});
