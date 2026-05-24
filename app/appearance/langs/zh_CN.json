@@ -1779,5 +1779,21 @@
     "286": "[%s] 已经回滚完毕"
   },
   "calendarSearch": "搜索日历",
-  "calendarThisAndFuture": "本次及以后"
+  "calendarThisAndFuture": "本次及以后",
+  "calendarCreateDateField": "创建日期字段",
+  "calendarDeleteOccurrence": "删除本次",
+  "calendarDeleteSeries": "删除整个重复",
+  "calendarDaily": "每天",
+  "calendarWeekly": "每周",
+  "calendarMonthly": "每月",
+  "calendarYearly": "每年",
+  "calendarInterval": "间隔",
+  "calendarCount": "次数",
+  "calendarUntil": "直到",
+  "calendarWeekStart": "每周开始于",
+  "calendarRecurrence": "重复",
+  "calendarExceptions": "例外",
+  "calendarLocation": "地点",
+  "calendarDescription": "描述",
+  "calendarSchedule": "日程"
 }

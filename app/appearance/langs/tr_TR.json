@@ -1775,5 +1775,21 @@
     "286": "[%s] geri alındı"
   },
   "calendarSearch": "Search calendar",
-  "calendarThisAndFuture": "This and future"
+  "calendarThisAndFuture": "This and future",
+  "calendarCreateDateField": "Create date field",
+  "calendarDeleteOccurrence": "Delete occurrence",
+  "calendarDeleteSeries": "Delete series",
+  "calendarDaily": "Daily",
+  "calendarWeekly": "Weekly",
+  "calendarMonthly": "Monthly",
+  "calendarYearly": "Yearly",
+  "calendarInterval": "Interval",
+  "calendarCount": "Count",
+  "calendarUntil": "Until",
+  "calendarWeekStart": "Week starts on",
+  "calendarRecurrence": "Recurrence",
+  "calendarExceptions": "Exceptions",
+  "calendarLocation": "Location",
+  "calendarDescription": "Description",
+  "calendarSchedule": "Schedule"
 }

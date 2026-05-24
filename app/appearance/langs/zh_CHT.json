@@ -1779,5 +1779,21 @@
     "286": "[%s] 已經回滾完畢"
   },
   "calendarSearch": "搜尋行事曆",
-  "calendarThisAndFuture": "這次之後"
+  "calendarThisAndFuture": "這次之後",
+  "calendarCreateDateField": "建立日期欄位",
+  "calendarDeleteOccurrence": "刪除這次",
+  "calendarDeleteSeries": "刪除整串",
+  "calendarDaily": "每天",
+  "calendarWeekly": "每週",
+  "calendarMonthly": "每月",
+  "calendarYearly": "每年",
+  "calendarInterval": "間隔",
+  "calendarCount": "次數",
+  "calendarUntil": "直到",
+  "calendarWeekStart": "每週開始於",
+  "calendarRecurrence": "重複",
+  "calendarExceptions": "例外",
+  "calendarLocation": "地點",
+  "calendarDescription": "描述",
+  "calendarSchedule": "排程"
 }
