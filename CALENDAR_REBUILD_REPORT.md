@@ -114,6 +114,15 @@ Also passed:
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
 - Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, today markers, keyboard navigation, keyboard shortcut metadata, live region metadata, keyboard view switching, read-only local view switching, event tooltips, event summary, double-click creation, duplicate/quick-copy one-off behavior, schedule drag/drop targets, search rerendering, event type filtering, active query result count, search/filter clearing, direct date jumping, previous/next event jumping and no-match feedback, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 
+Isolated launch smoke also passed without touching the real note vault:
+
+- Built a local kernel with `CGO_ENABLED=1 go build -tags fts5 -o SiYuan-Kernel .`.
+- Started the kernel with `--workspace /tmp/siyuan-calendar-smoke-* --wd app --mode dev --lang zh_CHT`.
+- Verified `/api/system/version` returned `3.6.5` and `/api/system/bootProgress` reached `100`.
+- Started the desktop Electron shell under `xvfb-run` with isolated `HOME`, isolated `XDG_CONFIG_HOME`, the temporary workspace, and the already-running kernel on `127.0.0.1:6806`.
+- Electron remained running until the scripted timeout; no startup crash was observed after applying the local `--no-sandbox --disable-gpu --ozone-platform=x11` smoke flags needed by this Linux sandbox.
+- The temporary kernel binary was removed after smoke verification.
+
 Known build warnings:
 
 - Webpack reports existing bundle/entrypoint size warnings for the desktop build.
@@ -122,6 +131,7 @@ Known build warnings:
 
 The following still need an actual SiYuan UI smoke run before marking the rebuild complete:
 
+- Perform the interactive Calendar smoke against an isolated workspace or an explicit throwaway user workspace; do not use `/home/eloklam/SiYuan`.
 - Switch Table/Gallery/Kanban to Calendar and confirm no crash.
 - Narrow panes keep Calendar toolbar controls usable without incoherent overlap.
 - Keyboard focus on the Calendar surface is visibly indicated.

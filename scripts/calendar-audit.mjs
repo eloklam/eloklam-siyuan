@@ -412,6 +412,9 @@ for (const term of [
   "Switch Table/Gallery/Kanban to Calendar and confirm no crash.",
   "Read-only/query embed views do not mutate data, while still allowing local Calendar mode switching.",
   "Read-only/query embed events can still be opened for inspection without mutation controls.",
+  "Isolated launch smoke also passed without touching the real note vault:",
+  "CGO_ENABLED=1 go build -tags fts5 -o SiYuan-Kernel .",
+  "Perform the interactive Calendar smoke against an isolated workspace or an explicit throwaway user workspace; do not use `/home/eloklam/SiYuan`.",
   "After automated checks, run the manual smoke checklist above in the SiYuan UI.",
 ]) {
   if (!report.includes(term)) {
