@@ -5,6 +5,10 @@ import {fetchSyncPost} from "../../../util/fetch";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
 
+const getWeekdayLabel = (day: 0 | 1) => {
+    return new Intl.DateTimeFormat(window.siyuan.config.lang.replace("_", "-"), {weekday: "long"}).format(new Date(2020, 5, 7 + day));
+};
+
 export const getLayoutHTML = (data: IAV) => {
     let html = "";
     const view = data.view as IAVKanban;
@@ -124,6 +128,12 @@ export const getLayoutHTML = (data: IAV) => {
         <label class="ft__on-surface">${window.siyuan.languages.dateField || "Date Field"}</label>
         <select class="b3-select fn__block" data-type="calendar-date-field">
             ${buildOptions(["date"], calendarView.dateFieldID, false)}
+        </select>
+        <div class="fn__hr"></div>
+        <label class="ft__on-surface">${window.siyuan.languages.calendarWeekStart || "Week starts on"}</label>
+        <select class="b3-select fn__block" data-type="calendar-week-start">
+            <option value="0"${(calendarView.weekStart || 0) === 0 ? " selected" : ""}>${escapeHtml(getWeekdayLabel(0))}</option>
+            <option value="1"${calendarView.weekStart === 1 ? " selected" : ""}>${escapeHtml(getWeekdayLabel(1))}</option>
         </select>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarRecurrence || "Recurrence"}</label>
@@ -319,6 +329,25 @@ const bindCalendarLayoutEvent = (options: {
             viewID
         }]);
         calendarView.dateFieldID = current;
+    });
+    const weekStartElement = options.menuElement.querySelector('select[data-type="calendar-week-start"]') as HTMLSelectElement;
+    weekStartElement?.addEventListener("change", () => {
+        const previous = calendarView.weekStart || 0;
+        const current = parseInt(weekStartElement.value, 10);
+        transaction(options.protyle, [{
+            action: "setAttrViewCalendarWeekStart",
+            avID,
+            blockID,
+            data: current,
+            viewID
+        }], [{
+            action: "setAttrViewCalendarWeekStart",
+            avID,
+            blockID,
+            data: previous,
+            viewID
+        }]);
+        calendarView.weekStart = current;
     });
     options.menuElement.querySelectorAll('select[data-type="calendar-map-field"]').forEach((item: HTMLSelectElement) => {
         item.addEventListener("change", () => {

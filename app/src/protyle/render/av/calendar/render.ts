@@ -19,9 +19,16 @@ interface IRenderCalendarOptions {
     data?: IAV;
 }
 
-const getVisibleRange = (anchor: dayjs.Dayjs, viewMode: number): ICalendarRange => {
+const startOfCalendarWeek = (date: dayjs.Dayjs, weekStart = 0) => {
+    const offset = (date.day() - weekStart + 7) % 7;
+    return date.subtract(offset, "day").startOf("day");
+};
+
+const endOfCalendarWeek = (date: dayjs.Dayjs, weekStart = 0) => startOfCalendarWeek(date, weekStart).add(6, "day").endOf("day");
+
+const getVisibleRange = (anchor: dayjs.Dayjs, viewMode: number, weekStart = 0): ICalendarRange => {
     if (viewMode === 1) {
-        return {start: anchor.startOf("week"), end: anchor.endOf("week")};
+        return {start: startOfCalendarWeek(anchor, weekStart), end: endOfCalendarWeek(anchor, weekStart)};
     }
     if (viewMode === 2) {
         return {start: anchor.startOf("day"), end: anchor.endOf("day")};
@@ -29,7 +36,7 @@ const getVisibleRange = (anchor: dayjs.Dayjs, viewMode: number): ICalendarRange 
     if (viewMode === 3) {
         return {start: anchor.startOf("day"), end: anchor.add(90, "day").endOf("day")};
     }
-    return {start: anchor.startOf("month").startOf("week"), end: anchor.endOf("month").endOf("week")};
+    return {start: startOfCalendarWeek(anchor.startOf("month"), weekStart), end: endOfCalendarWeek(anchor.endOf("month"), weekStart)};
 };
 
 const getViewModeLabel = (viewMode: number) => {
@@ -48,9 +55,9 @@ const formatCalendarDate = (date: dayjs.Dayjs, options: Intl.DateTimeFormatOptio
     return new Intl.DateTimeFormat(getCalendarLocale(), options).format(date.toDate());
 };
 
-const getWeekdayLabels = () => {
+const getWeekdayLabels = (weekStart = 0) => {
     const formatter = new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "short"});
-    return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + index)));
+    return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + ((weekStart + index) % 7))));
 };
 
 const getCalendarSearch = (blockElement: HTMLElement) => (blockElement.dataset.calendarSearch || "").trim();
@@ -115,8 +122,8 @@ const renderDateFieldSetup = (calendar: IAVCalendar) => {
 </div>`;
 };
 
-const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalendarNormalizedEvent[]) => {
-    let html = `<div class="av__calendar-weekdays">${getWeekdayLabels().map(day => `<div>${escapeHtml(day)}</div>`).join("")}</div><div class="av__calendar-month">`;
+const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalendarNormalizedEvent[], weekStart = 0) => {
+    let html = `<div class="av__calendar-weekdays">${getWeekdayLabels(weekStart).map(day => `<div>${escapeHtml(day)}</div>`).join("")}</div><div class="av__calendar-month">`;
     let cursor = range.start;
     while (!cursor.isAfter(range.end, "day")) {
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
@@ -186,12 +193,12 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement) => {
     }
     const anchor = dayjs(blockElement.dataset.calendarDate || undefined);
     const safeAnchor = anchor.isValid() ? anchor : dayjs();
-    const range = getVisibleRange(safeAnchor, calendar.viewMode || 0);
+    const range = getVisibleRange(safeAnchor, calendar.viewMode || 0, calendar.weekStart || 0);
     const normalized = normalizeCalendarEvents(calendar, mapping, range);
     const search = getCalendarSearch(blockElement);
     const events = normalized.events.filter(event => eventMatchesSearch(event, search));
     const title = calendar.viewMode === 1 ? `${range.start.format("MMM D")} - ${range.end.format("MMM D, YYYY")}` : safeAnchor.format(calendar.viewMode === 2 ? "MMM D, YYYY" : "MMMM YYYY");
-    let body = renderMonth(safeAnchor, range, events);
+    let body = renderMonth(safeAnchor, range, events, calendar.weekStart || 0);
     if (calendar.viewMode === 1) {
         body = renderWeek(range, events);
     } else if (calendar.viewMode === 2) {
@@ -308,7 +315,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         });
     });
     const anchor = dayjs(options.blockElement.dataset.calendarDate || undefined);
-    const range = getVisibleRange(anchor.isValid() ? anchor : dayjs(), calendar.viewMode || 0);
+    const range = getVisibleRange(anchor.isValid() ? anchor : dayjs(), calendar.viewMode || 0, calendar.weekStart || 0);
     const mapping = getCalendarFieldMapping(calendar);
     const normalizedForEvents = normalizeCalendarEvents(calendar, mapping, range);
     const baseEvents = normalizedForEvents.baseEventsByID;

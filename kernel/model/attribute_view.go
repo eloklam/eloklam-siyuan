@@ -1521,6 +1521,47 @@ func setAttrViewCalendarViewMode(operation *Operation) (err error) {
 	return
 }
 
+func (tx *Transaction) doSetAttrViewCalendarWeekStart(operation *Operation) (ret *TxErr) {
+	err := setAttrViewCalendarWeekStart(operation)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttrViewCalendarWeekStart(operation *Operation) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+
+	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	if err != nil {
+		return
+	}
+
+	if av.LayoutTypeCalendar != view.LayoutType || nil == view.Calendar {
+		return fmt.Errorf("view is not a calendar layout")
+	}
+
+	var weekStart av.WeekStart
+	if dataFloat, ok := operation.Data.(float64); ok {
+		weekStart = av.WeekStart(dataFloat)
+	} else if dataInt, ok := operation.Data.(int); ok {
+		weekStart = av.WeekStart(dataInt)
+	} else {
+		return fmt.Errorf("calendar week start data must be a number")
+	}
+	if av.WeekStartSunday != weekStart && av.WeekStartMonday != weekStart {
+		return fmt.Errorf("calendar week start [%d] is invalid", weekStart)
+	}
+
+	view.Calendar.WeekStart = weekStart
+	err = av.SaveAttributeView(attrView)
+	ReloadAttrView(attrView.ID)
+	return
+}
+
 func (tx *Transaction) doSetAttrViewCalendarFieldMapping(operation *Operation) (ret *TxErr) {
 	err := setAttrViewCalendarFieldMapping(operation)
 	if err != nil {

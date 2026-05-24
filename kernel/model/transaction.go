@@ -336,6 +336,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				ret = tx.doSetAttrViewCalendarDateField(op)
 			case "setAttrViewCalendarViewMode":
 				ret = tx.doSetAttrViewCalendarViewMode(op)
+			case "setAttrViewCalendarWeekStart":
+				ret = tx.doSetAttrViewCalendarWeekStart(op)
 			case "setAttrViewCalendarFieldMapping":
 				ret = tx.doSetAttrViewCalendarFieldMapping(op)
 			}
