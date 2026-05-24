@@ -23,6 +23,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - `kernel/model/attribute_view_calendar_test.go`
 - `scripts/calendar-kernel-smoke.mjs`
 - `scripts/calendar-recurrence-smoke.mjs`
+- `scripts/calendar-transactions-smoke.mjs`
 
 ## Implemented Functionality
 
@@ -102,6 +103,7 @@ cd app && corepack pnpm run build:desktop
 node scripts/calendar-audit.mjs
 node scripts/calendar-kernel-smoke.mjs
 node scripts/calendar-recurrence-smoke.mjs
+node scripts/calendar-transactions-smoke.mjs
 ```
 
 Also passed:
@@ -121,6 +123,7 @@ Also passed:
 - Backend `_attrView.calendar` language coverage is checked for every bundled language JSON file.
 - `scripts/calendar-kernel-smoke.mjs` builds an isolated FTS5 kernel, creates a temporary notebook/document/AV, switches it to Calendar, maps date/recurrence/exception/location/description/color fields, inserts a timed event with metadata, renders the Calendar API payload, and verifies the event date and mapped metadata values appear.
 - `scripts/calendar-recurrence-smoke.mjs` transpiles the Calendar normalization modules into an isolated temporary app directory, runs `getCalendarFieldMapping` and `normalizeCalendarEvents`, and verifies weekly recurrence, weekly `BYDAY`, exception skipping, `None`, occurrence metadata, base exception parsing, and mapped metadata preservation.
+- `scripts/calendar-transactions-smoke.mjs` transpiles the Calendar transaction modules with an isolated transaction stub and verifies create, update, delete, single occurrence deletion, single occurrence replacement, this-and-future split, invalid date rejection, invalid end-time clamping, metadata writes, recurrence `None` normalization, exception sorting, split `COUNT` reduction, and undo payloads.
 
 Isolated launch smoke also passed without touching the real note vault:
 
@@ -187,6 +190,7 @@ git diff --check
 node scripts/calendar-audit.mjs
 node scripts/calendar-kernel-smoke.mjs
 node scripts/calendar-recurrence-smoke.mjs
+node scripts/calendar-transactions-smoke.mjs
 cd kernel && go test -vet=off ./av ./model ./sql
 cd ../app && corepack pnpm run build:desktop
 ```

@@ -23,6 +23,7 @@ const requiredFiles = [
   "app/src/protyle/render/av/calendar/event-dialog.ts",
   "scripts/calendar-kernel-smoke.mjs",
   "scripts/calendar-recurrence-smoke.mjs",
+  "scripts/calendar-transactions-smoke.mjs",
 ];
 
 for (const file of requiredFiles) {
@@ -472,4 +473,23 @@ for (const term of [
   }
 }
 
-console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel and recurrence smoke scripts`);
+const transactionsSmoke = read("scripts/calendar-transactions-smoke.mjs");
+for (const term of [
+  "createCalendarEvent({...baseOptions, draft})",
+  "updateCalendarEvent({...baseOptions, event, draft})",
+  "deleteCalendarEvent({",
+  "deleteCalendarOccurrence({",
+  "createCalendarEventReplacingOccurrence({",
+  "updateCalendarEventThisAndFuture({",
+  "create should clamp invalid end time",
+  "delete occurrence should merge and sort exceptions",
+  "replacement should not copy recurrence rules into the one-off event",
+  "split should reduce COUNT for the new future series",
+  "delete undo should restore metadata cells",
+]) {
+  if (!transactionsSmoke.includes(term)) {
+    fail(`calendar transactions smoke missing ${term}`);
+  }
+}
+
+console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions smoke scripts`);
