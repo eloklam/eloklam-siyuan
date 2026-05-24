@@ -55,6 +55,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Unified result count and clear control for active search/filter state.
 - Localized visible-range event summary for total, all-day, and timed events.
 - Localized timed-event labels in Calendar summary and filtering controls.
+- Localized quick-copy control label on event pills.
 - Field mapping for recurrence, exception, location, description, and color.
 - Color mapping for `select` and `mSelect` fields.
 - Recurrence parsing and expansion for daily, weekly, monthly, and yearly rules.

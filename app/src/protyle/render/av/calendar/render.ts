@@ -177,7 +177,7 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     ${!editable ? "" : (event.isAllDay ?
         `<span class="av__calendar-resize" data-type="calendar-resize" data-days="-1">-1d</span><span class="av__calendar-resize" data-type="calendar-resize" data-days="1">+1d</span>` :
         `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`)}
-    ${editable ? `<span class="av__calendar-resize" data-type="calendar-duplicate-next-day">copy</span>` : ""}
+    ${editable ? `<span class="av__calendar-resize" data-type="calendar-duplicate-next-day">${window.siyuan.languages.copy || "Copy"}</span>` : ""}
 </button>`;
 };
 

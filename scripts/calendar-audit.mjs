@@ -209,6 +209,7 @@ for (const term of [
   "duplicateEventToNextDay",
   "draft.recurrenceRaw = \"\"",
   "draft.recurrenceExceptionRaw = \"\"",
+  "window.siyuan.languages.copy || \"Copy\"",
   "createCalendarEvent({",
   "getEditableEvent",
   ".av__calendar-event, [data-type='calendar-new']",
