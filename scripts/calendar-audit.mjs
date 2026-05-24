@@ -24,6 +24,7 @@ const requiredFiles = [
   "scripts/calendar-kernel-smoke.mjs",
   "scripts/calendar-recurrence-smoke.mjs",
   "scripts/calendar-transactions-smoke.mjs",
+  "scripts/calendar-electron-launch-smoke.mjs",
 ];
 
 for (const file of requiredFiles) {
@@ -492,4 +493,24 @@ for (const term of [
   }
 }
 
-console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions smoke scripts`);
+const electronLaunchSmoke = read("scripts/calendar-electron-launch-smoke.mjs");
+for (const term of [
+  "\"--workspace\", workspace",
+  "\"--port\", String(kernelPort)",
+  "`--workspace=${workspace}`",
+  "`--remote-debugging-port=${debugPort}`",
+  "\"--no-sandbox\"",
+  "workspace.json",
+  "waitForKernelBoot(baseURL)",
+  "waitForElectronDebug(debugPort)",
+  "hasSiYuanTarget",
+  "stopProcessGroup(electron)",
+  "SIYUAN_CALENDAR_KEEP_SMOKE_WORKSPACE",
+  "calendar electron launch smoke passed",
+]) {
+  if (!electronLaunchSmoke.includes(term)) {
+    fail(`calendar electron launch smoke missing ${term}`);
+  }
+}
+
+console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions/electron smoke scripts`);

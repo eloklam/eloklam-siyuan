@@ -24,6 +24,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - `scripts/calendar-kernel-smoke.mjs`
 - `scripts/calendar-recurrence-smoke.mjs`
 - `scripts/calendar-transactions-smoke.mjs`
+- `scripts/calendar-electron-launch-smoke.mjs`
 
 ## Implemented Functionality
 
@@ -104,6 +105,7 @@ node scripts/calendar-audit.mjs
 node scripts/calendar-kernel-smoke.mjs
 node scripts/calendar-recurrence-smoke.mjs
 node scripts/calendar-transactions-smoke.mjs
+node scripts/calendar-electron-launch-smoke.mjs
 ```
 
 Also passed:
@@ -124,6 +126,7 @@ Also passed:
 - `scripts/calendar-kernel-smoke.mjs` builds an isolated FTS5 kernel, creates a temporary notebook/document/AV, switches it to Calendar, maps date/recurrence/exception/location/description/color fields, inserts a timed event with metadata, renders the Calendar API payload, and verifies the event date and mapped metadata values appear.
 - `scripts/calendar-recurrence-smoke.mjs` transpiles the Calendar normalization modules into an isolated temporary app directory, runs `getCalendarFieldMapping` and `normalizeCalendarEvents`, and verifies weekly recurrence, weekly `BYDAY`, exception skipping, `None`, occurrence metadata, base exception parsing, and mapped metadata preservation.
 - `scripts/calendar-transactions-smoke.mjs` transpiles the Calendar transaction modules with an isolated transaction stub and verifies create, update, delete, single occurrence deletion, single occurrence replacement, this-and-future split, invalid date rejection, invalid end-time clamping, metadata writes, recurrence `None` normalization, exception sorting, split `COUNT` reduction, and undo payloads.
+- `scripts/calendar-electron-launch-smoke.mjs` builds or reuses the ignored local desktop kernel binary, starts an isolated kernel on port 6806 with a temporary workspace, opens the Electron desktop shell under isolated `HOME` / `XDG_CONFIG_HOME`, and verifies through Chromium remote debugging that a SiYuan target is exposed.
 
 Isolated launch smoke also passed without touching the real note vault:
 
@@ -134,6 +137,7 @@ Isolated launch smoke also passed without touching the real note vault:
 - Electron remained running until the scripted timeout; no startup crash was observed after applying the local `--no-sandbox --disable-gpu --ozone-platform=x11` smoke flags needed by this Linux sandbox.
 - The temporary kernel binary was removed after smoke verification.
 - Added repeatable `node scripts/calendar-kernel-smoke.mjs` coverage for the Calendar API setup and mapped metadata path.
+- Added repeatable `node scripts/calendar-electron-launch-smoke.mjs` coverage for the isolated Electron desktop launch path.
 
 Known build warnings:
 
@@ -191,6 +195,7 @@ node scripts/calendar-audit.mjs
 node scripts/calendar-kernel-smoke.mjs
 node scripts/calendar-recurrence-smoke.mjs
 node scripts/calendar-transactions-smoke.mjs
+node scripts/calendar-electron-launch-smoke.mjs
 cd kernel && go test -vet=off ./av ./model ./sql
 cd ../app && corepack pnpm run build:desktop
 ```
