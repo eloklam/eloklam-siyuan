@@ -1127,6 +1127,11 @@ img.av__cellassetimg {
   min-width: 320px;
   padding: 8px;
 
+  &:focus-visible {
+    outline: 2px solid var(--b3-theme-primary);
+    outline-offset: 2px;
+  }
+
   &--empty {
     min-width: 240px;
     padding: 32px;

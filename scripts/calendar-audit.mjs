@@ -312,6 +312,8 @@ const avStyles = read("app/src/assets/scss/business/_av.scss");
 for (const term of [
   ".av__calendar",
   "min-width: 320px",
+  "&:focus-visible",
+  "outline: 2px solid var(--b3-theme-primary)",
   "&-toolbar",
   "flex-wrap: wrap",
   "&-jump",
