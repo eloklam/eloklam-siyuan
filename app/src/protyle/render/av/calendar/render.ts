@@ -53,20 +53,20 @@ const getViewModeLabel = (viewMode: number) => {
     return labels[viewMode] || labels[0];
 };
 
-const getCalendarTitle = (anchor: dayjs.Dayjs, range: ICalendarRange, viewMode: number) => {
-    if (viewMode === 1 || viewMode === 3) {
-        return `${range.start.format("MMM D")} - ${range.end.format("MMM D, YYYY")}`;
-    }
-    if (viewMode === 2) {
-        return anchor.format("MMM D, YYYY");
-    }
-    return anchor.format("MMMM YYYY");
-};
-
 const getCalendarLocale = () => window.siyuan.config.lang.replace("_", "-");
 
 const formatCalendarDate = (date: dayjs.Dayjs, options: Intl.DateTimeFormatOptions) => {
     return new Intl.DateTimeFormat(getCalendarLocale(), options).format(date.toDate());
+};
+
+const getCalendarTitle = (anchor: dayjs.Dayjs, range: ICalendarRange, viewMode: number) => {
+    if (viewMode === 1 || viewMode === 3) {
+        return `${formatCalendarDate(range.start, {year: "numeric", month: "short", day: "numeric"})} - ${formatCalendarDate(range.end, {year: "numeric", month: "short", day: "numeric"})}`;
+    }
+    if (viewMode === 2) {
+        return formatCalendarDate(anchor, {year: "numeric", month: "short", day: "numeric"});
+    }
+    return formatCalendarDate(anchor, {year: "numeric", month: "long"});
 };
 
 const getWeekdayLabels = (weekStart = 0) => {
