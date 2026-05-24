@@ -138,6 +138,9 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const isEditing = !!event;
     const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
     const canEditFuture = !!event?.isOccurrence && !!mapping.recurrenceFieldID;
+    const deleteLabel = event?.isOccurrence ?
+        (mapping.exceptionFieldID ? (window.siyuan.languages.calendarDeleteOccurrence || "Delete occurrence") : (window.siyuan.languages.calendarDeleteSeries || "Delete series")) :
+        window.siyuan.languages.delete;
     const content = `<div class="b3-dialog__content av__calendar-dialog">
     <div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}">
@@ -170,7 +173,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
-        ${isEditing ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${window.siyuan.languages.delete}</button><span class="fn__space"></span>` : ""}
+        ${isEditing ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${deleteLabel}</button><span class="fn__space"></span>` : ""}
         ${canEditFuture ? `<button class="b3-button b3-button--outline" data-type="event-save-future">${window.siyuan.languages.calendarThisAndFuture || "This and future"}</button><span class="fn__space"></span>` : ""}
         <button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>
     </div>
