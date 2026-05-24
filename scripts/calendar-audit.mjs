@@ -132,6 +132,8 @@ for (const term of [
   "renderEventSummary",
   "data-date=\"${cursor.format(\"YYYY-MM-DD\")}\" data-type=\"calendar-drop-day\"",
   "getSafeViewMode",
+  "getCalendarViewMode",
+  "blockElement.dataset.calendarViewMode",
   "getVisibleRange",
   "getCalendarTitle",
   "getEventSeekRange",
@@ -150,6 +152,8 @@ for (const term of [
   "setCalendarAnchor",
   "getCurrentAnchor",
   "setCalendarViewMode",
+  "options.blockElement.dataset.calendarViewMode = String(mode)",
+  "delete options.blockElement.dataset.calendarViewMode",
   "aria-keyshortcuts=\"${mode + 1}\"",
   "aria-keyshortcuts=\"ArrowLeft\"",
   "aria-keyshortcuts=\"ArrowRight\"",
@@ -385,7 +389,7 @@ const report = read("CALENDAR_REBUILD_REPORT.md");
 for (const term of [
   "Unresolved / Manual Verification Required",
   "Switch Table/Gallery/Kanban to Calendar and confirm no crash.",
-  "Read-only/query embed views do not mutate data.",
+  "Read-only/query embed views do not mutate data, while still allowing local Calendar mode switching.",
   "After automated checks, run the manual smoke checklist above in the SiYuan UI.",
 ]) {
   if (!report.includes(term)) {

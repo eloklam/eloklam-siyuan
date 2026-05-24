@@ -29,6 +29,14 @@ const endOfCalendarWeek = (date: dayjs.Dayjs, weekStart = 0) => startOfCalendarW
 
 const getSafeViewMode = (viewMode?: number) => [0, 1, 2, 3].includes(viewMode || 0) ? viewMode || 0 : 0;
 
+const getCalendarViewMode = (calendar: IAVCalendar, blockElement: HTMLElement) => {
+    const localViewMode = blockElement.dataset.calendarViewMode;
+    if (localViewMode && /^[0-3]$/.test(localViewMode)) {
+        return parseInt(localViewMode, 10);
+    }
+    return getSafeViewMode(calendar.viewMode);
+};
+
 const getSafeWeekStart = (weekStart?: number) => weekStart === 1 ? 1 : 0;
 
 const getVisibleRange = (anchor: dayjs.Dayjs, viewMode: number, weekStart = 0): ICalendarRange => {
@@ -173,9 +181,9 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
 </button>`;
 };
 
-const renderModeSwitcher = (viewMode: number, editable = true) => {
+const renderModeSwitcher = (viewMode: number) => {
     return `<div class="av__calendar-modes">
-        ${[0, 1, 2, 3].map(mode => `<button class="b3-button${viewMode === mode ? " b3-button--text" : " b3-button--outline"}" data-type="calendar-mode" data-mode="${mode}" aria-keyshortcuts="${mode + 1}"${editable ? "" : " disabled"}>${getViewModeLabel(mode)}</button>`).join("")}
+        ${[0, 1, 2, 3].map(mode => `<button class="b3-button${viewMode === mode ? " b3-button--text" : " b3-button--outline"}" data-type="calendar-mode" data-mode="${mode}" aria-keyshortcuts="${mode + 1}">${getViewModeLabel(mode)}</button>`).join("")}
     </div>`;
 };
 
@@ -287,7 +295,7 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
 
 const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) => {
     const calendar = data.view as IAVCalendar;
-    const viewMode = getSafeViewMode(calendar.viewMode);
+    const viewMode = getCalendarViewMode(calendar, blockElement);
     const weekStart = getSafeWeekStart(calendar.weekStart);
     const mapping = getCalendarFieldMapping(calendar);
     if (!mapping.hasDateField) {
@@ -329,7 +337,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         ${renderCalendarFilter(filter)}
         ${hasActiveQuery ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
         ${renderEventSummary(events)}
-        ${renderModeSwitcher(viewMode, editable)}
+        ${renderModeSwitcher(viewMode)}
         ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" aria-keyshortcuts="N" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
     </div>
     ${body}
@@ -339,7 +347,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
 const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     const calendarElement = options.blockElement.querySelector(".av__calendar") as HTMLElement;
     const calendar = data.view as IAVCalendar;
-    const viewMode = getSafeViewMode(calendar.viewMode);
+    const viewMode = getCalendarViewMode(calendar, options.blockElement);
     const weekStart = getSafeWeekStart(calendar.weekStart);
     const editable = !options.protyle.disabled && !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed");
     const rerender = (focusSearch = false, useCurrentData = false) => {
@@ -381,12 +389,14 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         }
     };
     const setCalendarViewMode = (mode: number) => {
-        if (!editable || mode === viewMode || ![0, 1, 2, 3].includes(mode)) {
+        if (mode === viewMode || ![0, 1, 2, 3].includes(mode)) {
             return;
         }
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
-        if (!avID || !blockID) {
+        if (!editable || !avID || !blockID) {
+            options.blockElement.dataset.calendarViewMode = String(mode);
+            rerender(false, true);
             return;
         }
         transaction(options.protyle, [{
@@ -402,6 +412,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             data: viewMode,
             viewID: data.viewID,
         }]);
+        delete options.blockElement.dataset.calendarViewMode;
         calendar.viewMode = mode;
         rerender();
     };
