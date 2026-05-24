@@ -41,6 +41,7 @@ Rebuilt and strengthened the Attribute View Calendar work from the curated recov
 - Direct all-day event duration resize by day.
 - Search over title, metadata, recurrence, dates, and times.
 - Search result count and one-click search clearing.
+- Visible-range event summary for total, all-day, and timed events.
 - Field mapping for recurrence, exception, location, description, and color.
 - Color mapping for `select` and `mSelect` fields.
 - Recurrence parsing and expansion for daily, weekly, monthly, and yearly rules.
@@ -86,14 +87,14 @@ Also passed:
 - All `app/appearance/langs/*.json` parse as JSON.
 - Calendar language keys used by code exist in every language file.
 - Calendar frontend required files exist.
-- Static feature precheck covers create/update/delete, keyboard navigation, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, event tooltips, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
+- Static feature precheck covers create/update/delete, keyboard navigation, keyboard view switching, double-click creation, quick-copy, occurrence replacement, this-and-future split, recurrence, event tooltips, event summary, search, search clearing, direct date jumping, view switching, drag/drop, timed resize, and all-day duration resize terms.
 - Backend transaction dispatcher, calendar operation helpers, and calendar backend test names are covered by `scripts/calendar-audit.mjs`.
 - Read-only guards, direct update error reporting, event dialog validation feedback, and report/manual-smoke markers are covered by `scripts/calendar-audit.mjs`.
-- Calendar SCSS selectors for container, toolbar, month grid, event pill, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
+- Calendar SCSS selectors for container, toolbar, event summary, month grid, event pill, resize controls, recurrence controls, week, day, and list views are covered by `scripts/calendar-audit.mjs`.
 - Recurrence and normalization guards for `None`, strict `UNTIL`, duplicate parts, weekly `BYDAY`, count/until limits, exception parsing, and invalid end-date clamping are covered by `scripts/calendar-audit.mjs`.
 - Calendar transaction guards for date/time validation, no-op updates, undo snapshots, metadata undo defaults, occurrence exceptions, this-and-future split, delete restore, and occurrence replacement operation ordering are covered by `scripts/calendar-audit.mjs`.
 - Calendar field-mapping guards for duplicate metadata fields, allowed field types, stale mapping filtering, partial backend merge, mapping clear, and color mapping type handling are covered by `scripts/calendar-audit.mjs`.
-- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, keyboard navigation, keyboard view switching, event tooltips, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, search result count, search clearing, direct date jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
+- Calendar render-flow guards for empty date-field setup, date-field creation, month/week/day/schedule modes, keyboard navigation, keyboard view switching, event tooltips, event summary, double-click creation, quick-copy, schedule drag/drop targets, search rerendering, search result count, search clearing, direct date jumping, week-start range calculation, editable event lookup, and drag/drop date offsets are covered by `scripts/calendar-audit.mjs`.
 
 Known build warnings:
 
@@ -120,6 +121,7 @@ The following still need an actual SiYuan UI smoke run before marking the rebuil
 - This-and-future split truncates the old series and creates the new series.
 - Search filters expected events.
 - Search result count and clear search button update correctly.
+- Event summary reflects current visible/filter result counts.
 - Jumping to a specific date updates the visible range.
 - Keyboard navigation shortcuts update the visible range, switch views, open new events, focus search, and clear search.
 - Month, week, day, and schedule modes are usable.

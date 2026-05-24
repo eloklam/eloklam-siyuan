@@ -1164,6 +1164,20 @@ img.av__cellassetimg {
     text-align: right;
   }
 
+  &-summary {
+    color: var(--b3-theme-on-surface);
+    display: flex;
+    flex: 0 0 auto;
+    font-size: 12px;
+    gap: 6px;
+    white-space: nowrap;
+
+    span:first-child {
+      color: var(--b3-theme-primary);
+      font-weight: 600;
+    }
+  }
+
   &-jump {
     flex: 0 0 136px;
     min-width: 136px;

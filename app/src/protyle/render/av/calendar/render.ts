@@ -153,6 +153,16 @@ const renderModeSwitcher = (viewMode: number, editable = true) => {
     </div>`;
 };
 
+const renderEventSummary = (events: ICalendarNormalizedEvent[]) => {
+    const allDayCount = events.filter(event => event.isAllDay).length;
+    const timedCount = events.length - allDayCount;
+    return `<div class="av__calendar-summary" aria-label="${escapeAttr(`${events.length} events, ${allDayCount} all-day, ${timedCount} timed`)}">
+        <span>${events.length}</span>
+        <span>${window.siyuan.languages.allDay || "All day"} ${allDayCount}</span>
+        <span>Timed ${timedCount}</span>
+    </div>`;
+};
+
 const renderDateFieldSetup = (calendar: IAVCalendar, editable = true) => {
     const dateFields = calendar.fields.filter(field => field.type === "date");
     if (dateFields.length === 0) {
@@ -276,6 +286,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <div class="av__calendar-title">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
         ${search ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
+        ${renderEventSummary(events)}
         ${renderModeSwitcher(viewMode, editable)}
         ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
     </div>
