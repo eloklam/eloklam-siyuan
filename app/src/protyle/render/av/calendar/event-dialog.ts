@@ -32,6 +32,17 @@ const getWeekdayLabels = () => {
     return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + index)));
 };
 
+const parseRecurrenceUntilDate = (value: string) => {
+    if (/^\d{8}$/.test(value)) {
+        return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+    }
+    const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T\d{6}Z?$/);
+    if (dateTimeMatch) {
+        return `${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`;
+    }
+    return value.slice(0, 10);
+};
+
 const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     const raw = (value || "").trim();
     if (!raw || raw.toLowerCase() === "none") {
@@ -57,7 +68,7 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
         } else if (key === "COUNT" && parseInt(val, 10) > 0) {
             result.count = val;
         } else if (key === "UNTIL") {
-            result.until = val.slice(0, 10);
+            result.until = parseRecurrenceUntilDate(val);
         } else if (key === "BYDAY") {
             result.byDay = val.split(",").filter(day => weekdays.includes(day));
         }
