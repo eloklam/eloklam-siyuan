@@ -15,6 +15,8 @@ const kernelDir = path.join(root, "kernel");
 const appKernelDir = path.join(appDir, "kernel");
 const appKernelBinary = path.join(appKernelDir, process.platform === "win32" ? "SiYuan-Kernel.exe" : "SiYuan-Kernel");
 const electronBinary = path.join(appDir, "node_modules/.bin/electron");
+const desktopBuildDir = path.join(appDir, "stage/build/desktop");
+const appBuildDir = path.join(appDir, "stage/build/app");
 const kernelPort = 6806;
 
 const fail = (message) => {
@@ -120,6 +122,87 @@ const waitForElectronDebug = async (debugPort) => {
   fail(`electron remote debugging endpoint did not expose a SiYuan target: ${lastError}`);
 };
 
+const createCDPClient = (webSocketURL) => new Promise((resolve, reject) => {
+  const socket = new WebSocket(webSocketURL);
+  let id = 0;
+  const pending = new Map();
+  socket.addEventListener("open", () => {
+    resolve({
+      send(method, params = {}) {
+        const requestID = ++id;
+        socket.send(JSON.stringify({id: requestID, method, params}));
+        return new Promise((requestResolve, requestReject) => {
+          pending.set(requestID, {resolve: requestResolve, reject: requestReject});
+        });
+      },
+      close() {
+        socket.close();
+      },
+    });
+  });
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(event.data.toString());
+    if (!message.id || !pending.has(message.id)) {
+      return;
+    }
+    const request = pending.get(message.id);
+    pending.delete(message.id);
+    if (message.error) {
+      request.reject(new Error(message.error.message || JSON.stringify(message.error)));
+    } else {
+      request.resolve(message.result);
+    }
+  });
+  socket.addEventListener("error", () => reject(new Error(`failed to connect to ${webSocketURL}`)));
+});
+
+const evaluateInTarget = async (debugPort, expression) => {
+  const targets = await getJSON(`http://127.0.0.1:${debugPort}/json/list`);
+  const target = targets.find((item) => (item.url || "").includes("/stage/build/")) ||
+    targets.find((item) => (item.url || "").endsWith("/check-auth")) ||
+    targets.find((item) => (item.url || "").includes("/appearance/boot/"));
+  if (!target?.webSocketDebuggerUrl) {
+    fail(`no debuggable SiYuan target found: ${targets.map((item) => item.url).join(",")}`);
+  }
+  const client = await createCDPClient(target.webSocketDebuggerUrl);
+  try {
+    await client.send("Runtime.enable");
+    const result = await client.send("Runtime.evaluate", {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+      timeout: 5000,
+    });
+    if (result.exceptionDetails) {
+      fail(`electron target evaluation failed: ${result.exceptionDetails.text}`);
+    }
+    return result.result?.value;
+  } finally {
+    client.close();
+  }
+};
+
+const waitForAppShell = async (debugPort) => {
+  let lastState;
+  for (let i = 0; i < 80; i++) {
+    lastState = await evaluateInTarget(debugPort, `(() => ({
+      href: location.href,
+      title: document.title,
+      hasSiyuan: !!window.siyuan,
+      siyuanKeys: window.siyuan ? Object.keys(window.siyuan).slice(0, 30) : [],
+      hasOpenFileByURL: typeof window.openFileByURL === 'function',
+      bodyClasses: document.body.className,
+      hasLayout: !!document.querySelector('.layout, .layout__center, .fn__flex-column'),
+      hasCalendar: !!document.querySelector('.av__calendar')
+    }))()`);
+    if (lastState?.hasSiyuan && lastState.hasLayout && lastState.hasOpenFileByURL) {
+      return lastState;
+    }
+    await sleep(500);
+  }
+  fail(`electron target did not expose the SiYuan app shell: ${JSON.stringify(lastState)}`);
+};
+
 const stopProcessGroup = async (child) => {
   if (!child || child.exitCode !== null) {
     return;
@@ -157,12 +240,19 @@ const main = async () => {
   const debugPort = await getFreePort();
   const baseURL = `http://127.0.0.1:${kernelPort}`;
   const hadKernelBinary = fs.existsSync(appKernelBinary);
+  const hadAppBuildDir = fs.existsSync(appBuildDir);
   let kernel;
   let electron;
 
   try {
     fs.mkdirSync(siyuanConfig, {recursive: true});
     fs.writeFileSync(path.join(siyuanConfig, "workspace.json"), JSON.stringify([workspace]));
+    if (!hadAppBuildDir) {
+      if (!fs.existsSync(path.join(desktopBuildDir, "index.html"))) {
+        fail(`desktop build output missing at ${desktopBuildDir}; run cd app && corepack pnpm run build:desktop first`);
+      }
+      fs.symlinkSync(desktopBuildDir, appBuildDir, "dir");
+    }
 
     if (!hadKernelBinary) {
       fs.mkdirSync(appKernelDir, {recursive: true});
@@ -231,6 +321,7 @@ const main = async () => {
     });
 
     const debugInfo = await waitForElectronDebug(debugPort);
+    const uiState = await waitForAppShell(debugPort);
     if (electron.exitCode !== null) {
       fail(`electron exited before launch smoke completed: ${electronOutput.slice(-2000)}`);
     }
@@ -238,7 +329,7 @@ const main = async () => {
     if (electron.exitCode !== null) {
       fail(`electron exited shortly after exposing debug target: ${electronOutput.slice(-2000)}`);
     }
-    console.log(`calendar electron launch smoke passed: workspace=${workspace} debugPort=${debugPort} browser=${debugInfo.browser}`);
+    console.log(`calendar electron launch smoke passed: workspace=${workspace} debugPort=${debugPort} browser=${debugInfo.browser} href=${uiState.href}`);
   } finally {
     await stopProcessGroup(electron);
     if (kernel && kernel.exitCode === null) {
@@ -254,6 +345,9 @@ const main = async () => {
     }
     if (!hadKernelBinary) {
       fs.rmSync(appKernelDir, {recursive: true, force: true, maxRetries: 3});
+    }
+    if (!hadAppBuildDir) {
+      fs.rmSync(appBuildDir, {recursive: true, force: true, maxRetries: 3});
     }
     if (process.env.SIYUAN_CALENDAR_KEEP_SMOKE_WORKSPACE !== "1") {
       fs.rmSync(workspace, {recursive: true, force: true, maxRetries: 3});

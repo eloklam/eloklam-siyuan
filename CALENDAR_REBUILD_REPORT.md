@@ -126,7 +126,7 @@ Also passed:
 - `scripts/calendar-kernel-smoke.mjs` builds an isolated FTS5 kernel, creates a temporary notebook/document/AV, switches it to Calendar, maps date/recurrence/exception/location/description/color fields, inserts a timed event with metadata, renders the Calendar API payload, and verifies the event date and mapped metadata values appear.
 - `scripts/calendar-recurrence-smoke.mjs` transpiles the Calendar normalization modules into an isolated temporary app directory, runs `getCalendarFieldMapping` and `normalizeCalendarEvents`, and verifies weekly recurrence, weekly `BYDAY`, exception skipping, `None`, occurrence metadata, base exception parsing, and mapped metadata preservation.
 - `scripts/calendar-transactions-smoke.mjs` transpiles the Calendar transaction modules with an isolated transaction stub and verifies create, update, delete, single occurrence deletion, single occurrence replacement, this-and-future split, invalid date rejection, invalid end-time clamping, metadata writes, recurrence `None` normalization, exception sorting, split `COUNT` reduction, and undo payloads.
-- `scripts/calendar-electron-launch-smoke.mjs` builds or reuses the ignored local desktop kernel binary, starts an isolated kernel on port 6806 with a temporary workspace, opens the Electron desktop shell under isolated `HOME` / `XDG_CONFIG_HOME`, and verifies through Chromium remote debugging that a SiYuan target is exposed.
+- `scripts/calendar-electron-launch-smoke.mjs` builds or reuses the ignored local desktop kernel binary, starts an isolated kernel on port 6806 with a temporary workspace, maps the desktop build output to Electron's local `/stage/build/app/` dev URL when needed, opens the Electron desktop shell under isolated `HOME` / `XDG_CONFIG_HOME`, and verifies through Chromium remote debugging that the SiYuan app shell exposes `window.siyuan`, layout DOM, and `window.openFileByURL`.
 
 Isolated launch smoke also passed without touching the real note vault:
 
@@ -138,6 +138,7 @@ Isolated launch smoke also passed without touching the real note vault:
 - The temporary kernel binary was removed after smoke verification.
 - Added repeatable `node scripts/calendar-kernel-smoke.mjs` coverage for the Calendar API setup and mapped metadata path.
 - Added repeatable `node scripts/calendar-electron-launch-smoke.mjs` coverage for the isolated Electron desktop launch path.
+- A CDP attempt to open a generated Calendar AV document from the isolated Electron shell showed `window.openFileByURL` can request the document and the fixture notebook appears in the file tree, but the editor remained on the built-in user guide in this sandbox. That is not counted as completed Calendar UI interaction coverage.
 
 Known build warnings:
 
