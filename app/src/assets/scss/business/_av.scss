@@ -1380,11 +1380,44 @@ img.av__cellassetimg {
     text-align: right;
   }
 
+  &-quick-create {
+    background: var(--b3-theme-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    box-shadow: var(--b3-dialog-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    left: 6px;
+    min-width: 220px;
+    padding: 10px;
+    position: absolute;
+    right: 6px;
+    top: 4px;
+    z-index: 2;
+  }
+
+  &-quick-create-title {
+    width: 100%;
+  }
+
+  &-quick-create-summary {
+    color: var(--b3-theme-on-surface);
+    font-size: 12px;
+  }
+
+  &-quick-create-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
   &-time-day {
     border-left: 1px solid var(--b3-border-color);
     display: grid;
     grid-template-columns: 1fr;
     min-width: 0;
+    position: relative;
   }
 
   &-time-slots,

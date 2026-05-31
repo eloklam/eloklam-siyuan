@@ -10,6 +10,7 @@ import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {openEventDialog} from "./event-dialog";
+import {openQuickCreate} from "./quick-create";
 import {createCalendarEvent, createCalendarEventReplacingOccurrence, updateCalendarEvent} from "./transactions";
 
 interface IRenderCalendarOptions {
@@ -509,19 +510,37 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             }
             const slotElement = item as HTMLElement;
             const date = slotElement.dataset.date || dayjs().format("YYYY-MM-DD");
-            openEventDialog({
-                protyle: options.protyle,
-                blockElement: options.blockElement,
-                data,
+            const draft: ICalendarEventDraft = {
+                title: "",
                 date,
-                draft: {
-                    date,
-                    endDate: date,
-                    isAllDay: false,
-                    startTime: slotElement.dataset.start || "09:00",
-                    endTime: slotElement.dataset.end || "09:30",
+                endDate: date,
+                isAllDay: false,
+                startTime: slotElement.dataset.start || "09:00",
+                endTime: slotElement.dataset.end || "09:30",
+            };
+            openQuickCreate({
+                target: slotElement.parentElement || slotElement,
+                draft,
+                onSave: (savedDraft) => {
+                    const avID = options.blockElement.getAttribute("data-av-id");
+                    const blockID = options.blockElement.getAttribute("data-node-id");
+                    const mapping = getCalendarFieldMapping(calendar);
+                    if (!avID || !blockID || !mapping.dateFieldID || !createCalendarEvent({
+                        protyle: options.protyle,
+                        avID,
+                        blockID,
+                        dateFieldID: mapping.dateFieldID,
+                        fields: calendar.fields,
+                        mapping,
+                        draft: savedDraft,
+                        previousUpdated: options.blockElement.getAttribute("updated") || "",
+                    })) {
+                        throw new Error(window.siyuan.languages._kernel[29]);
+                    }
+                    rerender();
                 },
-                onSave: rerender,
+                onMoreOptions: (moreDraft) => openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date, draft: moreDraft, onSave: rerender}),
+                onCancel: () => undefined,
             });
         });
     });
