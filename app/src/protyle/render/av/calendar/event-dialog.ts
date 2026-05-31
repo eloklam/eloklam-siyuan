@@ -12,6 +12,8 @@ import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
 import {createCalendarEvent, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
+export type CalendarRecurrenceScope = "occurrence" | "future" | "series";
+
 interface IRecurrenceFormValue {
     freq: string;
     interval: string;
@@ -229,10 +231,9 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const readOnly = !!options.readOnly;
     const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
     const colorField = (options.data.view as IAVCalendar).fields.find((field) => field.id === mapping.colorFieldID);
-    const canEditFuture = !readOnly && !!event?.isOccurrence && !!mapping.recurrenceFieldID;
     const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID;
     const deleteLabel = event?.isOccurrence ?
-        (mapping.exceptionFieldID ? (window.siyuan.languages.calendarDeleteOccurrence || "Delete occurrence") : (window.siyuan.languages.calendarDeleteSeries || "Delete series")) :
+        (window.siyuan.languages.calendarDeleteRecurring || "Delete recurring item") :
         window.siyuan.languages.delete;
     const disabledAttr = readOnly ? " disabled" : "";
     const draft = options.draft;
@@ -281,7 +282,6 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <span class="fn__space"></span>
         ${event?.blockID ? `<button class="b3-button b3-button--outline" data-type="event-open-block">${window.siyuan.languages.calendarOpenSource || "Open source"}</button><span class="fn__space"></span>` : ""}
         ${isEditing && !readOnly ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${deleteLabel}</button><span class="fn__space"></span>` : ""}
-        ${canEditFuture ? `<button class="b3-button b3-button--outline" data-type="event-save-future">${window.siyuan.languages.calendarThisAndFuture || "This and future"}</button><span class="fn__space"></span>` : ""}
         ${readOnly ? "" : `<button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>`}
     </div>
 </div>`;
@@ -347,15 +347,14 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
         dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
         return;
     }
-    dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => withPendingSave(dialog, "event-save", () => saveEvent(dialog, options)));
-    dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => withPendingSave(dialog, "event-save-future", () => saveFutureEvent(dialog, options)));
-    dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => withCalendarDialogOperationFeedback(dialog, "event-delete", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEvent(dialog, options)));
+    dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => runRecurringEventAction(dialog, options, "edit", (scope) => withPendingSave(dialog, "event-save", () => saveEventWithScope(dialog, options, scope))));
+    dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => runRecurringEventAction(dialog, options, "delete", (scope) => withCalendarDialogOperationFeedback(dialog, "event-delete", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEventWithScope(dialog, options, scope))));
     dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => withCalendarDialogOperationFeedback(dialog, "event-duplicate", window.siyuan.languages.calendarDuplicateFailed || "Duplicate failed.", () => duplicateEvent(dialog, options)));
     dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.key === "Enter") {
             event.preventDefault();
-            withPendingSave(dialog, "event-save", () => saveEvent(dialog, options));
+            runRecurringEventAction(dialog, options, "edit", (scope) => withPendingSave(dialog, "event-save", () => saveEventWithScope(dialog, options, scope)));
         }
     });
 };
@@ -461,7 +460,74 @@ const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, m
     showMessage(window.siyuan.languages._kernel[29]);
 };
 
-const saveEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
+const getDisabledRecurrenceScopes = (mapping: ReturnType<typeof getCalendarFieldMapping>, action: "edit" | "delete") => ({
+    occurrence: mapping.exceptionFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeOccurrenceDisabled || "Map an exception field to change only this occurrence."),
+    future: action === "delete" ?
+        (window.siyuan.languages.calendarRecurrenceScopeFutureDeleteDisabled || "Deleting this and following is not supported yet.") :
+        (mapping.recurrenceFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeFutureDisabled || "Map a recurrence field to change this and following items.")),
+});
+
+export const openRecurrenceScopeDialog = (options: {
+    action: "edit" | "delete" | "move" | "resize";
+    disabledScopes: Partial<Record<CalendarRecurrenceScope, string>>;
+    onSelect: (scope: CalendarRecurrenceScope) => void;
+}) => {
+    const title = options.action === "delete" ?
+        (window.siyuan.languages.calendarRecurrenceScopeDeleteTitle || "Delete recurring item") :
+        (window.siyuan.languages.calendarRecurrenceScopeEditTitle || "Edit recurring item");
+    const labels: Array<{scope: CalendarRecurrenceScope, title: string, description: string}> = [
+        {scope: "occurrence", title: window.siyuan.languages.calendarRecurrenceScopeOccurrence || "This occurrence", description: window.siyuan.languages.calendarRecurrenceScopeOccurrenceDesc || "Only the selected occurrence."},
+        {scope: "future", title: window.siyuan.languages.calendarThisAndFuture || "This and future", description: window.siyuan.languages.calendarRecurrenceScopeFutureDesc || "This occurrence and following items in the series."},
+        {scope: "series", title: window.siyuan.languages.calendarDeleteSeries || "Entire series", description: window.siyuan.languages.calendarRecurrenceScopeSeriesDesc || "Every item in the recurring series."},
+    ];
+    const dialog = new Dialog({
+        title,
+        width: "420px",
+        content: `<div class="b3-dialog__content av__calendar-scope">
+    <div class="ft__on-surface b3-form__space">${window.siyuan.languages.calendarRecurrenceScopePrompt || "Choose how far this change should apply."}</div>
+    ${labels.map(item => {
+        const disabledReason = options.disabledScopes[item.scope];
+        return `<button class="b3-button b3-button--outline av__calendar-scope-option" data-type="calendar-scope-${item.scope}"${disabledReason ? " disabled" : ""}>
+            <span class="av__calendar-scope-title">${escapeHtml(item.title)}</span>
+            <span class="av__calendar-scope-desc">${escapeHtml(disabledReason || item.description)}</span>
+        </button>`;
+    }).join("")}
+    <div class="b3-dialog__action"><button class="b3-button b3-button--cancel" data-type="calendar-scope-cancel">${window.siyuan.languages.cancel}</button></div>
+</div>`,
+    });
+    labels.forEach(item => {
+        dialog.element.querySelector(`[data-type="calendar-scope-${item.scope}"]`)?.addEventListener("click", () => {
+            dialog.destroy();
+            options.onSelect(item.scope);
+        });
+    });
+    dialog.element.querySelector('[data-type="calendar-scope-cancel"]')?.addEventListener("click", () => dialog.destroy());
+    return dialog;
+};
+
+const runRecurringEventAction = (dialog: Dialog, options: IEventDialogOptions, action: "edit" | "delete", run: (scope: CalendarRecurrenceScope) => void) => {
+    if (!options.event?.isOccurrence) {
+        run("series");
+        return;
+    }
+    const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
+    openRecurrenceScopeDialog({
+        action,
+        disabledScopes: getDisabledRecurrenceScopes(mapping, action),
+        onSelect: run,
+    });
+};
+
+const saveEventWithScope = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope) => {
+    if (scope === "future") {
+        return saveFutureEvent(dialog, options);
+    }
+    return saveEvent(dialog, options, scope);
+};
+
+const deleteEventWithScope = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope) => deleteEvent(dialog, options, scope);
+
+const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope = "series") => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
     const draft = getDraftFromDialog(dialog);
@@ -472,7 +538,7 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
         return false;
     }
     if (options.event) {
-        if (options.event.isOccurrence && mapping.exceptionFieldID) {
+        if (scope === "occurrence" && options.event.isOccurrence && mapping.exceptionFieldID) {
             if (!await createCalendarEventReplacingOccurrence({
                 protyle: options.protyle,
                 avID,
@@ -589,7 +655,7 @@ const duplicateEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     return true;
 };
 
-const deleteEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
+const deleteEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope = "series") => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!options.event || !avID || !blockID) {
@@ -597,7 +663,7 @@ const deleteEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     }
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
-    if (options.event.isOccurrence && mapping.exceptionFieldID) {
+    if (scope === "occurrence" && options.event.isOccurrence && mapping.exceptionFieldID) {
         if (!await deleteCalendarOccurrence({
             protyle: options.protyle,
             avID,

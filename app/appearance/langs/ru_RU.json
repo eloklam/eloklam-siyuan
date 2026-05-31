@@ -1815,5 +1815,16 @@
   "calendarMoveFailed": "Move failed.",
   "calendarDeleteFailed": "Delete failed.",
   "calendarDuplicateFailed": "Duplicate failed.",
-  "calendarSaveFailed": "Save failed."
+  "calendarSaveFailed": "Save failed.",
+  "calendarDeleteRecurring": "Delete recurring item",
+  "calendarRecurrenceScopeOccurrenceDisabled": "Map an exception field to change only this occurrence.",
+  "calendarRecurrenceScopeFutureDeleteDisabled": "Deleting this and following is not supported yet.",
+  "calendarRecurrenceScopeFutureDisabled": "Map a recurrence field to change this and following items.",
+  "calendarRecurrenceScopeDeleteTitle": "Delete recurring item",
+  "calendarRecurrenceScopeEditTitle": "Edit recurring item",
+  "calendarRecurrenceScopeOccurrence": "This occurrence",
+  "calendarRecurrenceScopeOccurrenceDesc": "Only the selected occurrence.",
+  "calendarRecurrenceScopeFutureDesc": "This occurrence and following items in the series.",
+  "calendarRecurrenceScopeSeriesDesc": "Every item in the recurring series.",
+  "calendarRecurrenceScopePrompt": "Choose how far this change should apply."
 }

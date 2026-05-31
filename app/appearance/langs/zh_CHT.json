@@ -1815,5 +1815,16 @@
   "calendarMoveFailed": "移動失敗。",
   "calendarDeleteFailed": "刪除失敗。",
   "calendarDuplicateFailed": "複製失敗。",
-  "calendarSaveFailed": "儲存失敗。"
+  "calendarSaveFailed": "儲存失敗。",
+  "calendarDeleteRecurring": "刪除重複項目",
+  "calendarRecurrenceScopeOccurrenceDisabled": "請先映射例外欄位，才能只更改此項。",
+  "calendarRecurrenceScopeFutureDeleteDisabled": "暫不支援刪除此項及後續重複項目。",
+  "calendarRecurrenceScopeFutureDisabled": "請先映射重複規則欄位，才能更改此項及後續項目。",
+  "calendarRecurrenceScopeDeleteTitle": "刪除重複項目",
+  "calendarRecurrenceScopeEditTitle": "編輯重複項目",
+  "calendarRecurrenceScopeOccurrence": "僅此項",
+  "calendarRecurrenceScopeOccurrenceDesc": "只更改選中的這一項。",
+  "calendarRecurrenceScopeFutureDesc": "更改此項及此後的重複項目。",
+  "calendarRecurrenceScopeSeriesDesc": "更改整個重複系列。",
+  "calendarRecurrenceScopePrompt": "選擇此次更改的套用範圍。"
 }

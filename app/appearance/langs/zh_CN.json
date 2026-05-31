@@ -1815,5 +1815,16 @@
   "calendarMoveFailed": "移动失败。",
   "calendarDeleteFailed": "删除失败。",
   "calendarDuplicateFailed": "复制失败。",
-  "calendarSaveFailed": "保存失败。"
+  "calendarSaveFailed": "保存失败。",
+  "calendarDeleteRecurring": "删除重复项目",
+  "calendarRecurrenceScopeOccurrenceDisabled": "请先映射例外字段，才能只更改此项。",
+  "calendarRecurrenceScopeFutureDeleteDisabled": "暂不支持删除此项及后续重复项目。",
+  "calendarRecurrenceScopeFutureDisabled": "请先映射重复规则字段，才能更改此项及后续项目。",
+  "calendarRecurrenceScopeDeleteTitle": "删除重复项目",
+  "calendarRecurrenceScopeEditTitle": "编辑重复项目",
+  "calendarRecurrenceScopeOccurrence": "仅此项",
+  "calendarRecurrenceScopeOccurrenceDesc": "只更改选中的这一项。",
+  "calendarRecurrenceScopeFutureDesc": "更改此项及此后的重复项目。",
+  "calendarRecurrenceScopeSeriesDesc": "更改整个重复系列。",
+  "calendarRecurrenceScopePrompt": "选择此次更改的应用范围。"
 }
