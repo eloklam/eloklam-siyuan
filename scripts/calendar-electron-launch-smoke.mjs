@@ -242,7 +242,7 @@ const compileCalendarRenderHarness = () => {
     });
     writeFile(path.join(calendarTargetDir, file.replace(/\.ts$/, ".js")), result.outputText);
   };
-  for (const file of ["model.ts", "mapped-fields.ts", "recurrence.ts", "normalize.ts", "render.ts"]) {
+  for (const file of ["model.ts", "mapped-fields.ts", "recurrence.ts", "normalize.ts", "quick-create.ts", "render.ts"]) {
     compileCalendarFile(file);
   }
   writeFile(path.join(tempDir, "src/constants.js"), `
@@ -609,8 +609,14 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const recurringCount = host.querySelectorAll('.av__calendar-recurring').length;
     const tooltip = host.querySelector('.av__calendar-event')?.getAttribute('title') || '';
     host.querySelector('[data-type="calendar-new"]:not(.av__calendar-daynum)').click();
+    const toolbarQuickTitleFocused = document.activeElement?.getAttribute('data-type') === 'calendar-quick-create-title';
+    const toolbarQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
+    host.querySelector('[data-type="calendar-quick-create-more"]').click();
     const toolbarNewDialog = globalThis.__calendarRenderDialogs.at(-1);
     host.querySelector('.av__calendar-daynum[data-date="2026-05-26"]').click();
+    const dayQuickSummary = host.querySelector('[data-type="calendar-quick-create-summary"]')?.textContent || '';
+    const dayQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
+    host.querySelector('[data-type="calendar-quick-create-more"]').click();
     const dayNewDialog = globalThis.__calendarRenderDialogs.at(-1);
     host.querySelector('.av__calendar-event[data-id="row-render"]').click();
     const editDialog = globalThis.__calendarRenderDialogs.at(-1);
@@ -631,6 +637,19 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     host.querySelector('[data-type="calendar-mode"][data-mode="1"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const weekMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
+    const dialogCountBeforeSlot = globalThis.__calendarRenderDialogs.length;
+    const slot = host.querySelector('[data-type="calendar-time-slot"][data-date="2026-05-26"][data-start="09:00"]');
+    slot.click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const slotQuickTitle = host.querySelector('[data-type="calendar-quick-create-title"]');
+    const slotQuickTitleFocused = document.activeElement === slotQuickTitle;
+    const slotQuickTop = host.querySelector('.av__calendar-quick-create')?.style.getPropertyValue('--calendar-quick-create-top') || '';
+    slot.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
+    const slotDblclickDialogBlocked = globalThis.__calendarRenderDialogs.length === dialogCountBeforeSlot;
+    slotQuickTitle.value = 'Quick slot smoke';
+    host.querySelector('[data-type="calendar-quick-create-save"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const slotCreateCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'create').find(call => call.payload?.draft?.title === 'Quick slot smoke');
     host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const dayMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
@@ -728,6 +747,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       recurringCount,
       dataViewMode: calendarElement && calendarElement.getAttribute('data-view-mode'),
       tooltip,
+      toolbarQuickTitleFocused,
+      toolbarQuickAllDay,
+      dayQuickSummary,
+      dayQuickAllDay,
       dialogDates: globalThis.__calendarRenderDialogs.map(item => item.date),
       toolbarNewDate: toolbarNewDialog?.date || '',
       dayNewDate: dayNewDialog?.date || '',
@@ -737,6 +760,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       dragDraft: dragUpdateCall?.payload?.draft,
       persistedModeOperation: globalThis.__calendarRenderTransactions[0]?.doOperations?.[0]?.action || '',
       weekMode,
+      slotQuickTitleFocused,
+      slotQuickTop,
+      slotDblclickDialogBlocked,
+      slotCreateDraft: slotCreateCall?.payload?.draft,
       dayMode,
       scheduleMode,
       modeAfterKeyboard,
@@ -761,12 +788,18 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
   if (!result?.hasCalendar || result.modeCount !== 4 || !result.hasSummary || !result.hasSearch ||
     !result.hasJumpDate || !result.eventText.includes("Calendar UI render smoke event") ||
     !result.eventText.includes("Calendar none smoke event") || result.recurringCount < 1 ||
-    !result.tooltip.includes("Render Room") || result.toolbarNewDate !== "2026-05-24" ||
+    !result.tooltip.includes("Render Room") || !result.toolbarQuickTitleFocused || !result.toolbarQuickAllDay ||
+    !result.dayQuickAllDay || result.dayQuickSummary !== "2026-05-26" ||
+    result.toolbarNewDate !== "2026-05-24" ||
     result.dayNewDate !== "2026-05-26" || result.editDialogEventID !== "row-render" ||
     result.duplicateDraft?.date !== "2026-05-25" || result.duplicateDraft?.recurrenceRaw !== "" ||
     result.resizeDraft?.endTime !== "10:15" || result.persistedModeOperation !== "setAttrViewCalendarViewMode" ||
     result.dragDraft?.date !== "2026-05-26" || result.dragDraft?.title !== "Calendar none smoke event" ||
-    result.weekMode !== "1" || result.dayMode !== "2" ||
+    result.weekMode !== "1" || !result.slotQuickTitleFocused || result.slotQuickTop === "" ||
+    !result.slotDblclickDialogBlocked || result.slotCreateDraft?.date !== "2026-05-26" ||
+    result.slotCreateDraft?.startTime !== "09:00" || result.slotCreateDraft?.endTime !== "09:30" ||
+    result.slotCreateDraft?.isAllDay !== false ||
+    result.dayMode !== "2" ||
     result.scheduleMode !== "3" || result.modeAfterKeyboard !== "0" ||
     result.anchorAfterPrevEvent !== "2026-05-24" || result.anchorAfterNextEvent !== "2026-05-25" ||
     !result.filteredEventText.includes("Calendar none smoke event") ||
