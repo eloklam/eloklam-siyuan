@@ -41,24 +41,43 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
     const allDayInput = panel.querySelector('[data-type="calendar-quick-create-all-day"]') as HTMLInputElement;
     const errorElement = panel.querySelector('[data-type="calendar-quick-create-error"]') as HTMLElement;
     const saveButton = panel.querySelector('[data-type="calendar-quick-create-save"]') as HTMLButtonElement;
+    let pending = false;
+    const setPending = (value: boolean) => {
+        pending = value;
+        saveButton.disabled = value;
+        panel.classList.toggle("is--saving", value);
+        if (value) {
+            panel.setAttribute("aria-busy", "true");
+            saveButton.setAttribute("aria-busy", "true");
+        } else {
+            panel.removeAttribute("aria-busy");
+            saveButton.removeAttribute("aria-busy");
+        }
+    };
     const close = () => {
+        if (pending) {
+            return;
+        }
         panel.remove();
         options.onCancel();
     };
     const getDraft = () => ({...draft, title: titleInput.value.trim(), isAllDay: allDayInput.checked});
     const save = async () => {
+        if (pending || saveButton.disabled) {
+            return;
+        }
         const nextDraft = getDraft();
         if (!nextDraft.title) {
             errorElement.textContent = `${window.siyuan.languages.title || "Title"} ${window.siyuan.languages.invalid || "Invalid"}`;
             titleInput.focus();
             return;
         }
-        saveButton.disabled = true;
+        setPending(true);
         try {
             await options.onSave(nextDraft);
             panel.remove();
         } catch (error) {
-            saveButton.disabled = false;
+            setPending(false);
             errorElement.textContent = error instanceof Error ? error.message : (window.siyuan.languages._kernel?.[29] || "Save failed");
             showMessage(errorElement.textContent);
         }
