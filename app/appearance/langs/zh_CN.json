@@ -1795,6 +1795,7 @@
   "calendarWeekStart": "每周开始于",
   "calendarRecurrence": "重复",
   "calendarOccurrence": "重复事件实例",
+  "calendarDiscardChanges": "Discard unsaved calendar changes?",
   "calendarSource": "Source note/block",
   "calendarOpenSource": "Open source",
   "calendarSourceMissing": "Calendar item has no source block",

@@ -1795,6 +1795,7 @@
   "calendarWeekStart": "Week starts on",
   "calendarRecurrence": "Recurrence",
   "calendarOccurrence": "Recurring occurrence",
+  "calendarDiscardChanges": "Discard unsaved calendar changes?",
   "calendarSource": "Source note/block",
   "calendarOpenSource": "Open source",
   "calendarSourceMissing": "Calendar item has no source block",

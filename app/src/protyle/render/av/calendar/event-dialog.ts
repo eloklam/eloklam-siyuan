@@ -1,4 +1,5 @@
 import {Dialog} from "../../../../dialog";
+import {confirmDialog} from "../../../../dialog/confirmDialog";
 import {Constants} from "../../../../constants";
 import {showMessage} from "../../../../dialog/message";
 import {openFileById} from "../../../../editor/util";
@@ -287,6 +288,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         content,
         width: "480px",
     });
+    dialog.element.dataset.initialDraftFingerprint = getDraftFingerprint(dialog);
     bindFormEvents(dialog, options);
     return dialog;
 };
@@ -317,20 +319,25 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     };
     recurrenceFreq?.addEventListener("change", updateWeekdayVisibility);
     updateWeekdayVisibility();
-    dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
+    dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => closeEventDialogSafely(dialog));
+    dialog.element.addEventListener("click", (event: Event) => {
+        if ((event as CustomEvent).detail === "Escape") {
+            closeEventDialogSafely(dialog);
+        }
+    });
     if (options.readOnly) {
         dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
         return;
     }
-    dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => saveEvent(dialog, options));
-    dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => saveFutureEvent(dialog, options));
+    dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => withPendingSave(dialog, "event-save", () => saveEvent(dialog, options)));
+    dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => withPendingSave(dialog, "event-save-future", () => saveFutureEvent(dialog, options)));
     dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => deleteEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => duplicateEvent(dialog, options));
     dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.key === "Enter") {
             event.preventDefault();
-            saveEvent(dialog, options);
+            withPendingSave(dialog, "event-save", () => saveEvent(dialog, options));
         }
     });
 };
@@ -364,10 +371,43 @@ const getDraftFromDialog = (dialog: Dialog) => {
         startTime: (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00",
         endTime: (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00",
         recurrenceRaw: getRecurrenceFromDialog(dialog),
-        location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value,
-        description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value,
-        colorContent: (dialog.element.querySelector("#av-event-color") as HTMLSelectElement)?.value,
+        location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value || "",
+        description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value || "",
+        colorContent: (dialog.element.querySelector("#av-event-color") as HTMLSelectElement)?.value || "",
     };
+};
+
+const getDraftFingerprint = (dialog: Dialog) => JSON.stringify(getDraftFromDialog(dialog));
+
+const isEventDialogDirty = (dialog: Dialog) => {
+    const initialDraftFingerprint = dialog.element.dataset.initialDraftFingerprint || "";
+    return !!initialDraftFingerprint && getDraftFingerprint(dialog) !== initialDraftFingerprint;
+};
+
+const closeEventDialogSafely = (dialog: Dialog) => {
+    if (!isEventDialogDirty(dialog)) {
+        dialog.destroy();
+        return;
+    }
+    confirmDialog(
+        window.siyuan.languages.confirm,
+        window.siyuan.languages.calendarDiscardChanges || "Discard unsaved calendar changes?",
+        () => dialog.destroy()
+    );
+};
+
+const withPendingSave = (dialog: Dialog, saveType: string, callback: () => boolean) => {
+    const saveButton = dialog.element.querySelector(`[data-type="${saveType}"]`) as HTMLButtonElement;
+    if (saveButton?.disabled) {
+        return;
+    }
+    if (saveButton) {
+        saveButton.disabled = true;
+    }
+    const saved = callback();
+    if (!saved && saveButton) {
+        saveButton.disabled = false;
+    }
 };
 
 const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, mapping: ReturnType<typeof getCalendarFieldMapping>) => {
@@ -394,7 +434,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
         showInvalidDraftMessage(draft, mapping);
-        return;
+        return false;
     }
     if (options.event) {
         if (options.event.isOccurrence && mapping.exceptionFieldID) {
@@ -411,11 +451,11 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
             })) {
                 showMessage(window.siyuan.languages._kernel[29]);
-                return;
+                return false;
             }
             dialog.destroy();
             options.onSave?.();
-            return;
+            return true;
         }
         if (!updateCalendarEvent({
             protyle: options.protyle,
@@ -429,7 +469,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         })) {
             showMessage(window.siyuan.languages._kernel[29]);
-            return;
+            return false;
         }
     } else {
         if (!createCalendarEvent({
@@ -443,11 +483,12 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         })) {
             showMessage(window.siyuan.languages._kernel[29]);
-            return;
+            return false;
         }
     }
     dialog.destroy();
     options.onSave?.();
+    return true;
 };
 
 const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
@@ -458,7 +499,7 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!options.event || !options.event.isOccurrence || !draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {
         showInvalidDraftMessage(draft, mapping);
-        return;
+        return false;
     }
     if (!updateCalendarEventThisAndFuture({
         protyle: options.protyle,
@@ -473,10 +514,11 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         previousUpdated: options.blockElement.getAttribute("updated") || "",
     })) {
         showMessage(window.siyuan.languages._kernel[29]);
-        return;
+        return false;
     }
     dialog.destroy();
     options.onSave?.();
+    return true;
 };
 
 const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
