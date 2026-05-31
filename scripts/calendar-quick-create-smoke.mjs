@@ -29,14 +29,23 @@ for (const term of [
   "data-type=\"calendar-quick-create-save\"",
   "data-type=\"calendar-quick-create-more\"",
   "data-type=\"calendar-quick-create-cancel\"",
+  "data-type=\"calendar-quick-create-all-day\"",
   "titleInput.focus()",
   "event.key === \"Enter\"",
   "event.key === \"Escape\"",
-  "onMoreOptions({...draft, title: titleInput.value.trim()})",
+  "onMoreOptions(getDraft())",
 ]) {
   if (!quickCreate.includes(term)) {
     fail(`quick-create.ts missing ${term}`);
   }
+}
+
+if (!/const getDraft = \(\) => \(\{[\s\S]*isAllDay: allDayInput\.checked[\s\S]*\}\)/.test(quickCreate)) {
+  fail("quick-create draft must preserve current all-day toggle state");
+}
+
+if (!/allDayInput\.addEventListener\("change"[\s\S]*summaryElement\.textContent = getDateTimeSummary\(getDraft\(\)\)/.test(quickCreate)) {
+  fail("quick-create all-day toggle must refresh visible date/time summary");
 }
 
 for (const term of [
@@ -45,10 +54,23 @@ for (const term of [
   "onSave: (savedDraft) => {",
   "createCalendarEvent({",
   "onMoreOptions: (moreDraft) => openEventDialog({",
+  "isAllDay: true",
 ]) {
   if (!render.includes(term)) {
     fail(`render.ts missing quick-create wiring ${term}`);
   }
+}
+
+if (!/\[data-type='calendar-time-slot'\]/.test(render)) {
+  fail("drop-day dblclick guard must exclude calendar-time-slot targets");
+}
+
+if (!render.includes("top: slotElement.offsetTop")) {
+  fail("time-slot quick-create must pass slot-relative top position");
+}
+
+if (!/calendar-new[\s\S]{0,900}openQuickCreate/.test(render)) {
+  fail("month/week/day new buttons should use quick-create for all-day drafts");
 }
 
 for (const term of [
@@ -56,6 +78,8 @@ for (const term of [
   "&-quick-create-title",
   "&-quick-create-summary",
   "&-quick-create-actions",
+  "&-quick-create-check",
+  "top: var(--calendar-quick-create-top, 4px)",
 ]) {
   if (!scss.includes(term)) {
     fail(`_av.scss missing ${term}`);

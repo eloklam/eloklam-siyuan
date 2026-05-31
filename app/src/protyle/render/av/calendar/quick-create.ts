@@ -5,6 +5,7 @@ import {ICalendarEventDraft} from "./model";
 export interface IQuickCreateOptions {
     target: HTMLElement;
     draft: ICalendarEventDraft;
+    top?: number;
     onSave: (draft: ICalendarEventDraft) => Promise<void> | void;
     onMoreOptions: (draft: ICalendarEventDraft) => void;
     onCancel: () => void;
@@ -22,8 +23,12 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
     const {target, draft} = options;
     const panel = document.createElement("div");
     panel.className = "av__calendar-quick-create";
-    panel.innerHTML = `<div class="av__calendar-quick-create-summary">${escapeHtml(getDateTimeSummary(draft))}</div>
+    if (typeof options.top === "number") {
+        panel.style.setProperty("--calendar-quick-create-top", `${options.top}px`);
+    }
+    panel.innerHTML = `<div class="av__calendar-quick-create-summary" data-type="calendar-quick-create-summary">${escapeHtml(getDateTimeSummary(draft))}</div>
 <input class="b3-text-field av__calendar-quick-create-title" data-type="calendar-quick-create-title" placeholder="${escapeAttr(window.siyuan.languages.title || "Title")}" value="${escapeAttr(draft.title || "")}">
+<label class="av__calendar-quick-create-check"><input type="checkbox" data-type="calendar-quick-create-all-day"${draft.isAllDay ? " checked" : ""}> ${escapeHtml(window.siyuan.languages.calendarAllDay || "All day")}</label>
 <div class="ft__on-surface ft__smaller" data-type="calendar-quick-create-error" aria-live="polite"></div>
 <div class="av__calendar-quick-create-actions">
     <button class="b3-button b3-button--cancel" data-type="calendar-quick-create-cancel">${window.siyuan.languages.cancel}</button>
@@ -31,14 +36,16 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
     <button class="b3-button b3-button--text" data-type="calendar-quick-create-save">${window.siyuan.languages.save}</button>
 </div>`;
     target.appendChild(panel);
+    const summaryElement = panel.querySelector('[data-type="calendar-quick-create-summary"]') as HTMLElement;
     const titleInput = panel.querySelector('[data-type="calendar-quick-create-title"]') as HTMLInputElement;
+    const allDayInput = panel.querySelector('[data-type="calendar-quick-create-all-day"]') as HTMLInputElement;
     const errorElement = panel.querySelector('[data-type="calendar-quick-create-error"]') as HTMLElement;
     const saveButton = panel.querySelector('[data-type="calendar-quick-create-save"]') as HTMLButtonElement;
     const close = () => {
         panel.remove();
         options.onCancel();
     };
-    const getDraft = () => ({...draft, title: titleInput.value.trim()});
+    const getDraft = () => ({...draft, title: titleInput.value.trim(), isAllDay: allDayInput.checked});
     const save = async () => {
         const nextDraft = getDraft();
         if (!nextDraft.title) {
@@ -59,7 +66,10 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
     panel.querySelector('[data-type="calendar-quick-create-cancel"]')?.addEventListener("click", close);
     panel.querySelector('[data-type="calendar-quick-create-more"]')?.addEventListener("click", () => {
         panel.remove();
-        options.onMoreOptions({...draft, title: titleInput.value.trim()});
+        options.onMoreOptions(getDraft());
+    });
+    allDayInput.addEventListener("change", () => {
+        summaryElement.textContent = getDateTimeSummary(getDraft());
     });
     saveButton.addEventListener("click", () => save());
     titleInput.addEventListener("keydown", (event: KeyboardEvent) => {

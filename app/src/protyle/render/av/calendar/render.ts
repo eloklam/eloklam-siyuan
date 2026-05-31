@@ -520,6 +520,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             };
             openQuickCreate({
                 target: slotElement.parentElement || slotElement,
+                top: slotElement.offsetTop,
                 draft,
                 onSave: (savedDraft) => {
                     const avID = options.blockElement.getAttribute("data-av-id");
@@ -549,12 +550,46 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (!editable) {
                 return;
             }
-            openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});
+            const newElement = item as HTMLElement;
+            const date = newElement.dataset.date || dayjs().format("YYYY-MM-DD");
+            const draft: ICalendarEventDraft = {
+                title: "",
+                date,
+                endDate: date,
+                isAllDay: true,
+                startTime: "09:00",
+                endTime: "09:30",
+            };
+            openQuickCreate({
+                target: newElement.parentElement || newElement,
+                top: newElement.offsetTop + newElement.offsetHeight,
+                draft,
+                onSave: (savedDraft) => {
+                    const avID = options.blockElement.getAttribute("data-av-id");
+                    const blockID = options.blockElement.getAttribute("data-node-id");
+                    const mapping = getCalendarFieldMapping(calendar);
+                    if (!avID || !blockID || !mapping.dateFieldID || !createCalendarEvent({
+                        protyle: options.protyle,
+                        avID,
+                        blockID,
+                        dateFieldID: mapping.dateFieldID,
+                        fields: calendar.fields,
+                        mapping,
+                        draft: savedDraft,
+                        previousUpdated: options.blockElement.getAttribute("updated") || "",
+                    })) {
+                        throw new Error(window.siyuan.languages._kernel[29]);
+                    }
+                    rerender();
+                },
+                onMoreOptions: (moreDraft) => openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date, draft: moreDraft, onSave: rerender}),
+                onCancel: () => undefined,
+            });
         });
     });
     calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
         item.addEventListener("dblclick", (event: MouseEvent) => {
-            if (!editable || (event.target as HTMLElement).closest(".av__calendar-event, [data-type='calendar-new']")) {
+            if (!editable || (event.target as HTMLElement).closest(".av__calendar-event, [data-type='calendar-new'], [data-type='calendar-time-slot']")) {
                 return;
             }
             openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});

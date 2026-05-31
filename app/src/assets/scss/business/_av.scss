@@ -1393,8 +1393,14 @@ img.av__cellassetimg {
     padding: 10px;
     position: absolute;
     right: 6px;
-    top: 4px;
+    top: var(--calendar-quick-create-top, 4px);
     z-index: 2;
+  }
+
+  &-quick-create-check {
+    align-items: center;
+    display: flex;
+    gap: 6px;
   }
 
   &-quick-create-title {
