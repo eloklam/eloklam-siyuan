@@ -41,10 +41,14 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
     const allDayInput = panel.querySelector('[data-type="calendar-quick-create-all-day"]') as HTMLInputElement;
     const errorElement = panel.querySelector('[data-type="calendar-quick-create-error"]') as HTMLElement;
     const saveButton = panel.querySelector('[data-type="calendar-quick-create-save"]') as HTMLButtonElement;
+    const cancelButton = panel.querySelector('[data-type="calendar-quick-create-cancel"]') as HTMLButtonElement;
+    const moreButton = panel.querySelector('[data-type="calendar-quick-create-more"]') as HTMLButtonElement;
     let pending = false;
     const setPending = (value: boolean) => {
         pending = value;
         saveButton.disabled = value;
+        cancelButton.disabled = value;
+        moreButton.disabled = value;
         panel.classList.toggle("is--saving", value);
         if (value) {
             panel.setAttribute("aria-busy", "true");
@@ -83,7 +87,10 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
         }
     };
     panel.querySelector('[data-type="calendar-quick-create-cancel"]')?.addEventListener("click", close);
-    panel.querySelector('[data-type="calendar-quick-create-more"]')?.addEventListener("click", () => {
+    moreButton.addEventListener("click", () => {
+        if (pending || moreButton.disabled) {
+            return;
+        }
         panel.remove();
         options.onMoreOptions(getDraft());
     });

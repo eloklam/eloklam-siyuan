@@ -118,6 +118,8 @@ let executable = source
 
 const target = new FakeElement("section");
 let submitCount = 0;
+let cancelCount = 0;
+let moreCount = 0;
 let resolveSave;
 const savePromise = new Promise((resolve) => { resolveSave = resolve; });
 const context = {
@@ -137,26 +139,45 @@ const panel = context.openQuickCreate({
     submitCount += 1;
     await savePromise;
   },
-  onMoreOptions() {},
-  onCancel() {},
+  onMoreOptions() { moreCount += 1; },
+  onCancel() { cancelCount += 1; },
 });
 const title = panel.querySelector('[data-type="calendar-quick-create-title"]');
+const cancelButton = panel.querySelector('[data-type="calendar-quick-create-cancel"]');
+const moreButton = panel.querySelector('[data-type="calendar-quick-create-more"]');
 const saveButton = panel.querySelector('[data-type="calendar-quick-create-save"]');
 title.value = "One submit only";
 const enterEvent = {key: "Enter", preventDefault() { this.prevented = true; }};
 title.dispatch("keydown", enterEvent);
 title.dispatch("keydown", {key: "Enter", preventDefault() {}});
 saveButton.click();
+cancelButton.click();
+title.dispatch("keydown", {key: "Escape", preventDefault() {}});
+moreButton.click();
 await Promise.resolve();
 
 if (submitCount !== 1) {
   fail(`expected exactly one unresolved submit, got ${submitCount}`);
 }
-if (!saveButton.disabled) {
-  fail("save button must stay disabled while save is pending");
+if (cancelCount !== 0) {
+  fail(`pending Escape/Cancel must not cancel/remove panel, got ${cancelCount} cancels`);
+}
+if (moreCount !== 0) {
+  fail(`pending More must not open full dialog/remove panel, got ${moreCount} more-options calls`);
+}
+if (panel.removed) {
+  fail("quick-create panel must stay mounted while save is pending");
+}
+for (const [name, button] of [["save", saveButton], ["cancel", cancelButton], ["more", moreButton]]) {
+  if (!button.disabled) {
+    fail(`${name} button must stay disabled while save is pending`);
+  }
 }
 if (panel.getAttribute("aria-busy") !== "true") {
   fail("quick-create panel must expose aria-busy=true while saving");
+}
+if (saveButton.getAttribute("aria-busy") !== "true") {
+  fail("quick-create save button must expose aria-busy=true while saving");
 }
 if (!/is--/.test(panel.className)) {
   fail("quick-create panel must expose pending class while saving");
