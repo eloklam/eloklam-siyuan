@@ -348,8 +348,8 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     }
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => withPendingSave(dialog, "event-save", () => saveEvent(dialog, options)));
     dialog.element.querySelector('[data-type="event-save-future"]')?.addEventListener("click", () => withPendingSave(dialog, "event-save-future", () => saveFutureEvent(dialog, options)));
-    dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => deleteEvent(dialog, options));
-    dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => duplicateEvent(dialog, options));
+    dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => withCalendarDialogOperationFeedback(dialog, "event-delete", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEvent(dialog, options)));
+    dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => withCalendarDialogOperationFeedback(dialog, "event-duplicate", window.siyuan.languages.calendarDuplicateFailed || "Duplicate failed.", () => duplicateEvent(dialog, options)));
     dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.key === "Enter") {
@@ -413,17 +413,34 @@ const closeEventDialogSafely = (dialog: Dialog) => {
     );
 };
 
-const withPendingSave = (dialog: Dialog, saveType: string, callback: () => boolean) => {
-    const saveButton = dialog.element.querySelector(`[data-type="${saveType}"]`) as HTMLButtonElement;
-    if (saveButton?.disabled) {
+const withPendingSave = (dialog: Dialog, saveType: string, callback: () => boolean) => withCalendarDialogOperationFeedback(dialog, saveType, window.siyuan.languages.calendarSaveFailed || "Save failed.", callback);
+
+const withCalendarDialogOperationFeedback = (dialog: Dialog, actionType: string, failureMessage: string, callback: () => boolean) => {
+    const actionButton = dialog.element.querySelector(`[data-type="${actionType}"]`) as HTMLButtonElement;
+    if (actionButton?.disabled || dialog.element.dataset.calendarOperation === "pending") {
         return;
     }
-    if (saveButton) {
-        saveButton.disabled = true;
+    dialog.element.dataset.calendarOperation = "pending";
+    dialog.element.setAttribute("aria-busy", "true");
+    dialog.element.classList.add("av__calendar-dialog--pending");
+    if (actionButton) {
+        actionButton.disabled = true;
     }
-    const saved = callback();
-    if (!saved && saveButton) {
-        saveButton.disabled = false;
+    try {
+        const saved = callback();
+        if (!saved && actionButton) {
+            actionButton.disabled = false;
+            showMessage(failureMessage);
+        }
+    } catch (error) {
+        if (actionButton) {
+            actionButton.disabled = false;
+        }
+        showMessage(failureMessage);
+    } finally {
+        delete dialog.element.dataset.calendarOperation;
+        dialog.element.removeAttribute("aria-busy");
+        dialog.element.classList.remove("av__calendar-dialog--pending");
     }
 };
 
@@ -551,7 +568,7 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
         showInvalidDraftMessage(draft, mapping);
-        return;
+        return false;
     }
     if (!createCalendarEvent({
         protyle: options.protyle,
@@ -564,17 +581,18 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         previousUpdated: options.blockElement.getAttribute("updated") || "",
     })) {
         showMessage(window.siyuan.languages._kernel[29]);
-        return;
+        return false;
     }
     dialog.destroy();
     options.onSave?.();
+    return true;
 };
 
 const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!options.event || !avID || !blockID) {
-        return;
+        return false;
     }
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
@@ -590,11 +608,11 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         })) {
             showMessage(window.siyuan.languages._kernel[29]);
-            return;
+            return false;
         }
         dialog.destroy();
         options.onDelete?.();
-        return;
+        return true;
     }
     if (!deleteCalendarEvent({
         protyle: options.protyle,
@@ -604,8 +622,9 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         previousUpdated: options.blockElement.getAttribute("updated") || "",
     })) {
         showMessage(window.siyuan.languages._kernel[29]);
-        return;
+        return false;
     }
     dialog.destroy();
     options.onDelete?.();
+    return true;
 };

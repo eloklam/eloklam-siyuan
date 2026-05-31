@@ -1808,5 +1808,12 @@
   "calendarExceptions": "Exceptions",
   "calendarLocation": "Location",
   "calendarDescription": "Description",
-  "calendarSchedule": "Schedule"
+  "calendarSchedule": "Schedule",
+  "calendarEventRestored": "Event restored.",
+  "calendarCreateFailed": "Create failed.",
+  "calendarResizeFailed": "Resize failed.",
+  "calendarMoveFailed": "Move failed.",
+  "calendarDeleteFailed": "Delete failed.",
+  "calendarDuplicateFailed": "Duplicate failed.",
+  "calendarSaveFailed": "Save failed."
 }

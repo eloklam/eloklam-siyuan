@@ -11,7 +11,7 @@ const checks = [
   [dialog.includes('isEventDialogDirty'), 'has dirty check helper'],
   [dialog.includes('closeEventDialogSafely'), 'cancel/escape route through safe close helper'],
   [dialog.includes('calendarDiscardChanges'), 'discard copy is localized'],
-  [dialog.includes('saveButton.disabled = true') && dialog.includes('saveButton.disabled = false'), 'save disables while pending and restores on failure'],
+  [((dialog.includes('saveButton.disabled = true') && dialog.includes('saveButton.disabled = false')) || (dialog.includes('actionButton.disabled = true') && dialog.includes('actionButton.disabled = false'))), 'save disables while pending and restores on failure'],
   [dialog.includes('options.onSave?.()') && dialog.includes('dialog.destroy()'), 'successful save still closes dialog and rerenders'],
   [dialog.includes('disableClose: true'), 'base scrim and close icon cannot destroy event dialog directly'],
   [dialog.includes('bindGuardedEventDialogClose'), 'installs guarded close behavior for Escape/close controls'],

@@ -225,8 +225,8 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     ${sourceMarker}
     ${recurrenceMarker}
     ${!editable ? "" : (event.isAllDay ?
-        `<span class="av__calendar-resize" data-type="calendar-resize" data-days="-1">-1d</span><span class="av__calendar-resize" data-type="calendar-resize" data-days="1">+1d</span>` :
-        `<span class="av__calendar-resize" data-type="calendar-resize" data-delta="-15">-15m</span><span class="av__calendar-resize" data-type="calendar-resize" data-delta="15">+15m</span>`)}
+        "<span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-days=\"-1\">-1d</span><span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-days=\"1\">+1d</span>" :
+        "<span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-delta=\"-15\">-15m</span><span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-delta=\"15\">+15m</span>")}
     ${editable ? `<span class="av__calendar-resize" data-type="calendar-duplicate-next-day">${window.siyuan.languages.copy || "Copy"}</span>` : ""}
 </button>`;
 };
@@ -475,6 +475,36 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             setCalendarAnchor(target.start);
         } else {
             showMessage(window.siyuan.languages.calendarNoMatchingEvent || window.siyuan.languages.emptyContent || "No matching event");
+        }
+    };
+    const withCalendarOperationFeedback = (operationElement: HTMLElement | null, operationLabel: string, failureMessage: string, callback: () => boolean) => {
+        if (operationElement?.dataset.calendarOperation === "pending") {
+            return false;
+        }
+        if (operationElement) {
+            operationElement.dataset.calendarOperation = "pending";
+            operationElement.setAttribute("aria-busy", "true");
+            operationElement.classList.add("av__calendar-event--pending");
+        }
+        try {
+            const saved = callback();
+            if (!saved) {
+                showMessage(`${failureMessage || window.siyuan.languages._kernel[29]} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
+                rerender();
+                return false;
+            }
+            showMessage(operationLabel);
+            return true;
+        } catch (error) {
+            showMessage(`${failureMessage} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
+            rerender();
+            return false;
+        } finally {
+            if (operationElement) {
+                delete operationElement.dataset.calendarOperation;
+                operationElement.removeAttribute("aria-busy");
+                operationElement.classList.remove("av__calendar-event--pending");
+            }
         }
     };
     const setCalendarViewMode = (mode: number) => {
@@ -761,14 +791,17 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         }
         return baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent;
     };
-    const updateEventWithDraft = (sourceEvent: ICalendarNormalizedEvent, draft: ICalendarEventDraft) => {
+    const updateEventWithDraft = (sourceEvent: ICalendarNormalizedEvent, draft: ICalendarEventDraft, operationElement: HTMLElement | null, operationLabel: string, failureMessage: string) => {
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
         if (!avID || !blockID || !mapping.dateFieldID) {
+            showMessage(window.siyuan.languages._kernel[29]);
+            showMessage(`${failureMessage} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
+            rerender();
             return;
         }
-        if (sourceEvent.isOccurrence && mapping.exceptionFieldID) {
-            const saved = createCalendarEventReplacingOccurrence({
+        withCalendarOperationFeedback(operationElement, operationLabel, failureMessage, () => {
+            const saved = sourceEvent.isOccurrence && mapping.exceptionFieldID ? createCalendarEventReplacingOccurrence({
                 protyle: options.protyle,
                 avID,
                 blockID,
@@ -779,28 +812,22 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 draft,
                 occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
+            }) : updateCalendarEvent({
+                protyle: options.protyle,
+                avID,
+                blockID,
+                dateFieldID: mapping.dateFieldID,
+                fields: calendar.fields,
+                mapping,
+                event: sourceEvent,
+                draft,
+                previousUpdated: options.blockElement.getAttribute("updated") || "",
             });
             if (saved) {
                 rerender();
             }
-            return;
-        }
-        const saved = updateCalendarEvent({
-            protyle: options.protyle,
-            avID,
-            blockID,
-            dateFieldID: mapping.dateFieldID,
-            fields: calendar.fields,
-            mapping,
-            event: sourceEvent,
-            draft,
-            previousUpdated: options.blockElement.getAttribute("updated") || "",
+            return saved;
         });
-        if (saved) {
-            rerender();
-        } else {
-            showMessage(window.siyuan.languages._kernel[29]);
-        }
     };
     const buildDraftForDate = (sourceEvent: ICalendarNormalizedEvent, targetDate: string): ICalendarEventDraft => {
         const durationDays = Math.max((sourceEvent.end || sourceEvent.start).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
@@ -817,30 +844,32 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             colorContent: sourceEvent.colorContent,
         };
     };
-    const duplicateEventToNextDay = (sourceEvent: ICalendarNormalizedEvent) => {
+    const duplicateEventToNextDay = (sourceEvent: ICalendarNormalizedEvent, operationElement: HTMLElement | null) => {
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
         if (!avID || !blockID || !mapping.dateFieldID) {
+            showMessage(window.siyuan.languages.calendarCreateFailed || "Create failed.");
             return;
         }
         const draft = buildDraftForDate(sourceEvent, sourceEvent.start.add(1, "day").format("YYYY-MM-DD"));
         draft.recurrenceRaw = "";
         draft.recurrenceExceptionRaw = "";
-        const saved = createCalendarEvent({
-            protyle: options.protyle,
-            avID,
-            blockID,
-            dateFieldID: mapping.dateFieldID,
-            fields: calendar.fields,
-            mapping,
-            draft,
-            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        withCalendarOperationFeedback(operationElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarCreateFailed || "Create failed.", () => {
+            const saved = createCalendarEvent({
+                protyle: options.protyle,
+                avID,
+                blockID,
+                dateFieldID: mapping.dateFieldID,
+                fields: calendar.fields,
+                mapping,
+                draft,
+                previousUpdated: options.blockElement.getAttribute("updated") || "",
+            });
+            if (saved) {
+                rerender();
+            }
+            return saved;
         });
-        if (saved) {
-            rerender();
-        } else {
-            showMessage(window.siyuan.languages._kernel[29]);
-        }
     };
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
         item.addEventListener("click", (event: MouseEvent) => {
@@ -878,7 +907,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                         location: targetEvent.location,
                         description: targetEvent.description,
                         colorContent: targetEvent.colorContent,
-                    });
+                    }, item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.");
                     return;
                 }
                 const delta = parseInt(resizeElement.dataset.delta || "0", 10);
@@ -900,7 +929,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                     location: targetEvent.location,
                     description: targetEvent.description,
                     colorContent: targetEvent.colorContent,
-                });
+                }, item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.");
                 return;
             }
             const duplicateElement = (event.target as HTMLElement).closest('[data-type="calendar-duplicate-next-day"]') as HTMLElement;
@@ -912,7 +941,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 }
                 const sourceEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
                 if (sourceEvent) {
-                    duplicateEventToNextDay(sourceEvent);
+                    duplicateEventToNextDay(sourceEvent, item as HTMLElement);
                 }
                 return;
             }
@@ -990,7 +1019,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (targetEvent.isAllDay && targetEvent.end && !targetEvent.start.isSame(targetEvent.end, "day")) {
                 draft.endTime = targetEvent.end?.format("HH:mm") || "23:59";
             }
-            updateEventWithDraft(targetEvent, draft);
+            updateEventWithDraft(targetEvent, draft, null, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarMoveFailed || "Move failed.");
         });
     });
 };

@@ -1808,5 +1808,12 @@
   "calendarExceptions": "例外",
   "calendarLocation": "地点",
   "calendarDescription": "描述",
-  "calendarSchedule": "日程"
+  "calendarSchedule": "日程",
+  "calendarEventRestored": "事件已恢复。",
+  "calendarCreateFailed": "创建失败。",
+  "calendarResizeFailed": "调整时长失败。",
+  "calendarMoveFailed": "移动失败。",
+  "calendarDeleteFailed": "删除失败。",
+  "calendarDuplicateFailed": "复制失败。",
+  "calendarSaveFailed": "保存失败。"
 }
