@@ -242,6 +242,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const endTime = event?.end?.format("HH:mm") || draft?.endTime || "10:00";
     const sourceLabel = event?.blockID ? (window.siyuan.languages.calendarSource || "Source note/block") : "";
     const content = `<div class="b3-dialog__content av__calendar-dialog">
+    <button class="b3-button b3-button--text av__calendar-dialog-close" data-type="event-close" aria-label="${window.siyuan.languages.close || "Close"}">×</button>
     ${!readOnly && editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || draft?.title || "")}"${disabledAttr}>
@@ -283,14 +284,34 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         ${readOnly ? "" : `<button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>`}
     </div>
 </div>`;
+    let unbindGuardedClose: (() => void) | undefined;
     const dialog = new Dialog({
         title: isEditing ? (window.siyuan.languages.edit || "Edit") : (window.siyuan.languages.newEvent || "New Event"),
         content,
         width: "480px",
+        disableClose: true,
+        destroyCallback: () => unbindGuardedClose?.(),
     });
+    unbindGuardedClose = bindGuardedEventDialogClose(dialog);
     dialog.element.dataset.initialDraftFingerprint = getDraftFingerprint(dialog);
     bindFormEvents(dialog, options);
     return dialog;
+};
+
+const bindGuardedEventDialogClose = (dialog: Dialog) => {
+    const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== "Escape" || event.isComposing) {
+            return;
+        }
+        if (window.siyuan.dialogs[window.siyuan.dialogs.length - 1] !== dialog) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        closeEventDialogSafely(dialog);
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
 };
 
 const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
@@ -320,11 +341,7 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     recurrenceFreq?.addEventListener("change", updateWeekdayVisibility);
     updateWeekdayVisibility();
     dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => closeEventDialogSafely(dialog));
-    dialog.element.addEventListener("click", (event: Event) => {
-        if ((event as CustomEvent).detail === "Escape") {
-            closeEventDialogSafely(dialog);
-        }
-    });
+    dialog.element.querySelector('[data-type="event-close"]')?.addEventListener("click", () => closeEventDialogSafely(dialog));
     if (options.readOnly) {
         dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
         return;
