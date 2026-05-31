@@ -1,6 +1,10 @@
 import * as dayjs from "dayjs";
 import {Constants} from "../../../../constants";
 import {showMessage} from "../../../../dialog/message";
+import {openFileById} from "../../../../editor/util";
+/// #if MOBILE
+import {openMobileFileById} from "../../../../mobile/editor";
+/// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {fetchSyncPost} from "../../../../util/fetch";
 import {hasClosestByAttribute} from "../../../util/hasClosest";
@@ -190,6 +194,22 @@ const getEventTooltip = (event: ICalendarNormalizedEvent) => {
     ].filter(Boolean).join("\n");
 };
 
+const openCalendarEventSource = (protyle: IProtyle, event: ICalendarNormalizedEvent) => {
+    if (!event.blockID) {
+        showMessage(window.siyuan.languages.calendarSourceMissing || "Calendar item has no source block");
+        return;
+    }
+    /// #if !MOBILE
+    openFileById({
+        app: protyle.app,
+        id: event.blockID,
+        action: [Constants.CB_GET_FOCUS],
+    });
+    /// #else
+    openMobileFileById(protyle.app, event.blockID, [Constants.CB_GET_FOCUS]);
+    /// #endif
+};
+
 const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Dayjs, editable = true) => {
     const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ?
@@ -198,8 +218,11 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     const eventTooltip = getEventTooltip(event);
     const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence ?
         `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
+    const sourceMarker = event.blockID ?
+        `<span class="av__calendar-source" data-type="calendar-open-source" role="button" tabindex="0" title="${escapeAttr(window.siyuan.languages.calendarOpenSource || "Open source note/block")}" aria-label="${escapeAttr(window.siyuan.languages.calendarOpenSource || "Open source note/block")}">↗</span>` : "";
     return `<button class="av__calendar-event${editable ? "" : " av__calendar-event--readonly"}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
+    ${sourceMarker}
     ${recurrenceMarker}
     ${!editable ? "" : (event.isAllDay ?
         `<span class="av__calendar-resize" data-type="calendar-resize" data-days="-1">-1d</span><span class="av__calendar-resize" data-type="calendar-resize" data-days="1">+1d</span>` :
@@ -894,6 +917,15 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 return;
             }
             const calendarEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
+            const sourceElement = (event.target as HTMLElement).closest('[data-type="calendar-open-source"]') as HTMLElement;
+            if (sourceElement) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (calendarEvent?.blockID) {
+                    openCalendarEventSource(options.protyle, calendarEvent);
+                }
+                return;
+            }
             if (calendarEvent && editable) {
                 const eventForDialog = getEditableEvent(calendarEvent);
                 openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});

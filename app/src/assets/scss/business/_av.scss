@@ -1291,6 +1291,42 @@ img.av__cellassetimg {
     text-overflow: ellipsis;
   }
 
+  &-source {
+    align-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 10px;
+    height: 16px;
+    justify-content: center;
+    line-height: 14px;
+    opacity: 0.82;
+    width: 16px;
+
+    &:hover,
+    &:focus-visible {
+      opacity: 1;
+      outline: 1px solid currentColor;
+      outline-offset: 1px;
+    }
+  }
+
+  &-event-source {
+    align-items: center;
+    color: var(--b3-theme-on-surface);
+    display: flex;
+    gap: 6px;
+
+    code {
+      background-color: var(--b3-theme-surface);
+      border-radius: var(--b3-border-radius);
+      font-size: 11px;
+      padding: 1px 4px;
+    }
+  }
+
   &-resize {
     border-left: 1px solid currentColor;
     cursor: ew-resize;

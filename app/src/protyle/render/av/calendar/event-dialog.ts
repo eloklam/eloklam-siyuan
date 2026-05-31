@@ -239,6 +239,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const endDate = event?.end?.format("YYYY-MM-DD") || draft?.endDate || startDate;
     const startTime = event?.start.format("HH:mm") || draft?.startTime || "09:00";
     const endTime = event?.end?.format("HH:mm") || draft?.endTime || "10:00";
+    const sourceLabel = event?.blockID ? (window.siyuan.languages.calendarSource || "Source note/block") : "";
     const content = `<div class="b3-dialog__content av__calendar-dialog">
     ${!readOnly && editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
@@ -267,10 +268,15 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}"${disabledAttr}>${escapeHtml(event?.description || "")}</textarea>
     </div>` : ""}
     ${renderColorField(colorField, event, readOnly)}
+    ${event?.blockID ? `<div class="b3-form__space av__calendar-event-source" data-type="event-source">
+        <span class="av__calendar-source" aria-hidden="true">↗</span>
+        <span>${escapeHtml(sourceLabel)}</span>
+        <code>${escapeHtml(event.blockID)}</code>
+    </div>` : ""}
     <div class="b3-dialog__action">
         <button class="b3-button b3-button--cancel" data-type="event-cancel">${window.siyuan.languages.cancel}</button>
         <span class="fn__space"></span>
-        ${event?.blockID ? `<button class="b3-button b3-button--outline" data-type="event-open-block">${window.siyuan.languages.jumpTo || "Jump to"}</button><span class="fn__space"></span>` : ""}
+        ${event?.blockID ? `<button class="b3-button b3-button--outline" data-type="event-open-block">${window.siyuan.languages.calendarOpenSource || "Open source"}</button><span class="fn__space"></span>` : ""}
         ${isEditing && !readOnly ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${deleteLabel}</button><span class="fn__space"></span>` : ""}
         ${canEditFuture ? `<button class="b3-button b3-button--outline" data-type="event-save-future">${window.siyuan.languages.calendarThisAndFuture || "This and future"}</button><span class="fn__space"></span>` : ""}
         ${readOnly ? "" : `<button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>`}
