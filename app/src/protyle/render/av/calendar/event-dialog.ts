@@ -7,7 +7,7 @@ import {openMobileFileById} from "../../../../mobile/editor";
 /// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
-import {ICalendarNormalizedEvent} from "./model";
+import {ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
 import {createCalendarEvent, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 interface IRecurrenceFormValue {
@@ -22,6 +22,7 @@ interface IRecurrenceFormValue {
 
 export interface IEventDialogOptions {
     event?: ICalendarNormalizedEvent;
+    draft?: Partial<ICalendarEventDraft>;
     date: string;
     protyle: IProtyle;
     blockElement: HTMLElement;
@@ -232,23 +233,29 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         (mapping.exceptionFieldID ? (window.siyuan.languages.calendarDeleteOccurrence || "Delete occurrence") : (window.siyuan.languages.calendarDeleteSeries || "Delete series")) :
         window.siyuan.languages.delete;
     const disabledAttr = readOnly ? " disabled" : "";
+    const draft = options.draft;
+    const isAllDay = event?.isAllDay ?? draft?.isAllDay ?? true;
+    const startDate = event?.start.format("YYYY-MM-DD") || draft?.date || date;
+    const endDate = event?.end?.format("YYYY-MM-DD") || draft?.endDate || startDate;
+    const startTime = event?.start.format("HH:mm") || draft?.startTime || "09:00";
+    const endTime = event?.end?.format("HH:mm") || draft?.endTime || "10:00";
     const content = `<div class="b3-dialog__content av__calendar-dialog">
     ${!readOnly && editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || "")}"${disabledAttr}>
+        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || draft?.title || "")}"${disabledAttr}>
     </div>
     <div class="b3-form__space fn__flex">
-        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${event?.start.format("YYYY-MM-DD") || date}"${disabledAttr}>
-        <input type="date" class="b3-text-field fn__flex-1" id="av-event-end-date" aria-label="${window.siyuan.languages.endDate || "End date"}" value="${event?.end?.format("YYYY-MM-DD") || event?.start.format("YYYY-MM-DD") || date}"${disabledAttr}>
+        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${startDate}"${disabledAttr}>
+        <input type="date" class="b3-text-field fn__flex-1" id="av-event-end-date" aria-label="${window.siyuan.languages.endDate || "End date"}" value="${endDate}"${disabledAttr}>
         <label class="fn__flex-center av__calendar-check">
-            <input type="checkbox" id="av-event-allday" ${event?.isAllDay ?? true ? "checked" : ""}${disabledAttr}>
+            <input type="checkbox" id="av-event-allday" ${isAllDay ? "checked" : ""}${disabledAttr}>
             <span>${window.siyuan.languages.allDay || "All day"}</span>
         </label>
     </div>
-    <div class="b3-form__space fn__flex" id="av-event-time-row" style="${event?.isAllDay ?? true ? "display:none" : ""}">
-        <input type="time" class="b3-text-field fn__flex-1" id="av-event-start" value="${event?.start.format("HH:mm") || "09:00"}"${disabledAttr}>
+    <div class="b3-form__space fn__flex" id="av-event-time-row" style="${isAllDay ? "display:none" : ""}">
+        <input type="time" class="b3-text-field fn__flex-1" id="av-event-start" value="${startTime}"${disabledAttr}>
         <span class="av__calendar-time-sep">-</span>
-        <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${event?.end?.format("HH:mm") || "10:00"}"${disabledAttr}>
+        <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${endTime}"${disabledAttr}>
     </div>
     ${mapping.locationFieldID ? `<div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}"${disabledAttr}>

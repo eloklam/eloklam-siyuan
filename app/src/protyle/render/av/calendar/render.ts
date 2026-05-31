@@ -91,6 +91,24 @@ const getWeekdayLabels = (weekStart = 0) => {
     return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + ((weekStart + index) % 7))));
 };
 
+
+const SLOT_MINUTES = 30;
+
+const formatSlotLabel = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+const buildTimeSlots = () => {
+    const slots: {minutes: number, start: string, end: string, label: string}[] = [];
+    for (let minutes = 0; minutes < 24 * 60; minutes += SLOT_MINUTES) {
+        slots.push({
+            minutes,
+            start: formatSlotLabel(minutes),
+            end: minutes + SLOT_MINUTES >= 24 * 60 ? "23:59" : formatSlotLabel(minutes + SLOT_MINUTES),
+            label: formatSlotLabel(minutes),
+        });
+    }
+    return slots;
+};
+
 const getCalendarSearch = (blockElement: HTMLElement) => (blockElement.dataset.calendarSearch || "").trim();
 
 const getCalendarFilter = (blockElement: HTMLElement) => {
@@ -248,6 +266,44 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
     return `${html}</div>`;
 };
 
+
+const getTimedEventGridRange = (event: ICalendarNormalizedEvent, day: dayjs.Dayjs) => {
+    const dayStart = day.startOf("day");
+    const startMinutes = Math.max(event.start.diff(dayStart, "minute"), 0);
+    const endMinutes = Math.min((event.end || event.start.add(SLOT_MINUTES, "minute")).diff(dayStart, "minute"), 24 * 60);
+    const rowStart = Math.floor(startMinutes / SLOT_MINUTES) + 1;
+    const rowSpan = Math.max(Math.ceil((endMinutes - startMinutes) / SLOT_MINUTES), 1);
+    return {rowStart, rowSpan};
+};
+
+const renderTimedEventInGrid = (event: ICalendarNormalizedEvent, day: dayjs.Dayjs, editable = true) => {
+    const range = getTimedEventGridRange(event, day);
+    return `<div class="av__calendar-timed-event" style="grid-row:${range.rowStart} / span ${range.rowSpan}">${eventButtonHTML(event, day, editable)}</div>`;
+};
+
+const renderTimedEventLayer = (events: ICalendarNormalizedEvent[], day: dayjs.Dayjs, editable = true) => {
+    const timedEvents = sortCalendarEvents(events.filter(event => !event.isAllDay));
+    return `<div class="av__calendar-timed-events">${timedEvents.map(event => renderTimedEventInGrid(event, day, editable)).join("")}</div>`;
+};
+
+const renderTimeSlotsForDay = (day: dayjs.Dayjs, editable = true) => {
+    return buildTimeSlots().map(slot => `<button class="av__calendar-time-slot" data-type="calendar-time-slot" data-date="${day.format("YYYY-MM-DD")}" data-start="${slot.start}" data-end="${slot.end}" aria-label="${escapeAttr(`${formatCalendarDate(day, {weekday: "short", month: "short", day: "numeric"})} ${slot.start}`)}"${editable ? "" : " disabled"}></button>`).join("");
+};
+
+const renderTimeGrid = (days: dayjs.Dayjs[], events: ICalendarNormalizedEvent[], editable = true) => {
+    const slots = buildTimeSlots();
+    return `<div class="av__calendar-time-grid" style="--calendar-day-count:${days.length}">
+        <div class="av__calendar-time-labels">${slots.map(slot => `<div class="av__calendar-time-label">${escapeHtml(slot.label)}</div>`).join("")}</div>
+        ${days.map(day => {
+        const dayEvents = events.filter(event => eventOverlapsDay(event, day));
+        return `<div class="av__calendar-time-day" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
+                <div class="av__calendar-time-slots">${renderTimeSlotsForDay(day, editable)}</div>
+                ${renderTimedEventLayer(dayEvents, day, editable)}
+            </div>`;
+    }).join("")}
+    </div>`;
+};
+
 const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], editable = true) => {
     const days: dayjs.Dayjs[] = [];
     let cursor = range.start.startOf("day");
@@ -256,28 +312,28 @@ const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], e
         cursor = cursor.add(1, "day");
     }
     return `<div class="av__calendar-week">
+    <div class="av__calendar-week-headers">
     ${days.map(day => {
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, day)));
         const allDayEvents = dayEvents.filter(event => event.isAllDay);
-        const timedEvents = dayEvents.filter(event => !event.isAllDay);
         return `<div class="av__calendar-week-day${day.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
             <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(`${formatCalendarDate(day, {weekday: "short"})} ${day.date()}`)}</button>
             <div class="av__calendar-all-day">${allDayEvents.map(event => eventButtonHTML(event, day, editable)).join("")}</div>
-            <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, day, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
         </div>`;
     }).join("")}
+    </div>
+    ${renderTimeGrid(days, events, editable)}
 </div>`;
 };
 
 const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[], editable = true) => {
     const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, anchor)));
     const allDayEvents = dayEvents.filter(event => event.isAllDay);
-    const timedEvents = dayEvents.filter(event => !event.isAllDay);
     return `<div class="av__calendar-day-view${anchor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}" data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(formatCalendarDate(anchor, {weekday: "long", month: "short", day: "numeric"}))}</button>
     <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(event => eventButtonHTML(event, anchor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
     <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
-    <div class="av__calendar-timed">${timedEvents.length > 0 ? timedEvents.map(event => eventButtonHTML(event, anchor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    ${renderTimeGrid([anchor], events, editable)}
 </div>`;
 };
 
@@ -445,6 +501,29 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         }
         options.blockElement.dataset.calendarDate = jumpDateInput.value;
         rerender();
+    });
+    calendarElement?.querySelectorAll('[data-type="calendar-time-slot"]').forEach(item => {
+        item.addEventListener("click", () => {
+            if (!editable) {
+                return;
+            }
+            const slotElement = item as HTMLElement;
+            const date = slotElement.dataset.date || dayjs().format("YYYY-MM-DD");
+            openEventDialog({
+                protyle: options.protyle,
+                blockElement: options.blockElement,
+                data,
+                date,
+                draft: {
+                    date,
+                    endDate: date,
+                    isAllDay: false,
+                    startTime: slotElement.dataset.start || "09:00",
+                    endTime: slotElement.dataset.end || "09:30",
+                },
+                onSave: rerender,
+            });
+        });
     });
     calendarElement?.querySelectorAll('[data-type="calendar-new"]').forEach(item => {
         item.addEventListener("click", () => {
