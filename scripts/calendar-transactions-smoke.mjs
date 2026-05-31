@@ -19,6 +19,8 @@ const fail = (message) => {
 const tempDir = fs.mkdtempSync(path.join(appDir, ".calendar-tx-smoke-"));
 const tempCalendarDir = path.join(tempDir, "src/protyle/render/av/calendar");
 const tempTransactionDir = path.join(tempDir, "src/protyle/wysiwyg");
+const tempUtilDir = path.join(tempDir, "src/util");
+const tempConstantsDir = path.join(tempDir, "src");
 const sourceDir = path.join(root, "app/src/protyle/render/av/calendar");
 
 const compile = (file) => {
@@ -153,9 +155,17 @@ const draft = {
 try {
   fs.mkdirSync(tempCalendarDir, {recursive: true});
   fs.mkdirSync(tempTransactionDir, {recursive: true});
-  fs.writeFileSync(path.join(tempTransactionDir, "transaction.js"), `
+  fs.mkdirSync(tempUtilDir, {recursive: true});
+  fs.writeFileSync(path.join(tempConstantsDir, "constants.js"), `
+exports.Constants = {SIYUAN_APPID: "calendar-smoke-app"};
+`);
+  fs.writeFileSync(path.join(tempUtilDir, "fetch.js"), `
 const calls = [];
-exports.transaction = (_protyle, doOperations, undoOperations) => calls.push({doOperations, undoOperations});
+exports.fetchSyncPost = async (_url, body) => {
+  const tx = body.transactions[0];
+  calls.push({doOperations: tx.doOperations, undoOperations: tx.undoOperations});
+  return {code: 0, data: [{doOperations: tx.doOperations}]};
+};
 exports.__calendarTransactionCalls = calls;
 `);
   for (const file of ["model.ts", "transactions.ts"]) {
@@ -164,12 +174,13 @@ exports.__calendarTransactionCalls = calls;
 
   let nodeCounter = 0;
   global.Lute = {NewNodeID: () => `20260524000000-smoke${String(++nodeCounter).padStart(2, "0")}`};
+  global.window = {siyuan: {config: {fileTree: {openFilesUseCurrentTab: false}}}};
 
   const transactionsModule = await import(path.join(tempCalendarDir, "transactions.js"));
-  const transactionStub = await import(path.join(tempTransactionDir, "transaction.js"));
-  const calls = transactionStub.__calendarTransactionCalls;
+  const fetchStub = await import(path.join(tempUtilDir, "fetch.js"));
+  const calls = fetchStub.__calendarTransactionCalls;
   const baseOptions = {
-    protyle: {},
+    protyle: {id: "calendar-smoke-protyle", undo: {add: () => undefined}},
     avID: "av-smoke",
     blockID: "block-smoke",
     dateFieldID: "date",
@@ -178,11 +189,11 @@ exports.__calendarTransactionCalls = calls;
     previousUpdated: "20260523000000",
   };
 
-  assert(transactionsModule.createCalendarEvent({...baseOptions, draft: {...draft, date: "2026-02-31"}}) === false,
+  assert(await transactionsModule.createCalendarEvent({...baseOptions, draft: {...draft, date: "2026-02-31"}}) === false,
     "create should reject impossible dates");
   assert(calls.length === 0, "invalid create should not call transaction");
 
-  assert(transactionsModule.createCalendarEvent({...baseOptions, draft}) === true, "valid create should succeed");
+  assert(await transactionsModule.createCalendarEvent({...baseOptions, draft}) === true, "valid create should succeed");
   const createCall = calls.pop();
   assert(createCall.doOperations[0].action === "insertAttrViewBlock", "create should insert an AV block first");
   assert(createCall.doOperations.some((op) => op.action === "updateAttrViewCell" && op.keyID === "date" &&
@@ -197,11 +208,11 @@ exports.__calendarTransactionCalls = calls;
   assert(createCall.undoOperations.some((op) => op.action === "removeAttrViewBlock"), "create should be undoable by removing the inserted row");
 
   const event = makeEvent();
-  assert(transactionsModule.updateCalendarEvent({...baseOptions, event, draft: {...draft, date: "invalid"}}) === false,
+  assert(await transactionsModule.updateCalendarEvent({...baseOptions, event, draft: {...draft, date: "invalid"}}) === false,
     "update should reject invalid dates");
   assert(calls.length === 0, "invalid update should not call transaction");
 
-  assert(transactionsModule.updateCalendarEvent({...baseOptions, event, draft}) === true, "valid update should succeed");
+  assert(await transactionsModule.updateCalendarEvent({...baseOptions, event, draft}) === true, "valid update should succeed");
   const updateCall = calls.pop();
   assert(updateCall.doOperations.some((op) => op.keyID === "block" && op.data.block?.content === "Updated title"),
     "update should rename the source block cell");
@@ -210,8 +221,8 @@ exports.__calendarTransactionCalls = calls;
   assert(updateCall.undoOperations.some((op) => op.keyID === "date" && op.data.date.content === timestamp("2026-05-24T09:00:00")),
     "update should retain undo snapshot for the old date value");
 
-  assert(transactionsModule.deleteCalendarOccurrence({
-    protyle: {},
+  assert(await transactionsModule.deleteCalendarOccurrence({
+    protyle: {id: "calendar-smoke-protyle", undo: {add: () => undefined}},
     avID: "av-smoke",
     blockID: "block-smoke",
     fields,
@@ -231,7 +242,7 @@ exports.__calendarTransactionCalls = calls;
     start: requireFromApp("dayjs")("2026-06-07T09:00:00"),
     end: requireFromApp("dayjs")("2026-06-07T10:00:00"),
   });
-  assert(transactionsModule.createCalendarEventReplacingOccurrence({
+  assert(await transactionsModule.createCalendarEventReplacingOccurrence({
     ...baseOptions,
     event: occurrence,
     draft: {...draft, recurrenceRaw: "FREQ=DAILY;COUNT=9", recurrenceExceptionRaw: "2026-06-08"},
@@ -245,7 +256,7 @@ exports.__calendarTransactionCalls = calls;
   assert(!replaceCall.doOperations.some((op) => op.keyID === "exception" && op.rowID !== event.id && op.data.text?.content),
     "replacement should not copy exception values into the one-off event");
 
-  assert(transactionsModule.updateCalendarEventThisAndFuture({
+  assert(await transactionsModule.updateCalendarEventThisAndFuture({
     ...baseOptions,
     event,
     draft: {...draft, recurrenceRaw: "FREQ=WEEKLY;COUNT=5"},
@@ -258,8 +269,8 @@ exports.__calendarTransactionCalls = calls;
   assert(splitCall.doOperations.some((op) => op.rowID !== event.id && op.keyID === "recurrence" &&
     op.data.text?.content === "FREQ=WEEKLY;COUNT=3"), "split should reduce COUNT for the new future series");
 
-  assert(transactionsModule.deleteCalendarEvent({
-    protyle: {},
+  assert(await transactionsModule.deleteCalendarEvent({
+    protyle: {id: "calendar-smoke-protyle", undo: {add: () => undefined}},
     avID: "av-smoke",
     blockID: "block-smoke",
     event,

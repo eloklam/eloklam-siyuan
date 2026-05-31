@@ -477,7 +477,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             showMessage(window.siyuan.languages.calendarNoMatchingEvent || window.siyuan.languages.emptyContent || "No matching event");
         }
     };
-    const withCalendarOperationFeedback = (operationElement: HTMLElement | null, operationLabel: string, failureMessage: string, callback: () => boolean) => {
+    const withCalendarOperationFeedback = async (operationElement: HTMLElement | null, operationLabel: string, failureMessage: string, callback: () => Promise<boolean>) => {
         if (operationElement?.dataset.calendarOperation === "pending") {
             return false;
         }
@@ -487,13 +487,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             operationElement.classList.add("av__calendar-event--pending");
         }
         try {
-            const saved = callback();
+            const saved = await callback();
             if (!saved) {
                 showMessage(`${failureMessage || window.siyuan.languages._kernel[29]} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
                 rerender();
                 return false;
             }
-            showMessage(operationLabel);
             return true;
         } catch (error) {
             showMessage(`${failureMessage} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
@@ -575,11 +574,11 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 target: slotElement.parentElement || slotElement,
                 top: slotElement.offsetTop,
                 draft,
-                onSave: (savedDraft) => {
+                onSave: async (savedDraft) => {
                     const avID = options.blockElement.getAttribute("data-av-id");
                     const blockID = options.blockElement.getAttribute("data-node-id");
                     const mapping = getCalendarFieldMapping(calendar);
-                    if (!avID || !blockID || !mapping.dateFieldID || !createCalendarEvent({
+                    if (!avID || !blockID || !mapping.dateFieldID || !await createCalendarEvent({
                         protyle: options.protyle,
                         avID,
                         blockID,
@@ -617,11 +616,11 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 target: newElement.parentElement || newElement,
                 top: newElement.offsetTop + newElement.offsetHeight,
                 draft,
-                onSave: (savedDraft) => {
+                onSave: async (savedDraft) => {
                     const avID = options.blockElement.getAttribute("data-av-id");
                     const blockID = options.blockElement.getAttribute("data-node-id");
                     const mapping = getCalendarFieldMapping(calendar);
-                    if (!avID || !blockID || !mapping.dateFieldID || !createCalendarEvent({
+                    if (!avID || !blockID || !mapping.dateFieldID || !await createCalendarEvent({
                         protyle: options.protyle,
                         avID,
                         blockID,
@@ -800,8 +799,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             rerender();
             return;
         }
-        withCalendarOperationFeedback(operationElement, operationLabel, failureMessage, () => {
-            const saved = sourceEvent.isOccurrence && mapping.exceptionFieldID ? createCalendarEventReplacingOccurrence({
+        withCalendarOperationFeedback(operationElement, operationLabel, failureMessage, async () => {
+            const saved = await (sourceEvent.isOccurrence && mapping.exceptionFieldID ? createCalendarEventReplacingOccurrence({
                 protyle: options.protyle,
                 avID,
                 blockID,
@@ -822,7 +821,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 event: sourceEvent,
                 draft,
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
-            });
+            }));
             if (saved) {
                 rerender();
             }
@@ -854,8 +853,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         const draft = buildDraftForDate(sourceEvent, sourceEvent.start.add(1, "day").format("YYYY-MM-DD"));
         draft.recurrenceRaw = "";
         draft.recurrenceExceptionRaw = "";
-        withCalendarOperationFeedback(operationElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarCreateFailed || "Create failed.", () => {
-            const saved = createCalendarEvent({
+        withCalendarOperationFeedback(operationElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarCreateFailed || "Create failed.", async () => {
+            const saved = await createCalendarEvent({
                 protyle: options.protyle,
                 avID,
                 blockID,
@@ -1019,7 +1018,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (targetEvent.isAllDay && targetEvent.end && !targetEvent.start.isSame(targetEvent.end, "day")) {
                 draft.endTime = targetEvent.end?.format("HH:mm") || "23:59";
             }
-            updateEventWithDraft(targetEvent, draft, null, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarMoveFailed || "Move failed.");
+            const draggedEventElement = calendarElement?.querySelector(`.av__calendar-event[data-occurrence="${eventID}"], .av__calendar-event[data-id="${eventID}"]`) as HTMLElement;
+            updateEventWithDraft(targetEvent, draft, draggedEventElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarMoveFailed || "Move failed.");
         });
     });
 };

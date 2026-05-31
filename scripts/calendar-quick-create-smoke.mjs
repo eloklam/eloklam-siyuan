@@ -51,7 +51,7 @@ if (!/allDayInput\.addEventListener\("change"[\s\S]*summaryElement\.textContent 
 for (const term of [
   "import {openQuickCreate} from \"./quick-create\";",
   "openQuickCreate({",
-  "onSave: (savedDraft) => {",
+  "onSave: async (savedDraft) => {",
   "createCalendarEvent({",
   "onMoreOptions: (moreDraft) => openEventDialog({",
   "isAllDay: true",

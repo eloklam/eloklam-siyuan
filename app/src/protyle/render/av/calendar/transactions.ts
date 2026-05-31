@@ -1,5 +1,6 @@
 import * as dayjs from "dayjs";
-import {transaction} from "../../../wysiwyg/transaction";
+import {Constants} from "../../../../constants";
+import {fetchSyncPost} from "../../../../util/fetch";
 import {cloneCellValue, getBlockCell, getCellByFieldID, getFieldByID, ICalendarEventDraft, ICalendarFieldMapping, ICalendarNormalizedEvent} from "./model";
 
 export interface ICalendarOperationSet {
@@ -272,6 +273,31 @@ const pushUpdated = (ops: ICalendarOperationSet, blockID: string, previousUpdate
     const newUpdated = dayjs().format("YYYYMMDDHHmmss");
     ops.doOperations.push({action: "doUpdateUpdated", id: blockID, data: newUpdated});
     ops.undoOperations.push({action: "doUpdateUpdated", id: blockID, data: previousUpdated});
+};
+
+const executeCalendarOperations = async (protyle: IProtyle, ops: ICalendarOperationSet) => {
+    if (ops.doOperations.length === 0) {
+        return false;
+    }
+    const response = await fetchSyncPost("/api/transactions", {
+        session: protyle?.id || Constants.SIYUAN_APPID,
+        app: Constants.SIYUAN_APPID,
+        transactions: [{
+            doOperations: ops.doOperations,
+            undoOperations: ops.undoOperations,
+        }],
+    });
+    if (response?.code !== 0) {
+        return false;
+    }
+    if (protyle && ops.undoOperations.length > 0) {
+        if (window.siyuan.config.fileTree.openFilesUseCurrentTab && protyle.model) {
+            protyle.model.headElement.classList.remove("item--unupdate");
+        }
+        protyle.updated = true;
+        protyle.undo?.add(ops.doOperations, ops.undoOperations, protyle);
+    }
+    return true;
 };
 
 const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
@@ -586,7 +612,7 @@ export const buildDeleteEventOperations = (options: {
     return ops;
 };
 
-export const createCalendarEvent = (options: {
+export const createCalendarEvent = async (options: {
     protyle: IProtyle;
     avID: string;
     blockID: string;
@@ -596,15 +622,10 @@ export const createCalendarEvent = (options: {
     draft: ICalendarEventDraft;
     previousUpdated?: string;
 }) => {
-    const ops = buildCreateEventOperations(options);
-    if (ops.doOperations.length === 0) {
-        return false;
-    }
-    transaction(options.protyle, ops.doOperations, ops.undoOperations);
-    return true;
+    return executeCalendarOperations(options.protyle, buildCreateEventOperations(options));
 };
 
-export const createCalendarEventReplacingOccurrence = (options: {
+export const createCalendarEventReplacingOccurrence = async (options: {
     protyle: IProtyle;
     avID: string;
     blockID: string;
@@ -641,11 +662,13 @@ export const createCalendarEventReplacingOccurrence = (options: {
     if (exceptionOps.doOperations.length === 0 || createOps.doOperations.length === 0) {
         return false;
     }
-    transaction(options.protyle, [...exceptionOps.doOperations, ...createOps.doOperations], [...createOps.undoOperations, ...exceptionOps.undoOperations]);
-    return true;
+    return executeCalendarOperations(options.protyle, {
+        doOperations: [...exceptionOps.doOperations, ...createOps.doOperations],
+        undoOperations: [...createOps.undoOperations, ...exceptionOps.undoOperations],
+    });
 };
 
-export const updateCalendarEvent = (options: {
+export const updateCalendarEvent = async (options: {
     protyle: IProtyle;
     avID: string;
     blockID: string;
@@ -661,13 +684,12 @@ export const updateCalendarEvent = (options: {
     }
     const ops = buildUpdateEventOperations(options);
     if (ops.doOperations.length > 0) {
-        transaction(options.protyle, ops.doOperations, ops.undoOperations);
-        return true;
+        return executeCalendarOperations(options.protyle, ops);
     }
     return true;
 };
 
-export const updateCalendarEventThisAndFuture = (options: {
+export const updateCalendarEventThisAndFuture = async (options: {
     protyle: IProtyle;
     avID: string;
     blockID: string;
@@ -684,25 +706,22 @@ export const updateCalendarEventThisAndFuture = (options: {
     }
     const ops = buildSplitSeriesOperations(options);
     if (ops.doOperations.length > 0) {
-        transaction(options.protyle, ops.doOperations, ops.undoOperations);
-        return true;
+        return executeCalendarOperations(options.protyle, ops);
     }
     return true;
 };
 
-export const deleteCalendarEvent = (options: {
+export const deleteCalendarEvent = async (options: {
     protyle: IProtyle;
     avID: string;
     blockID: string;
     event: ICalendarNormalizedEvent;
     previousUpdated?: string;
 }) => {
-    const ops = buildDeleteEventOperations(options);
-    transaction(options.protyle, ops.doOperations, ops.undoOperations);
-    return true;
+    return executeCalendarOperations(options.protyle, buildDeleteEventOperations(options));
 };
 
-export const deleteCalendarOccurrence = (options: {
+export const deleteCalendarOccurrence = async (options: {
     protyle: IProtyle;
     avID: string;
     blockID: string;
@@ -714,8 +733,7 @@ export const deleteCalendarOccurrence = (options: {
 }) => {
     const ops = buildOccurrenceExceptionOperations(options);
     if (ops.doOperations.length > 0) {
-        transaction(options.protyle, ops.doOperations, ops.undoOperations);
-        return true;
+        return executeCalendarOperations(options.protyle, ops);
     }
     return false;
 };

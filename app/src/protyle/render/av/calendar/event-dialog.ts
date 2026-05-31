@@ -1,3 +1,4 @@
+import * as dayjs from "dayjs";
 import {Dialog} from "../../../../dialog";
 import {confirmDialog} from "../../../../dialog/confirmDialog";
 import {Constants} from "../../../../constants";
@@ -413,9 +414,9 @@ const closeEventDialogSafely = (dialog: Dialog) => {
     );
 };
 
-const withPendingSave = (dialog: Dialog, saveType: string, callback: () => boolean) => withCalendarDialogOperationFeedback(dialog, saveType, window.siyuan.languages.calendarSaveFailed || "Save failed.", callback);
+const withPendingSave = (dialog: Dialog, saveType: string, callback: () => Promise<boolean>) => withCalendarDialogOperationFeedback(dialog, saveType, window.siyuan.languages.calendarSaveFailed || "Save failed.", callback);
 
-const withCalendarDialogOperationFeedback = (dialog: Dialog, actionType: string, failureMessage: string, callback: () => boolean) => {
+const withCalendarDialogOperationFeedback = async (dialog: Dialog, actionType: string, failureMessage: string, callback: () => Promise<boolean>) => {
     const actionButton = dialog.element.querySelector(`[data-type="${actionType}"]`) as HTMLButtonElement;
     if (actionButton?.disabled || dialog.element.dataset.calendarOperation === "pending") {
         return;
@@ -427,7 +428,7 @@ const withCalendarDialogOperationFeedback = (dialog: Dialog, actionType: string,
         actionButton.disabled = true;
     }
     try {
-        const saved = callback();
+        const saved = await callback();
         if (!saved && actionButton) {
             actionButton.disabled = false;
             showMessage(failureMessage);
@@ -460,7 +461,7 @@ const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, m
     showMessage(window.siyuan.languages._kernel[29]);
 };
 
-const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
+const saveEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
     const draft = getDraftFromDialog(dialog);
@@ -472,7 +473,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     }
     if (options.event) {
         if (options.event.isOccurrence && mapping.exceptionFieldID) {
-            if (!createCalendarEventReplacingOccurrence({
+            if (!await createCalendarEventReplacingOccurrence({
                 protyle: options.protyle,
                 avID,
                 blockID,
@@ -491,7 +492,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             options.onSave?.();
             return true;
         }
-        if (!updateCalendarEvent({
+        if (!await updateCalendarEvent({
             protyle: options.protyle,
             avID,
             blockID,
@@ -506,7 +507,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
             return false;
         }
     } else {
-        if (!createCalendarEvent({
+        if (!await createCalendarEvent({
             protyle: options.protyle,
             avID,
             blockID,
@@ -525,7 +526,7 @@ const saveEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     return true;
 };
 
-const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
+const saveFutureEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
     const draft = getDraftFromDialog(dialog);
@@ -535,7 +536,7 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         showInvalidDraftMessage(draft, mapping);
         return false;
     }
-    if (!updateCalendarEventThisAndFuture({
+    if (!await updateCalendarEventThisAndFuture({
         protyle: options.protyle,
         avID,
         blockID,
@@ -555,7 +556,7 @@ const saveFutureEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     return true;
 };
 
-const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
+const duplicateEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
     const currentDraft = getDraftFromDialog(dialog);
@@ -570,7 +571,7 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         showInvalidDraftMessage(draft, mapping);
         return false;
     }
-    if (!createCalendarEvent({
+    if (!await createCalendarEvent({
         protyle: options.protyle,
         avID,
         blockID,
@@ -588,7 +589,7 @@ const duplicateEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     return true;
 };
 
-const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
+const deleteEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!options.event || !avID || !blockID) {
@@ -597,7 +598,7 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
     if (options.event.isOccurrence && mapping.exceptionFieldID) {
-        if (!deleteCalendarOccurrence({
+        if (!await deleteCalendarOccurrence({
             protyle: options.protyle,
             avID,
             blockID,
@@ -614,7 +615,7 @@ const deleteEvent = (dialog: Dialog, options: IEventDialogOptions) => {
         options.onDelete?.();
         return true;
     }
-    if (!deleteCalendarEvent({
+    if (!await deleteCalendarEvent({
         protyle: options.protyle,
         avID,
         blockID,
