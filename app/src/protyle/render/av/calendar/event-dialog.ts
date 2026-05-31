@@ -460,12 +460,21 @@ const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, m
     showMessage(window.siyuan.languages._kernel[29]);
 };
 
-const getDisabledRecurrenceScopes = (mapping: ReturnType<typeof getCalendarFieldMapping>, action: "edit" | "delete") => ({
-    occurrence: mapping.exceptionFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeOccurrenceDisabled || "Map an exception field to change only this occurrence."),
-    future: action === "delete" ?
-        (window.siyuan.languages.calendarRecurrenceScopeFutureDeleteDisabled || "Deleting this and following is not supported yet.") :
-        (mapping.recurrenceFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeFutureDisabled || "Map a recurrence field to change this and following items.")),
-});
+const isRecurringSourceEvent = (event?: ICalendarNormalizedEvent) => !!event && !event.isOccurrence && !!(event.recurrenceRaw || event.recurrence);
+
+const getDisabledRecurrenceScopes = (mapping: ReturnType<typeof getCalendarFieldMapping>, action: "edit" | "delete", event?: ICalendarNormalizedEvent) => {
+    const isSourceEvent = isRecurringSourceEvent(event);
+    return {
+        occurrence: isSourceEvent ?
+            (window.siyuan.languages.calendarRecurrenceScopeRootOccurrenceDisabled || "This source event stores the recurring series. Single-occurrence changes are only available from generated occurrences.") :
+            (mapping.exceptionFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeOccurrenceDisabled || "Map an exception field to change only this occurrence.")),
+        future: isSourceEvent ?
+            (window.siyuan.languages.calendarRecurrenceScopeRootFutureDisabled || "This and following is only available from generated occurrences.") :
+            (action === "delete" ?
+                (window.siyuan.languages.calendarRecurrenceScopeFutureDeleteDisabled || "Deleting this and following is not supported yet.") :
+                (mapping.recurrenceFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeFutureDisabled || "Map a recurrence field to change this and following items."))),
+    };
+};
 
 export const openRecurrenceScopeDialog = (options: {
     action: "edit" | "delete" | "move" | "resize";
@@ -506,14 +515,14 @@ export const openRecurrenceScopeDialog = (options: {
 };
 
 const runRecurringEventAction = (dialog: Dialog, options: IEventDialogOptions, action: "edit" | "delete", run: (scope: CalendarRecurrenceScope) => void) => {
-    if (!options.event?.isOccurrence) {
+    if (!options.event || (!options.event.isOccurrence && !isRecurringSourceEvent(options.event))) {
         run("series");
         return;
     }
     const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
     openRecurrenceScopeDialog({
         action,
-        disabledScopes: getDisabledRecurrenceScopes(mapping, action),
+        disabledScopes: getDisabledRecurrenceScopes(mapping, action, options.event),
         onSelect: run,
     });
 };
