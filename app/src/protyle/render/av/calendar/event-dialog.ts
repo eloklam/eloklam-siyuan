@@ -284,15 +284,15 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         ${readOnly ? "" : `<button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>`}
     </div>
 </div>`;
-    let unbindGuardedClose: (() => void) | undefined;
+    const guardedClose = {unbind: undefined as (() => void) | undefined};
     const dialog = new Dialog({
         title: isEditing ? (window.siyuan.languages.edit || "Edit") : (window.siyuan.languages.newEvent || "New Event"),
         content,
         width: "480px",
         disableClose: true,
-        destroyCallback: () => unbindGuardedClose?.(),
+        destroyCallback: () => guardedClose.unbind?.(),
     });
-    unbindGuardedClose = bindGuardedEventDialogClose(dialog);
+    guardedClose.unbind = bindGuardedEventDialogClose(dialog);
     dialog.element.dataset.initialDraftFingerprint = getDraftFingerprint(dialog);
     bindFormEvents(dialog, options);
     return dialog;
