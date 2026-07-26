@@ -7,12 +7,16 @@ import {openMobileFileById} from "../../../../mobile/editor";
 /// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {fetchSyncPost} from "../../../../util/fetch";
-import {hasClosestByAttribute} from "../../../util/hasClosest";
+import {hasClosestByAttribute, hasClosestByClassName} from "../../../util/hasClosest";
 import {focusBlock} from "../../../util/selection";
 import {transaction} from "../../../wysiwyg/transaction";
-import {genTabHeaderHTML} from "../render";
+import {avRender, genTabHeaderHTML, updateSearch} from "../render";
+import {renderGallery} from "../gallery/render";
+import {renderKanban} from "../kanban/render";
+import {bindAvSearch} from "../search";
+import {beginAVRender, finishAVLocate, getAVLocateParams, isCurrentAVRender, prepareAVLocate} from "../locate";
 import {getCalendarFieldMapping} from "./mapped-fields";
-import {ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
+import {getCellByFieldID, ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {CalendarRecurrenceScope, getDisabledRecurrenceScopes, isRecurringSourceEvent, openEventDialog, openRecurrenceScopeDialog} from "./event-dialog";
 import {openQuickCreate} from "./quick-create";
@@ -417,7 +421,9 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
     return `${html}</div>`;
 };
 
-const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) => {
+// databaseQuery 是工具栏放大镜（av-search）里的关键字，已由内核过滤过条目；
+// 日历自己的搜索框只在返回结果上再做一次本地细化，两者共用同一个清除入口与提示状态。
+const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true, databaseQuery = "") => {
     const calendar = data.view as IAVCalendar;
     const viewMode = getCalendarViewMode(calendar, blockElement);
     const weekStart = getSafeWeekStart(calendar.weekStart);
@@ -434,7 +440,8 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
     const filteredEvents = normalized.events.filter(event => eventMatchesCalendarFilter(event, filter));
     const totalEventCount = normalized.events.length;
     const events = filteredEvents.filter(event => eventMatchesSearch(event, search));
-    const hasActiveQuery = !!search || filter !== "all";
+    const hasLocalQuery = !!search || filter !== "all";
+    const hasActiveQuery = !!search || filter !== "all" || !!databaseQuery;
     const title = getCalendarTitle(safeAnchor, range, viewMode);
     let body = renderMonth(safeAnchor, range, events, weekStart, editable);
     if (viewMode === 1) {
@@ -462,7 +469,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
         <div class="av__calendar-title" aria-live="polite">${escapeHtml(title)}</div>
         <input class="b3-text-field av__calendar-search" data-type="calendar-search" aria-keyshortcuts="/" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">
         ${renderCalendarFilter(filter)}
-        ${hasActiveQuery ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span><button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
+        ${hasLocalQuery ? `<span class="av__calendar-search-count">${events.length}/${totalEventCount}</span>` : ""}${hasActiveQuery ? `<button class="block__icon block__icon--show" data-type="calendar-clear-search" aria-label="${window.siyuan.languages.clear || "Clear"}" aria-keyshortcuts="Escape"><svg><use xlink:href="#iconClose"></use></svg></button>` : ""}
         ${renderEventSummary(events)}
         ${renderModeSwitcher(viewMode)}
         ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" aria-keyshortcuts="N" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
@@ -748,10 +755,22 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         }
         rerender(false, true);
     });
+    // 工具栏放大镜的关键字由内核过滤，清除时必须一并清掉并重新取数，
+    // 否则用户点了“清除”仍看不到被内核过滤掉的条目。
+    const clearDatabaseQuery = () => {
+        const headerSearchElement = options.blockElement.querySelector('[data-type="av-search"]') as HTMLElement;
+        if (!headerSearchElement?.textContent) {
+            return false;
+        }
+        headerSearchElement.textContent = "";
+        options.blockElement.querySelector(".av__views")?.classList.remove("av__views--show");
+        return true;
+    };
     calendarElement?.querySelector('[data-type="calendar-clear-search"]')?.addEventListener("click", () => {
+        const databaseQueryCleared = clearDatabaseQuery();
         delete options.blockElement.dataset.calendarSearch;
         delete options.blockElement.dataset.calendarFilter;
-        rerender(true, true);
+        rerender(true, !databaseQueryCleared);
     });
     calendarElement?.addEventListener("keydown", (event: KeyboardEvent) => {
         if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes((event.target as HTMLElement).tagName)) {
@@ -780,8 +799,10 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         } else if (event.key === "]") {
             event.preventDefault();
             seekEvent(1);
-        } else if (event.key === "Escape" && (getCalendarSearch(options.blockElement) || getCalendarFilter(options.blockElement) !== "all")) {
+        } else if (event.key === "Escape" && (getCalendarSearch(options.blockElement) || getCalendarFilter(options.blockElement) !== "all" ||
+            !!(options.blockElement.querySelector('[data-type="av-search"]') as HTMLElement)?.textContent)) {
             event.preventDefault();
+            clearDatabaseQuery();
             delete options.blockElement.dataset.calendarSearch;
             delete options.blockElement.dataset.calendarFilter;
             rerender();
@@ -1128,35 +1149,205 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
 };
 
+// 重渲染会整块替换 HTML，焦点元素随之消失。用这些属性拼一个可复原的选择器，
+// 使新建/移动/缩放事件后焦点仍停在原来的事件或时间格上。
+const CALENDAR_FOCUS_ATTRIBUTES = ["data-id", "data-occurrence", "data-date", "data-start", "data-mode"];
+
+const isSelectorSafe = (value: string) => !!value && !/["\\]/.test(value);
+
+const getFocusAttributeSelector = (element: HTMLElement) => {
+    let selector = "";
+    CALENDAR_FOCUS_ATTRIBUTES.forEach(attribute => {
+        const value = element.getAttribute(attribute);
+        if (isSelectorSafe(value)) {
+            selector += `[${attribute}="${value}"]`;
+        }
+    });
+    return selector;
+};
+
+const getCalendarFocusSelector = (blockElement: HTMLElement): {selector: string, fallback: string} => {
+    const activeElement = document.activeElement as HTMLElement;
+    if (!activeElement || !blockElement.contains(activeElement) || !hasClosestByClassName(activeElement, "av__calendar")) {
+        return {selector: "", fallback: ""};
+    }
+    if (activeElement.classList.contains("av__calendar-event")) {
+        const id = activeElement.getAttribute("data-id");
+        return {
+            selector: `.av__calendar-event${getFocusAttributeSelector(activeElement)}`,
+            // 移动/缩放后事件可能落到别的日期格，此时按条目 ID 兜底
+            fallback: isSelectorSafe(id) ? `.av__calendar-event[data-id="${id}"]` : "",
+        };
+    }
+    const type = activeElement.getAttribute("data-type");
+    if (!isSelectorSafe(type)) {
+        return {selector: "", fallback: ""};
+    }
+    // 时间格等控件只有连同日期/时刻才能唯一定位，不做只按 data-type 的兜底
+    return {selector: `[data-type="${type}"]${getFocusAttributeSelector(activeElement)}`, fallback: ""};
+};
+
+const restoreCalendarFocus = (blockElement: HTMLElement, focus: {selector: string, fallback: string}) => {
+    if (!focus.selector) {
+        return;
+    }
+    const targetElement = (blockElement.querySelector(focus.selector) ||
+        (focus.fallback ? blockElement.querySelector(focus.fallback) : null)) as HTMLElement;
+    if (!targetElement) {
+        return;
+    }
+    // preventScroll：滚动位置已单独恢复，聚焦不能再把网格拉走
+    targetElement.focus({preventScroll: true});
+    if (targetElement instanceof HTMLInputElement && ["text", "search"].includes(targetElement.type)) {
+        targetElement.setSelectionRange(targetElement.value.length, targetElement.value.length);
+    }
+};
+
+// 定位请求（siyuan://blocks/<id>?avViewID=&avItemID=）指向的条目可能不在当前可见日期范围内，
+// 先把锚定日期挪到该条目的开始日期，事件才会被渲染出来供 finishAVLocate 高亮。
+const anchorCalendarOnLocateTarget = (data: IAV, blockElement: HTMLElement) => {
+    const itemID = data.target?.itemID;
+    if (!itemID) {
+        return;
+    }
+    const calendar = data.view as IAVCalendar;
+    const mapping = getCalendarFieldMapping(calendar);
+    if (!mapping.hasDateField) {
+        return;
+    }
+    const card = calendar.cards?.find(item => item.id === itemID);
+    if (!card) {
+        return;
+    }
+    const content = getCellByFieldID(card, mapping.dateFieldID)?.value?.date?.content;
+    if (!content) {
+        return;
+    }
+    const start = dayjs(content);
+    if (start.isValid()) {
+        blockElement.dataset.calendarDate = start.format("YYYY-MM-DD");
+    }
+};
+
 export const renderCalendar = async (options: IRenderCalendarOptions) => {
     const e = options.blockElement;
+    const renderToken = beginAVRender(e);
+    const searchInputElement = e.querySelector('[data-type="av-search"]');
+    const timeGridElement = e.querySelector(".av__calendar-time-grid") as HTMLElement;
+    const resetData = {
+        isSearching: !!searchInputElement && document.activeElement === searchInputElement,
+        query: searchInputElement?.textContent || "",
+        oldOffset: options.protyle.contentElement?.scrollTop,
+        scrollLeft: (e.querySelector(".av__scroll") as HTMLElement)?.scrollLeft || 0,
+        gridScrollTop: timeGridElement?.scrollTop || 0,
+        gridScrollLeft: timeGridElement?.scrollLeft || 0,
+        focusTarget: getCalendarFocusSelector(e),
+        virtualData: {} as { [key: string]: IAVVirtualData },
+    };
     let data = options.data;
     if (!data) {
-        const response = await fetchSyncPost("/api/av/renderAttributeView", {
+        const created = options.protyle.options.history?.created;
+        const snapshot = options.protyle.options.history?.snapshot;
+        const locateParams = getAVLocateParams(e, !created && !snapshot);
+        const response = await fetchSyncPost(created ? "/api/av/renderHistoryAttributeView" : (snapshot ? "/api/av/renderSnapshotAttributeView" : "/api/av/renderAttributeView"), {
             id: e.getAttribute("data-av-id"),
+            created,
+            snapshot,
+            // 日历目前不分页：内核的日历渲染路径只回填 CardCount/PageSize 而不切片，
+            // 所以整库条目都会被传回并归一化（payload 无上界），配置面板里的“条目数”
+            // 设置对日历没有任何作用（应在 av/layout.ts 里对日历隐藏该行）。
+            // 未来的正解是按可见日期范围在服务端分页，而不是在前端补虚拟滚动。
             pageSize: -1,
-            viewID: e.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "",
+            viewID: locateParams?.viewID || e.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "",
+            query: resetData.query.trim(),
             blockID: e.getAttribute("data-node-id"),
-            createIfNotExist: !options.protyle.block.action?.includes(Constants.CB_GET_AV_NO_CREATE),
+            // 浏览历史/快照时不能创建数据
+            createIfNotExist: !created && !snapshot && !options.protyle.block.action?.includes(Constants.CB_GET_AV_NO_CREATE),
+            targetItemID: locateParams?.targetItemID || "",
+            targetGroupID: locateParams?.targetGroupID || "",
         });
         data = response.data;
     }
-    e.setAttribute("data-render", "true");
+    // 取数期间可能已有更新的渲染开始（或视图被切走），陈旧结果不能覆盖新结果
+    if (!isCurrentAVRender(e, renderToken)) {
+        return;
+    }
+    if (!data) {
+        return;
+    }
+    prepareAVLocate(e, data, resetData);
+    // data-av-type 可能是陈旧值（视图布局在别处被改过），此时必须转交给对应的渲染器
+    if (data.viewType === "table") {
+        e.setAttribute("data-av-type", data.viewType);
+        await avRender(e, options.protyle, options.cb, options.renderAll, data);
+        return;
+    }
+    if (data.viewType === "gallery") {
+        e.setAttribute("data-av-type", data.viewType);
+        await renderGallery({
+            blockElement: e,
+            protyle: options.protyle,
+            cb: options.cb,
+            renderAll: options.renderAll,
+            data
+        });
+        return;
+    }
+    if (data.viewType === "kanban") {
+        e.setAttribute("data-av-type", data.viewType);
+        await renderKanban({
+            blockElement: e,
+            protyle: options.protyle,
+            cb: options.cb,
+            renderAll: options.renderAll,
+            data
+        });
+        return;
+    }
     e.setAttribute("data-av-type", "calendar");
+    anchorCalendarOnLocateTarget(data, e);
     const editable = !options.protyle.disabled && !hasClosestByAttribute(e, "data-type", "NodeBlockQueryEmbed");
-    const body = `<div class="av__body" data-page-size="-1">${getCalendarHTML(data, e, editable)}</div>`;
-    if (options.renderAll) {
+    const body = `<div class="av__body" data-page-size="-1">${getCalendarHTML(data, e, editable, resetData.query)}</div>`;
+    // 上一次渲染可能是别的布局（没有 av__scroll），此时必须整体重建容器
+    const scrollElement = options.renderAll ? null : e.firstElementChild?.querySelector(".av__scroll");
+    if (scrollElement) {
+        scrollElement.innerHTML = body;
+    } else {
         e.firstElementChild.outerHTML = `<div class="av__container">
-    ${genTabHeaderHTML(data, false, editable)}
+    ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, editable)}
     <div class="av__scroll">${body}</div>
 </div>`;
-    } else {
-        e.firstElementChild.querySelector(".av__scroll").innerHTML = body;
     }
+    // HTML 已在 DOM 中后才置 data-render，避免中途失败留下“已渲染”的空壳
+    e.setAttribute("data-render", "true");
+    // 模板新建的条目在日历日期字段上没有值（不可见），日历用工具栏里的新建入口替代
+    e.querySelector('[data-type="av-add-template"]')?.remove();
     bindCalendarEvents(options, data);
+    if (!scrollElement) {
+        bindAvSearch({
+            blockElement: e,
+            query: resetData.query,
+            isSearching: resetData.isSearching,
+            onChange: () => updateSearch(e, options.protyle),
+        });
+    }
+    if (typeof resetData.oldOffset === "number" && options.protyle.contentElement) {
+        options.protyle.contentElement.scrollTop = resetData.oldOffset;
+    }
     if (e.getAttribute("data-need-focus") === "true") {
         focusBlock(e);
         e.removeAttribute("data-need-focus");
     }
+    const newScrollElement = e.querySelector(".av__scroll") as HTMLElement;
+    if (newScrollElement && resetData.scrollLeft) {
+        newScrollElement.scrollLeft = resetData.scrollLeft;
+    }
+    const newTimeGridElement = e.querySelector(".av__calendar-time-grid") as HTMLElement;
+    if (newTimeGridElement) {
+        newTimeGridElement.scrollTop = resetData.gridScrollTop;
+        newTimeGridElement.scrollLeft = resetData.gridScrollLeft;
+    }
+    restoreCalendarFocus(e, resetData.focusTarget);
     options.cb?.(data);
+    finishAVLocate(e, options.protyle, data);
 };

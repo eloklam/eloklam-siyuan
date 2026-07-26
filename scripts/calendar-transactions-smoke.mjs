@@ -94,7 +94,7 @@ const makeEvent = (overrides = {}) => {
       cell(rowID, "recurrence", "text", {text: {content: "FREQ=WEEKLY;COUNT=5"}}),
       cell(rowID, "exception", "text", {text: {content: "2026-05-31"}}),
       cell(rowID, "location", "text", {text: {content: "Old room"}}),
-      cell(rowID, "description", "template", {template: {content: "Old notes"}}),
+      cell(rowID, "description", "text", {text: {content: "Old notes"}}),
       cell(rowID, "color", "select", {mSelect: [{content: "Focus", color: "1"}]}),
     ],
   };
@@ -134,7 +134,8 @@ const fields = [
   field("recurrence", "text"),
   field("exception", "text"),
   field("location", "text"),
-  field("description", "template"),
+  field("description", "text"),
+  field("computed", "template"),
   field("color", "select", {options: [{name: "Focus", color: "1"}, {name: "Travel", color: "2"}]}),
 ];
 
@@ -159,9 +160,18 @@ try {
   fs.writeFileSync(path.join(tempConstantsDir, "constants.js"), `
 exports.Constants = {SIYUAN_APPID: "calendar-smoke-app"};
 `);
+  // transactions.ts re-reads the attribute view after every write (see the D3
+  // read-back verification), so the stub has to answer that endpoint too. By
+  // default it returns a view with no card list, which the frontend treats as
+  // "cannot be verified" and therefore does not turn into a false failure.
   fs.writeFileSync(path.join(tempUtilDir, "fetch.js"), `
 const calls = [];
-exports.fetchSyncPost = async (_url, body) => {
+let renderView = {};
+exports.__setRenderView = (view) => { renderView = view; };
+exports.fetchSyncPost = async (url, body) => {
+  if (url === "/api/av/renderAttributeView") {
+    return {code: 0, data: {view: renderView}};
+  }
   const tx = body.transactions[0];
   calls.push({doOperations: tx.doOperations, undoOperations: tx.undoOperations});
   return {code: 0, data: [{doOperations: tx.doOperations}]};
@@ -201,11 +211,26 @@ exports.__calendarTransactionCalls = calls;
     op.data.date.content2 === timestamp("2026-06-07T12:30:00")), "create should clamp invalid end time to one hour after start");
   assert(createCall.doOperations.some((op) => op.keyID === "recurrence" && op.data.text?.content === ""),
     "create should normalize recurrence None to an empty recurrence cell");
-  assert(createCall.doOperations.some((op) => op.keyID === "description" && op.data.template?.content === "New notes"),
-    "create should write mapped template descriptions");
+  assert(createCall.doOperations.some((op) => op.keyID === "description" && op.data.text?.content === "New notes"),
+    "create should write mapped text descriptions");
+  // Template cells are computed by the kernel, so the calendar must never emit a
+  // template payload — a write into one is always discarded on the next render.
+  assert(!createCall.doOperations.some((op) => op.data?.type === "template"),
+    "create must not write into computed template fields");
   assert(createCall.doOperations.some((op) => op.keyID === "color" && op.data.mSelect?.[0]?.content === "Travel" && op.data.mSelect?.[0]?.color === "2"),
     "create should write mapped select color values");
   assert(createCall.undoOperations.some((op) => op.action === "removeAttrViewBlock"), "create should be undoable by removing the inserted row");
+  // The kernel creates the item under srcs[].itemID and ignores srcs[].id for a
+  // detached row, so both must be the row ID every following cell targets.
+  const createInsertSrc = createCall.doOperations[0].srcs[0];
+  const createCellRowIDs = new Set(createCall.doOperations.filter((op) => op.action === "updateAttrViewCell").map((op) => op.rowID));
+  assert(createCall.doOperations[0].srcs.length === 1, "create should insert exactly one row");
+  assert(createInsertSrc.itemID === createInsertSrc.id,
+    `create should mint ONE id for the new row, got itemID=${createInsertSrc.itemID} id=${createInsertSrc.id}`);
+  assert(createCellRowIDs.size === 1 && createCellRowIDs.has(createInsertSrc.itemID),
+    `create cells must target the inserted itemID, got ${[...createCellRowIDs].join(",")} for itemID=${createInsertSrc.itemID}`);
+  assert(createCall.undoOperations.some((op) => op.action === "removeAttrViewBlock" && op.srcIDs?.[0] === createInsertSrc.itemID),
+    "create undo should remove the inserted itemID");
 
   const event = makeEvent();
   assert(await transactionsModule.updateCalendarEvent({...baseOptions, event, draft: {...draft, date: "invalid"}}) === false,
@@ -283,8 +308,21 @@ exports.__calendarTransactionCalls = calls;
     "delete undo should restore the event row");
   assert(deleteCall.undoOperations.some((op) => op.action === "updateAttrViewCell" && op.keyID === "recurrence"),
     "delete undo should restore metadata cells");
+  const deleteUndoSrc = deleteCall.undoOperations.find((op) => op.action === "insertAttrViewBlock").srcs[0];
+  assert(deleteUndoSrc.itemID === event.id,
+    `delete undo must restore the row under its own item ID, got itemID=${deleteUndoSrc.itemID} instead of ${event.id}`);
+  assert(new Set(deleteCall.undoOperations.filter((op) => op.action === "updateAttrViewCell").map((op) => op.rowID)).size === 1,
+    "delete undo cells should all target the restored row");
 
-  console.log("calendar transactions smoke passed: create/update/delete/occurrence replacement/split operations");
+  // /api/transactions always answers code 0, so transactions.ts re-reads the
+  // attribute view and must report failure when the write did not land.
+  fetchStub.__setRenderView({cards: []});
+  assert(await transactionsModule.createCalendarEvent({...baseOptions, draft}) === false,
+    "create must report failure when the read-back shows the row was never created");
+  calls.pop();
+  fetchStub.__setRenderView({});
+
+  console.log("calendar transactions smoke passed: create/update/delete/occurrence replacement/split operations, single-id rows, read-back verification");
 } finally {
   fs.rmSync(tempDir, {recursive: true, force: true, maxRetries: 3});
 }

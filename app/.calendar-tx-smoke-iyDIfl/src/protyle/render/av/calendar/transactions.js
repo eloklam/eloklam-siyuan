@@ -1,21 +1,16 @@
-import * as dayjs from "dayjs";
-import {Constants} from "../../../../constants";
-import {fetchSyncPost} from "../../../../util/fetch";
-import {cloneCellValue, getBlockCell, getCellByFieldID, getFieldByID, ICalendarEventDraft, ICalendarFieldMapping, ICalendarNormalizedEvent} from "./model";
-
-export interface ICalendarOperationSet {
-    doOperations: IOperation[];
-    undoOperations: IOperation[];
-}
-
-const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-
-const normalizeRecurrenceValue = (value?: string) => {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.deleteCalendarOccurrence = exports.deleteCalendarEvent = exports.updateCalendarEventThisAndFuture = exports.updateCalendarEvent = exports.createCalendarEventReplacingOccurrence = exports.createCalendarEvent = exports.buildDeleteEventOperations = exports.buildUpdateEventOperations = exports.buildCreateEventOperations = exports.buildSplitSeriesOperations = exports.buildOccurrenceExceptionOperations = void 0;
+const dayjs = require("dayjs");
+const constants_1 = require("../../../../constants");
+const fetch_1 = require("../../../../util/fetch");
+const model_1 = require("./model");
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const normalizeRecurrenceValue = (value) => {
     const trimmed = (value || "").trim();
     return trimmed.toLowerCase() === "none" ? "" : trimmed;
 };
-
-const recurrenceWithUntil = (value: string | undefined, untilDate: string) => {
+const recurrenceWithUntil = (value, untilDate) => {
     const normalized = normalizeRecurrenceValue(value);
     if (!normalized) {
         return "";
@@ -35,12 +30,9 @@ const recurrenceWithUntil = (value: string | undefined, untilDate: string) => {
     }
     return nextParts.join(";");
 };
-
-const getEventRecurrenceRaw = (event: ICalendarNormalizedEvent) => event.recurrenceRaw || event.recurrence?.raw || event.recurrence?.freq || "";
-
-const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
-
-const addRecurringStep = (date: dayjs.Dayjs, event: ICalendarNormalizedEvent) => {
+const getEventRecurrenceRaw = (event) => event.recurrenceRaw || event.recurrence?.raw || event.recurrence?.freq || "";
+const weekdayMap = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+const addRecurringStep = (date, event) => {
     const interval = event.recurrence?.interval || 1;
     if (event.recurrence?.freq === "DAILY") {
         return date.add(interval, "day");
@@ -53,8 +45,7 @@ const addRecurringStep = (date: dayjs.Dayjs, event: ICalendarNormalizedEvent) =>
     }
     return date.add(interval, "year");
 };
-
-const countOccurrencesBefore = (event: ICalendarNormalizedEvent, occurrenceDate: string) => {
+const countOccurrencesBefore = (event, occurrenceDate) => {
     if (!event.recurrence) {
         return 0;
     }
@@ -104,8 +95,7 @@ const countOccurrencesBefore = (event: ICalendarNormalizedEvent, occurrenceDate:
     }
     return count;
 };
-
-const recurrenceCount = (value: string) => {
+const recurrenceCount = (value) => {
     const countPart = value.toUpperCase().split(";").find(part => part.startsWith("COUNT="));
     if (!countPart) {
         return undefined;
@@ -117,40 +107,35 @@ const recurrenceCount = (value: string) => {
     const count = parseInt(countValue, 10);
     return count > 0 ? count : undefined;
 };
-
-const recurrenceWithCount = (value: string, count: number) => {
+const recurrenceWithCount = (value, count) => {
     const upper = value.toUpperCase();
     if (!upper.includes("COUNT=")) {
         return value;
     }
     return upper.split(";").filter(Boolean).map(part => part.startsWith("COUNT=") ? `COUNT=${count}` : part).join(";");
 };
-
-const recurrenceForSplitFuture = (value: string, event: ICalendarNormalizedEvent, occurrenceDate: string, originalValue: string) => {
+const recurrenceForSplitFuture = (value, event, occurrenceDate, originalValue) => {
     const count = recurrenceCount(value);
     if (!count || value.toUpperCase() !== originalValue.toUpperCase()) {
         return value;
     }
     return recurrenceWithCount(value, Math.max(count - countOccurrencesBefore(event, occurrenceDate), 1));
 };
-
-const isRealDateInputValue = (value?: string) => {
+const isRealDateInputValue = (value) => {
     if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
         return false;
     }
     const parsed = dayjs(value);
     return parsed.isValid() && parsed.format("YYYY-MM-DD") === value;
 };
-
-const getTimeInputValue = (value: string | undefined, fallback: string) => {
+const getTimeInputValue = (value, fallback) => {
     if (!value || !/^\d{2}:\d{2}$/.test(value)) {
         return fallback;
     }
     const [hour, minute] = value.split(":").map(item => parseInt(item, 10));
     return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 ? value : fallback;
 };
-
-const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue | undefined => {
+const buildDateValue = (draft) => {
     if (!isRealDateInputValue(draft.date)) {
         return undefined;
     }
@@ -174,22 +159,19 @@ const buildDateValue = (draft: ICalendarEventDraft): IAVCellValue | undefined =>
         },
     };
 };
-
 // Template cells are computed by the kernel (fillAttributeViewBaseValue replaces the
 // stored value with the field's expression on every render), so calendar metadata is
 // only ever written into text fields.
-const buildTextLikeValue = (field: IAVColumn, value: string, oldValue?: IAVCellValue): IAVCellValue => {
-    const base = oldValue ? clone(oldValue) : {type: "text", keyID: field.id} as IAVCellValue;
+const buildTextLikeValue = (field, value, oldValue) => {
+    const base = oldValue ? clone(oldValue) : { type: "text", keyID: field.id };
     base.type = "text";
     base.keyID = field.id;
-    base.text = {content: value};
+    base.text = { content: value };
     delete base.template;
     return base;
 };
-
-const buildEmptyTextLikeValue = (field: IAVColumn) => buildTextLikeValue(field, "");
-
-const buildSelectValue = (field: IAVColumn, value?: string, oldValue?: IAVCellValue): IAVCellValue | undefined => {
+const buildEmptyTextLikeValue = (field) => buildTextLikeValue(field, "");
+const buildSelectValue = (field, value, oldValue) => {
     const content = (value || "").trim();
     if (!content) {
         return oldValue ? {
@@ -207,21 +189,19 @@ const buildSelectValue = (field: IAVColumn, value?: string, oldValue?: IAVCellVa
         content,
         color: option.color || "1",
     };
-    const base = oldValue ? clone(oldValue) : {type: field.type, keyID: field.id} as IAVCellValue;
+    const base = oldValue ? clone(oldValue) : { type: field.type, keyID: field.id };
     base.type = field.type;
     base.keyID = field.id;
     base.mSelect = field.type === "mSelect" ? [selectValue] : [selectValue];
     return base;
 };
-
-const buildEmptySelectValue = (field: IAVColumn): IAVCellValue => ({
+const buildEmptySelectValue = (field) => ({
     type: field.type,
     keyID: field.id,
     mSelect: [],
-} as IAVCellValue);
-
-const buildBlockValue = (event: ICalendarNormalizedEvent, title: string): IAVCellValue | undefined => {
-    const blockCell = getBlockCell(event.sourceCard);
+});
+const buildBlockValue = (event, title) => {
+    const blockCell = (0, model_1.getBlockCell)(event.sourceCard);
     if (!blockCell?.value) {
         return undefined;
     }
@@ -234,14 +214,7 @@ const buildBlockValue = (event: ICalendarNormalizedEvent, title: string): IAVCel
     };
     return value;
 };
-
-const pushUpdate = (ops: ICalendarOperationSet, options: {
-    avID: string;
-    rowID: string;
-    keyID?: string;
-    oldValue?: IAVCellValue;
-    newValue?: IAVCellValue;
-}) => {
+const pushUpdate = (ops, options) => {
     if (!options.keyID || !options.newValue) {
         return;
     }
@@ -265,53 +238,20 @@ const pushUpdate = (ops: ICalendarOperationSet, options: {
         });
     }
 };
-
-const pushUpdated = (ops: ICalendarOperationSet, blockID: string, previousUpdated = "") => {
+const pushUpdated = (ops, blockID, previousUpdated = "") => {
     const newUpdated = dayjs().format("YYYYMMDDHHmmss");
-    ops.doOperations.push({action: "doUpdateUpdated", id: blockID, data: newUpdated});
-    ops.undoOperations.push({action: "doUpdateUpdated", id: blockID, data: previousUpdated});
+    ops.doOperations.push({ action: "doUpdateUpdated", id: blockID, data: newUpdated });
+    ops.undoOperations.push({ action: "doUpdateUpdated", id: blockID, data: previousUpdated });
 };
-
-export interface ICalendarWriteTarget {
-    avID: string;
-    blockID: string;
-    viewID?: string;
-}
-
-/**
- * D3 read-back verification.
- *
- * /api/transactions always answers {code: 0}: kernel/model/transaction.go
- * flushTx() only logs `handle attribute view failed: ...` and pushes a generic
- * message when an operation inside the transaction is rejected, and
- * updateAttributeViewValue() even accepts cells addressed at rows that do not
- * exist. So the HTTP code proves nothing about the write.
- *
- * Option (a) of the fix was chosen: after the write we re-read the attribute
- * view once (the same endpoint renderCalendar uses) and assert the primary
- * effect of the operation set - inserted rows exist, removed rows are gone and
- * the date/text cells we wrote read back with the value we sent. Nothing else
- * is asserted, so it stays one cheap extra read per mutation.
- *
- * When the read itself cannot be trusted (request failed, the payload carries
- * no card list, or the view has filters/groups that may legitimately hide a
- * row) we do not invent a failure: a false "save failed" would revert the UI
- * for a write that actually landed.
- */
-type ICalendarWriteCheck = (cards: IAVGalleryItem[], mayHideItems: boolean) => boolean;
-
-const findCardByID = (cards: IAVGalleryItem[], rowID: string) => cards.find(card => card.id === rowID);
-
-const getCardCellValue = (card: IAVGalleryItem, keyID: string) => card.values?.find(cell => cell.value?.keyID === keyID)?.value;
-
-const getCardTextContent = (card: IAVGalleryItem, keyID: string) => {
+const findCardByID = (cards, rowID) => cards.find(card => card.id === rowID);
+const getCardCellValue = (card, keyID) => card.values?.find(cell => cell.value?.keyID === keyID)?.value;
+const getCardTextContent = (card, keyID) => {
     const value = getCardCellValue(card, keyID);
     return value?.text?.content ?? value?.template?.content ?? "";
 };
-
-const buildWriteChecks = (doOperations: IOperation[]): ICalendarWriteCheck[] => {
-    const checks: ICalendarWriteCheck[] = [];
-    const removedIDs = new Set<string>();
+const buildWriteChecks = (doOperations) => {
+    const checks = [];
+    const removedIDs = new Set();
     doOperations.forEach(operation => {
         if (operation.action === "removeAttrViewBlock") {
             (operation.srcIDs || []).forEach(srcID => removedIDs.add(srcID));
@@ -337,7 +277,7 @@ const buildWriteChecks = (doOperations: IOperation[]): ICalendarWriteCheck[] => 
         if (operation.action !== "updateAttrViewCell" || !operation.rowID || !operation.keyID || removedIDs.has(operation.rowID)) {
             return;
         }
-        const data = operation.data as IAVCellValue;
+        const data = operation.data;
         const rowID = operation.rowID;
         const keyID = operation.keyID;
         if (data?.type === "date" && data.date) {
@@ -365,9 +305,8 @@ const buildWriteChecks = (doOperations: IOperation[]): ICalendarWriteCheck[] => 
     });
     return checks;
 };
-
-const readCalendarCards = async (target: ICalendarWriteTarget) => {
-    const response = await fetchSyncPost("/api/av/renderAttributeView", {
+const readCalendarCards = async (target) => {
+    const response = await (0, fetch_1.fetchSyncPost)("/api/av/renderAttributeView", {
         id: target.avID,
         blockID: target.blockID,
         viewID: target.viewID || "",
@@ -377,21 +316,20 @@ const readCalendarCards = async (target: ICalendarWriteTarget) => {
     if (response?.code !== 0) {
         return undefined;
     }
-    const view = response.data?.view as IAVCalendar;
+    const view = response.data?.view;
     if (!view || !Array.isArray(view.cards)) {
         return undefined;
     }
     const cards = [...view.cards];
     (view.groups || []).forEach(group => {
-        ((group as unknown as IAVCalendar).cards || []).forEach(card => cards.push(card));
+        (group.cards || []).forEach(card => cards.push(card));
     });
     return {
         cards,
         mayHideItems: (view.filters || []).length > 0 || (view.groups || []).length > 0,
     };
 };
-
-const verifyCalendarWrite = async (target: ICalendarWriteTarget, doOperations: IOperation[]) => {
+const verifyCalendarWrite = async (target, doOperations) => {
     const checks = buildWriteChecks(doOperations);
     if (checks.length === 0) {
         return true;
@@ -402,18 +340,17 @@ const verifyCalendarWrite = async (target: ICalendarWriteTarget, doOperations: I
     }
     return checks.every(check => check(readBack.cards, readBack.mayHideItems));
 };
-
-const executeCalendarOperations = async (protyle: IProtyle, ops: ICalendarOperationSet, target?: ICalendarWriteTarget) => {
+const executeCalendarOperations = async (protyle, ops, target) => {
     if (ops.doOperations.length === 0) {
         return false;
     }
-    const response = await fetchSyncPost("/api/transactions", {
-        session: protyle?.id || Constants.SIYUAN_APPID,
-        app: Constants.SIYUAN_APPID,
+    const response = await (0, fetch_1.fetchSyncPost)("/api/transactions", {
+        session: protyle?.id || constants_1.Constants.SIYUAN_APPID,
+        app: constants_1.Constants.SIYUAN_APPID,
         transactions: [{
-            doOperations: ops.doOperations,
-            undoOperations: ops.undoOperations,
-        }],
+                doOperations: ops.doOperations,
+                undoOperations: ops.undoOperations,
+            }],
     });
     if (response?.code !== 0) {
         return false;
@@ -433,24 +370,15 @@ const executeCalendarOperations = async (protyle: IProtyle, ops: ICalendarOperat
     }
     return true;
 };
-
-const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
-    avID: string;
-    rowID: string;
-    fields: IAVColumn[];
-    fieldID?: string;
-    value?: string;
-    oldCell?: IAVCell;
-    undoEmptyWhenMissing?: boolean;
-}) => {
+const addMetadataUpdate = (ops, options) => {
     if (!options.fieldID || options.value === undefined) {
         return;
     }
-    const field = getFieldByID(options.fields, options.fieldID);
+    const field = (0, model_1.getFieldByID)(options.fields, options.fieldID);
     if (!field || field.type !== "text") {
         return;
     }
-    const oldValue = cloneCellValue(options.oldCell?.value) || (options.undoEmptyWhenMissing ? buildEmptyTextLikeValue(field) : undefined);
+    const oldValue = (0, model_1.cloneCellValue)(options.oldCell?.value) || (options.undoEmptyWhenMissing ? buildEmptyTextLikeValue(field) : undefined);
     const newValue = buildTextLikeValue(field, options.value, oldValue);
     pushUpdate(ops, {
         avID: options.avID,
@@ -460,18 +388,9 @@ const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
         newValue,
     });
 };
-
-export const buildOccurrenceExceptionOperations = (options: {
-    avID: string;
-    blockID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    event: ICalendarNormalizedEvent;
-    occurrenceDate: string;
-    previousUpdated?: string;
-}): ICalendarOperationSet => {
-    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
-    const oldCell = getCellByFieldID(options.event.sourceCard, options.mapping.exceptionFieldID);
+const buildOccurrenceExceptionOperations = (options) => {
+    const ops = { doOperations: [], undoOperations: [] };
+    const oldCell = (0, model_1.getCellByFieldID)(options.event.sourceCard, options.mapping.exceptionFieldID);
     const existing = (options.event.recurrenceExceptions || []).filter(item => item !== options.occurrenceDate);
     existing.push(options.occurrenceDate);
     existing.sort();
@@ -489,38 +408,28 @@ export const buildOccurrenceExceptionOperations = (options: {
     }
     return ops;
 };
-
-export const buildSplitSeriesOperations = (options: {
-    avID: string;
-    blockID: string;
-    dateFieldID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    event: ICalendarNormalizedEvent;
-    draft: ICalendarEventDraft;
-    occurrenceDate: string;
-    previousUpdated?: string;
-}): ICalendarOperationSet => {
+exports.buildOccurrenceExceptionOperations = buildOccurrenceExceptionOperations;
+const buildSplitSeriesOperations = (options) => {
     if (!isRealDateInputValue(options.draft.date)) {
-        return {doOperations: [], undoOperations: []};
+        return { doOperations: [], undoOperations: [] };
     }
     const recurrenceRaw = getEventRecurrenceRaw(options.event);
     const untilDate = dayjs(options.occurrenceDate).subtract(1, "day").format("YYYY-MM-DD");
     const truncatedRecurrence = recurrenceWithUntil(recurrenceRaw, untilDate);
-    const truncateOps: ICalendarOperationSet = {doOperations: [], undoOperations: []};
+    const truncateOps = { doOperations: [], undoOperations: [] };
     addMetadataUpdate(truncateOps, {
         avID: options.avID,
         rowID: options.event.id,
         fields: options.fields,
         fieldID: options.mapping.recurrenceFieldID,
         value: truncatedRecurrence,
-        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.recurrenceFieldID),
+        oldCell: (0, model_1.getCellByFieldID)(options.event.sourceCard, options.mapping.recurrenceFieldID),
         undoEmptyWhenMissing: true,
     });
     if (truncateOps.doOperations.length > 0) {
         pushUpdated(truncateOps, options.blockID, options.previousUpdated);
     }
-    const createOps = buildCreateEventOperations({
+    const createOps = (0, exports.buildCreateEventOperations)({
         avID: options.avID,
         blockID: options.blockID,
         dateFieldID: options.dateFieldID,
@@ -538,24 +447,16 @@ export const buildSplitSeriesOperations = (options: {
         undoOperations: [...createOps.undoOperations, ...truncateOps.undoOperations],
     };
 };
-
-const addColorUpdate = (ops: ICalendarOperationSet, options: {
-    avID: string;
-    rowID: string;
-    fields: IAVColumn[];
-    fieldID?: string;
-    value?: string;
-    oldCell?: IAVCell;
-    undoEmptyWhenMissing?: boolean;
-}) => {
+exports.buildSplitSeriesOperations = buildSplitSeriesOperations;
+const addColorUpdate = (ops, options) => {
     if (!options.fieldID || options.value === undefined) {
         return;
     }
-    const field = getFieldByID(options.fields, options.fieldID);
+    const field = (0, model_1.getFieldByID)(options.fields, options.fieldID);
     if (!field || !["select", "mSelect"].includes(field.type)) {
         return;
     }
-    const oldValue = cloneCellValue(options.oldCell?.value) || (options.undoEmptyWhenMissing ? buildEmptySelectValue(field) : undefined);
+    const oldValue = (0, model_1.cloneCellValue)(options.oldCell?.value) || (options.undoEmptyWhenMissing ? buildEmptySelectValue(field) : undefined);
     const newValue = buildSelectValue(field, options.value, oldValue);
     pushUpdate(ops, {
         avID: options.avID,
@@ -565,19 +466,10 @@ const addColorUpdate = (ops: ICalendarOperationSet, options: {
         newValue,
     });
 };
-
-export const buildCreateEventOperations = (options: {
-    avID: string;
-    blockID: string;
-    dateFieldID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    draft: ICalendarEventDraft;
-    previousUpdated?: string;
-}): ICalendarOperationSet => {
+const buildCreateEventOperations = (options) => {
     const dateValue = buildDateValue(options.draft);
     if (!dateValue) {
-        return {doOperations: [], undoOperations: []};
+        return { doOperations: [], undoOperations: [] };
     }
     // ONE id only: AddAttributeViewBlock() in kernel/model/attribute_view.go
     // creates the item under srcs[].itemID and only reads srcs[].id as the bound
@@ -585,14 +477,14 @@ export const buildCreateEventOperations = (options: {
     // every updateAttrViewCell below address a row that does not exist, and the
     // kernel would silently store those values as orphans.
     const rowID = Lute.NewNodeID();
-    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
+    const ops = { doOperations: [], undoOperations: [] };
     ops.doOperations.push({
         action: "insertAttrViewBlock",
         avID: options.avID,
         previousID: "",
-        srcs: [{itemID: rowID, id: rowID, isDetached: true, content: options.draft.title}],
+        srcs: [{ itemID: rowID, id: rowID, isDetached: true, content: options.draft.title }],
         blockID: options.blockID,
-        context: {ignoreTip: "true"},
+        context: { ignoreTip: "true" },
     });
     pushUpdate(ops, {
         avID: options.avID,
@@ -635,39 +527,30 @@ export const buildCreateEventOperations = (options: {
         fieldID: options.mapping.colorFieldID,
         value: options.draft.colorContent,
     });
-    ops.undoOperations.push({action: "removeAttrViewBlock", srcIDs: [rowID], avID: options.avID});
+    ops.undoOperations.push({ action: "removeAttrViewBlock", srcIDs: [rowID], avID: options.avID });
     pushUpdated(ops, options.blockID, options.previousUpdated);
     return ops;
 };
-
-export const buildUpdateEventOperations = (options: {
-    avID: string;
-    blockID: string;
-    dateFieldID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    event: ICalendarNormalizedEvent;
-    draft: ICalendarEventDraft;
-    previousUpdated?: string;
-}): ICalendarOperationSet => {
+exports.buildCreateEventOperations = buildCreateEventOperations;
+const buildUpdateEventOperations = (options) => {
     const dateValue = buildDateValue(options.draft);
     if (!dateValue) {
-        return {doOperations: [], undoOperations: []};
+        return { doOperations: [], undoOperations: [] };
     }
-    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
-    const blockCell = getBlockCell(options.event.sourceCard);
+    const ops = { doOperations: [], undoOperations: [] };
+    const blockCell = (0, model_1.getBlockCell)(options.event.sourceCard);
     pushUpdate(ops, {
         avID: options.avID,
         rowID: options.event.id,
         keyID: blockCell?.value?.keyID,
-        oldValue: cloneCellValue(blockCell?.value),
+        oldValue: (0, model_1.cloneCellValue)(blockCell?.value),
         newValue: buildBlockValue(options.event, options.draft.title),
     });
     pushUpdate(ops, {
         avID: options.avID,
         rowID: options.event.id,
         keyID: options.dateFieldID,
-        oldValue: cloneCellValue(options.event.dateCell?.value),
+        oldValue: (0, model_1.cloneCellValue)(options.event.dateCell?.value),
         newValue: dateValue,
     });
     addMetadataUpdate(ops, {
@@ -676,7 +559,7 @@ export const buildUpdateEventOperations = (options: {
         fields: options.fields,
         fieldID: options.mapping.recurrenceFieldID,
         value: normalizeRecurrenceValue(options.draft.recurrenceRaw),
-        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.recurrenceFieldID),
+        oldCell: (0, model_1.getCellByFieldID)(options.event.sourceCard, options.mapping.recurrenceFieldID),
         undoEmptyWhenMissing: true,
     });
     addMetadataUpdate(ops, {
@@ -685,7 +568,7 @@ export const buildUpdateEventOperations = (options: {
         fields: options.fields,
         fieldID: options.mapping.locationFieldID,
         value: options.draft.location,
-        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.locationFieldID),
+        oldCell: (0, model_1.getCellByFieldID)(options.event.sourceCard, options.mapping.locationFieldID),
         undoEmptyWhenMissing: true,
     });
     addMetadataUpdate(ops, {
@@ -694,7 +577,7 @@ export const buildUpdateEventOperations = (options: {
         fields: options.fields,
         fieldID: options.mapping.descriptionFieldID,
         value: options.draft.description,
-        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.descriptionFieldID),
+        oldCell: (0, model_1.getCellByFieldID)(options.event.sourceCard, options.mapping.descriptionFieldID),
         undoEmptyWhenMissing: true,
     });
     addColorUpdate(ops, {
@@ -703,7 +586,7 @@ export const buildUpdateEventOperations = (options: {
         fields: options.fields,
         fieldID: options.mapping.colorFieldID,
         value: options.draft.colorContent,
-        oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.colorFieldID),
+        oldCell: (0, model_1.getCellByFieldID)(options.event.sourceCard, options.mapping.colorFieldID),
         undoEmptyWhenMissing: true,
     });
     if (ops.doOperations.length > 0) {
@@ -711,37 +594,32 @@ export const buildUpdateEventOperations = (options: {
     }
     return ops;
 };
-
-export const buildDeleteEventOperations = (options: {
-    avID: string;
-    blockID: string;
-    event: ICalendarNormalizedEvent;
-    previousUpdated?: string;
-}): ICalendarOperationSet => {
-    const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
-    const blockCell = getBlockCell(options.event.sourceCard);
+exports.buildUpdateEventOperations = buildUpdateEventOperations;
+const buildDeleteEventOperations = (options) => {
+    const ops = { doOperations: [], undoOperations: [] };
+    const blockCell = (0, model_1.getBlockCell)(options.event.sourceCard);
     const blockValue = blockCell?.value;
     const cellSnapshots = options.event.sourceCard.values
-        .map(cell => ({keyID: cell.value?.keyID, value: cloneCellValue(cell.value)}))
+        .map(cell => ({ keyID: cell.value?.keyID, value: (0, model_1.cloneCellValue)(cell.value) }))
         .filter(item => item.keyID && item.value);
     const isDetached = blockValue?.isDetached ?? true;
-    ops.doOperations.push({action: "removeAttrViewBlock", avID: options.avID, srcIDs: [options.event.id]});
+    ops.doOperations.push({ action: "removeAttrViewBlock", avID: options.avID, srcIDs: [options.event.id] });
     ops.undoOperations.push({
         action: "insertAttrViewBlock",
         avID: options.avID,
         blockID: options.blockID,
         previousID: "",
         srcs: [{
-            // itemID is the ITEM id the kernel restores the row under, so it must
-            // be the deleted event's own id - a freshly minted one would leave a
-            // phantom duplicate row behind after every Ctrl+Z. srcs[].id is the
-            // BOUND BLOCK id: keep the real block for bound rows, and fall back to
-            // the item id for detached rows where the kernel ignores it anyway.
-            itemID: options.event.id,
-            id: (!isDetached && blockValue?.block?.id) || options.event.id,
-            isDetached,
-            content: blockValue?.block?.content || options.event.title || "",
-        }],
+                // itemID is the ITEM id the kernel restores the row under, so it must
+                // be the deleted event's own id - a freshly minted one would leave a
+                // phantom duplicate row behind after every Ctrl+Z. srcs[].id is the
+                // BOUND BLOCK id: keep the real block for bound rows, and fall back to
+                // the item id for detached rows where the kernel ignores it anyway.
+                itemID: options.event.id,
+                id: (!isDetached && blockValue?.block?.id) || options.event.id,
+                isDetached,
+                content: blockValue?.block?.content || options.event.title || "",
+            }],
     });
     cellSnapshots.forEach(item => {
         ops.undoOperations.push({
@@ -755,35 +633,13 @@ export const buildDeleteEventOperations = (options: {
     pushUpdated(ops, options.blockID, options.previousUpdated);
     return ops;
 };
-
-export const createCalendarEvent = async (options: {
-    protyle: IProtyle;
-    avID: string;
-    blockID: string;
-    dateFieldID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    draft: ICalendarEventDraft;
-    previousUpdated?: string;
-    viewID?: string;
-}) => {
-    return executeCalendarOperations(options.protyle, buildCreateEventOperations(options), options);
+exports.buildDeleteEventOperations = buildDeleteEventOperations;
+const createCalendarEvent = async (options) => {
+    return executeCalendarOperations(options.protyle, (0, exports.buildCreateEventOperations)(options), options);
 };
-
-export const createCalendarEventReplacingOccurrence = async (options: {
-    protyle: IProtyle;
-    avID: string;
-    blockID: string;
-    dateFieldID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    event: ICalendarNormalizedEvent;
-    draft: ICalendarEventDraft;
-    occurrenceDate: string;
-    previousUpdated?: string;
-    viewID?: string;
-}) => {
-    const exceptionOps = buildOccurrenceExceptionOperations({
+exports.createCalendarEvent = createCalendarEvent;
+const createCalendarEventReplacingOccurrence = async (options) => {
+    const exceptionOps = (0, exports.buildOccurrenceExceptionOperations)({
         avID: options.avID,
         blockID: options.blockID,
         fields: options.fields,
@@ -792,7 +648,7 @@ export const createCalendarEventReplacingOccurrence = async (options: {
         occurrenceDate: options.occurrenceDate,
         previousUpdated: options.previousUpdated,
     });
-    const createOps = buildCreateEventOperations({
+    const createOps = (0, exports.buildCreateEventOperations)({
         avID: options.avID,
         blockID: options.blockID,
         dateFieldID: options.dateFieldID,
@@ -813,77 +669,38 @@ export const createCalendarEventReplacingOccurrence = async (options: {
         undoOperations: [...createOps.undoOperations, ...exceptionOps.undoOperations],
     }, options);
 };
-
-export const updateCalendarEvent = async (options: {
-    protyle: IProtyle;
-    avID: string;
-    blockID: string;
-    dateFieldID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    event: ICalendarNormalizedEvent;
-    draft: ICalendarEventDraft;
-    previousUpdated?: string;
-    viewID?: string;
-}) => {
+exports.createCalendarEventReplacingOccurrence = createCalendarEventReplacingOccurrence;
+const updateCalendarEvent = async (options) => {
     if (!isRealDateInputValue(options.draft.date)) {
         return false;
     }
-    const ops = buildUpdateEventOperations(options);
+    const ops = (0, exports.buildUpdateEventOperations)(options);
     if (ops.doOperations.length > 0) {
         return executeCalendarOperations(options.protyle, ops, options);
     }
     return true;
 };
-
-export const updateCalendarEventThisAndFuture = async (options: {
-    protyle: IProtyle;
-    avID: string;
-    blockID: string;
-    dateFieldID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    event: ICalendarNormalizedEvent;
-    draft: ICalendarEventDraft;
-    occurrenceDate: string;
-    previousUpdated?: string;
-    viewID?: string;
-}) => {
+exports.updateCalendarEvent = updateCalendarEvent;
+const updateCalendarEventThisAndFuture = async (options) => {
     if (!isRealDateInputValue(options.draft.date)) {
         return false;
     }
-    const ops = buildSplitSeriesOperations(options);
+    const ops = (0, exports.buildSplitSeriesOperations)(options);
     if (ops.doOperations.length > 0) {
         return executeCalendarOperations(options.protyle, ops, options);
     }
     return true;
 };
-
-export const deleteCalendarEvent = async (options: {
-    protyle: IProtyle;
-    avID: string;
-    blockID: string;
-    event: ICalendarNormalizedEvent;
-    previousUpdated?: string;
-    viewID?: string;
-}) => {
-    return executeCalendarOperations(options.protyle, buildDeleteEventOperations(options), options);
+exports.updateCalendarEventThisAndFuture = updateCalendarEventThisAndFuture;
+const deleteCalendarEvent = async (options) => {
+    return executeCalendarOperations(options.protyle, (0, exports.buildDeleteEventOperations)(options), options);
 };
-
-export const deleteCalendarOccurrence = async (options: {
-    protyle: IProtyle;
-    avID: string;
-    blockID: string;
-    fields: IAVColumn[];
-    mapping: ICalendarFieldMapping;
-    event: ICalendarNormalizedEvent;
-    occurrenceDate: string;
-    previousUpdated?: string;
-    viewID?: string;
-}) => {
-    const ops = buildOccurrenceExceptionOperations(options);
+exports.deleteCalendarEvent = deleteCalendarEvent;
+const deleteCalendarOccurrence = async (options) => {
+    const ops = (0, exports.buildOccurrenceExceptionOperations)(options);
     if (ops.doOperations.length > 0) {
         return executeCalendarOperations(options.protyle, ops, options);
     }
     return false;
 };
+exports.deleteCalendarOccurrence = deleteCalendarOccurrence;

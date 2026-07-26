@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "Deze en volgende is alleen beschikbaar vanuit gegenereerde gebeurtenissen.",
 	"newEvent": "Nieuwe gebeurtenis",
 	"calendarStaleMapping": "Veld ontbreekt of is ongeldig",
+	"today": "Vandaag",
+	"allDay": "Hele dag",
+	"calendarAllDay": "Hele dag",
+	"none": "Geen",
+	"saved": "Opgeslagen",
+	"dateField": "Datumveld",
 	"calendarEmptyHint": "Nog geen kalenderitems — klik op een dag of een tijdvak om de eerste aan te maken."
 	}

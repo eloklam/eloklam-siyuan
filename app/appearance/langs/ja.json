@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "「これ以降」は、生成された回からのみ利用できます。",
 	"newEvent": "新規イベント",
 	"calendarStaleMapping": "フィールドが見つからないか無効です",
+	"today": "今日",
+	"allDay": "終日",
+	"calendarAllDay": "終日",
+	"none": "なし",
+	"saved": "保存しました",
+	"dateField": "日付フィールド",
 	"calendarEmptyHint": "カレンダー項目はまだありません。日付または時間帯をクリックして最初の項目を作成してください。"
 	}

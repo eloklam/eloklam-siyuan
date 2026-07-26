@@ -1,9 +1,11 @@
 package model
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/siyuan-note/siyuan/kernel/av"
+	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func TestValidateCalendarMappingField(t *testing.T) {
@@ -20,11 +22,12 @@ func TestValidateCalendarMappingField(t *testing.T) {
 	if err := validateCalendarMappingField(attrView, "", "empty", av.KeyTypeText); nil != err {
 		t.Fatalf("empty field should clear mapping without error: %v", err)
 	}
-	if err := validateCalendarMappingField(attrView, "text", "recurrenceFieldID", av.KeyTypeText, av.KeyTypeTemplate); nil != err {
+	if err := validateCalendarMappingField(attrView, "text", "recurrenceFieldID", av.KeyTypeText); nil != err {
 		t.Fatalf("text field should be accepted: %v", err)
 	}
-	if err := validateCalendarMappingField(attrView, "template", "descriptionFieldID", av.KeyTypeText, av.KeyTypeTemplate); nil != err {
-		t.Fatalf("template field should be accepted: %v", err)
+	// 可写元数据映射只允许纯文本字段：模板单元格每次渲染都会被重算，写入会丢失
+	if err := validateCalendarMappingField(attrView, "template", "descriptionFieldID", av.KeyTypeText); nil == err {
+		t.Fatal("template field should be rejected for writable metadata mappings")
 	}
 	if err := validateCalendarMappingField(attrView, "select", "colorFieldID", av.KeyTypeSelect, av.KeyTypeMSelect); nil != err {
 		t.Fatalf("select field should be accepted for color mapping: %v", err)
@@ -289,10 +292,17 @@ func TestPruneCalendarFieldReferencesByType(t *testing.T) {
 		t.Fatalf("recurrence mapping should be cleared after type change, got %s", calendar.FieldMapping.RecurrenceFieldID)
 	}
 
+	// 模板字段由内核计算，写入会被丢弃，所以改成模板类型后映射必须清除。
 	calendar = newCalendar()
 	pruneCalendarFieldReferencesByType(calendar, "recurrence", av.KeyTypeTemplate)
-	if calendar.FieldMapping.RecurrenceFieldID != "recurrence" {
-		t.Fatalf("template stays valid for recurrence mapping, got %s", calendar.FieldMapping.RecurrenceFieldID)
+	if calendar.FieldMapping.RecurrenceFieldID != "" {
+		t.Fatalf("recurrence mapping should be cleared when the key becomes a template, got %s", calendar.FieldMapping.RecurrenceFieldID)
+	}
+
+	calendar = newCalendar()
+	pruneCalendarFieldReferencesByType(calendar, "description", av.KeyTypeText)
+	if calendar.FieldMapping.DescriptionFieldID != "description" {
+		t.Fatalf("text stays valid for description mapping, got %s", calendar.FieldMapping.DescriptionFieldID)
 	}
 
 	calendar = newCalendar()
@@ -311,5 +321,164 @@ func TestPruneCalendarFieldReferencesByType(t *testing.T) {
 	pruneCalendarFieldReferencesByType(calendar, "unrelated", av.KeyTypeNumber)
 	if calendar.DateFieldID != "date" || calendar.FieldMapping.LocationFieldID != "location" {
 		t.Fatalf("unrelated key must not touch calendar references: %#v", calendar.FieldMapping)
+	}
+}
+
+// seedCalendarI18n 让 av.NewCalendarView() 在单元测试里可用（它会读取 i18n 词条）。
+func seedCalendarI18n(t *testing.T) {
+	t.Helper()
+	if _, ok := util.AttrViewLangs[util.Lang]["calendar"]; ok {
+		return
+	}
+	prevLang := util.Lang
+	util.Lang = "test"
+	if nil == util.AttrViewLangs {
+		util.AttrViewLangs = map[string]map[string]any{}
+	}
+	util.AttrViewLangs["test"] = map[string]any{"calendar": "Calendar"}
+	t.Cleanup(func() {
+		delete(util.AttrViewLangs, "test")
+		util.Lang = prevLang
+	})
+}
+
+// K1: 复制日历视图不能空指针，并且必须保留日历专有配置。
+func TestDuplicateCalendarViewLayout(t *testing.T) {
+	seedCalendarI18n(t)
+
+	masterView := av.NewCalendarView()
+	masterView.Calendar.Fields = []*av.ViewCalendarCardField{
+		{BaseField: &av.BaseField{ID: "date", Wrap: true, Hidden: false, Desc: "when"}},
+		{BaseField: &av.BaseField{ID: "location", Wrap: false, Hidden: true, Desc: "where"}},
+	}
+	masterView.Calendar.DateFieldID = "date"
+	masterView.Calendar.ViewMode = av.ViewModeWeek
+	masterView.Calendar.WeekStart = av.WeekStartMonday
+	masterView.Calendar.ShowIcon = false
+	masterView.Calendar.WrapField = true
+	masterView.Calendar.FieldMapping = &av.CalendarFieldMapping{
+		RecurrenceFieldID:  "recurrence",
+		ExceptionFieldID:   "exception",
+		LocationFieldID:    "location",
+		DescriptionFieldID: "description",
+		ColorFieldID:       "color",
+	}
+
+	view := newAttrViewViewByLayoutType(masterView.LayoutType)
+	if nil == view {
+		t.Fatal("duplicating a calendar view must not yield a nil view")
+	}
+	if nil == view.Calendar {
+		t.Fatal("duplicated calendar view must have a calendar layout")
+	}
+
+	copyAttrViewViewLayout(view, masterView)
+
+	if len(view.Calendar.Fields) != 2 {
+		t.Fatalf("expected 2 copied fields, got %d", len(view.Calendar.Fields))
+	}
+	if view.Calendar.Fields[0].ID != "date" || !view.Calendar.Fields[0].Wrap || view.Calendar.Fields[0].Desc != "when" {
+		t.Fatalf("first field not copied faithfully: %#v", view.Calendar.Fields[0].BaseField)
+	}
+	if view.Calendar.Fields[1].ID != "location" || !view.Calendar.Fields[1].Hidden {
+		t.Fatalf("second field not copied faithfully: %#v", view.Calendar.Fields[1].BaseField)
+	}
+	if view.Calendar.Fields[0] == masterView.Calendar.Fields[0] {
+		t.Fatal("copied fields must be new structs, not shared pointers")
+	}
+	if view.Calendar.DateFieldID != "date" {
+		t.Fatalf("date field ID not copied, got %s", view.Calendar.DateFieldID)
+	}
+	if view.Calendar.ViewMode != av.ViewModeWeek {
+		t.Fatalf("view mode not copied, got %d", view.Calendar.ViewMode)
+	}
+	if view.Calendar.WeekStart != av.WeekStartMonday {
+		t.Fatalf("week start not copied, got %d", view.Calendar.WeekStart)
+	}
+	if view.Calendar.ShowIcon || !view.Calendar.WrapField {
+		t.Fatalf("showIcon/wrapField not copied: showIcon=%v wrapField=%v", view.Calendar.ShowIcon, view.Calendar.WrapField)
+	}
+	if nil == view.Calendar.FieldMapping {
+		t.Fatal("field mapping not copied")
+	}
+	if view.Calendar.FieldMapping == masterView.Calendar.FieldMapping {
+		t.Fatal("field mapping must be copied by value, not by pointer")
+	}
+	if *view.Calendar.FieldMapping != *masterView.Calendar.FieldMapping {
+		t.Fatalf("field mapping content differs: %#v", view.Calendar.FieldMapping)
+	}
+
+	// 改动副本不得影响原视图
+	view.Calendar.FieldMapping.ColorFieldID = "other"
+	if masterView.Calendar.FieldMapping.ColorFieldID != "color" {
+		t.Fatal("mutating the duplicate must not affect the master view mapping")
+	}
+
+	// 未知布局仍然返回 nil，由调用方报错而不是空指针
+	if nil != newAttrViewViewByLayoutType(av.LayoutType("bogus")) {
+		t.Fatal("unknown layout type should yield nil so the caller can report an error")
+	}
+}
+
+// K5: 显式 ViewID 必须命中对应视图，而不是块上的当前视图。
+func TestCalendarSetterResolvesViewByOperationViewID(t *testing.T) {
+	seedCalendarI18n(t)
+
+	first := av.NewCalendarView()
+	first.ID = "20240101000000-view0001"
+	second := av.NewCalendarView()
+	second.ID = "20240101000000-view0002"
+	attrView := &av.AttributeView{
+		ID:     "20240101000000-avavav1",
+		ViewID: first.ID,
+		Views:  []*av.View{first, second},
+	}
+
+	view, err := resolveAttrViewViewByOperation(attrView, &Operation{ViewID: second.ID})
+	if err != nil {
+		t.Fatalf("explicit view ID should resolve: %v", err)
+	}
+	if view != second {
+		t.Fatalf("explicit view ID must target the second view, got %s", view.ID)
+	}
+
+	view, err = resolveAttrViewViewByOperation(attrView, &Operation{ViewID: first.ID})
+	if err != nil {
+		t.Fatalf("explicit view ID should resolve: %v", err)
+	}
+	if view != first {
+		t.Fatalf("explicit view ID must target the first view, got %s", view.ID)
+	}
+
+	if _, err = resolveAttrViewViewByOperation(attrView, &Operation{ViewID: "20240101000000-missing"}); !errors.Is(err, av.ErrViewNotFound) {
+		t.Fatalf("unknown explicit view ID should return ErrViewNotFound, got %v", err)
+	}
+
+	// 旧版载荷不带 ViewID，回退到当前视图
+	view, err = resolveAttrViewViewByOperation(attrView, &Operation{})
+	if err != nil {
+		t.Fatalf("legacy payload without view ID should fall back: %v", err)
+	}
+	if view != first {
+		t.Fatalf("legacy fallback should return the current view, got %s", view.ID)
+	}
+}
+
+// K7: 模板字段是计算字段，写入会被渲染覆盖，不能再作为可写元数据映射。
+func TestCalendarMetadataMappingRejectsTemplate(t *testing.T) {
+	attrView := &av.AttributeView{
+		KeyValues: []*av.KeyValues{
+			{Key: &av.Key{ID: "text", Type: av.KeyTypeText}},
+			{Key: &av.Key{ID: "template", Type: av.KeyTypeTemplate}},
+		},
+	}
+
+	for _, fieldName := range []string{"recurrenceFieldID", "exceptionFieldID", "locationFieldID", "descriptionFieldID"} {
+		if _, err := calendarFieldMappingFromOperationData(attrView, nil, map[string]any{fieldName: "template"}); err == nil {
+			t.Fatalf("%s must reject a template field because template cells are recomputed on render", fieldName)
+		}
+		if _, err := calendarFieldMappingFromOperationData(attrView, nil, map[string]any{fieldName: "text"}); err != nil {
+			t.Fatalf("%s must still accept a text field: %v", fieldName, err)
+		}
 	}
 }

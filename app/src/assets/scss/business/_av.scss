@@ -1762,6 +1762,11 @@ img.av__cellassetimg {
     &--readonly {
       cursor: pointer;
     }
+
+    // 定位高亮：siyuan://blocks/...?avItemID= 跳转到某个日程时短暂描边。
+    &--locate {
+      box-shadow: 0 0 0 2px var(--b3-theme-primary);
+    }
   }
 
   &-event-text {

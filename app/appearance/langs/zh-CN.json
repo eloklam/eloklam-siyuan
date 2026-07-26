@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "“此项及以后”仅能从生成的重复项进行。",
 	"newEvent": "新建事件",
 	"calendarStaleMapping": "字段已丢失或类型不符",
+	"today": "今天",
+	"allDay": "全天",
+	"calendarAllDay": "全天",
+	"none": "无",
+	"saved": "已保存",
+	"dateField": "日期字段",
 	"calendarEmptyHint": "当前没有任何日历项——点击日期或时间段即可创建第一条。"
 	}

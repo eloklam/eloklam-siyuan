@@ -328,7 +328,12 @@ for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStar
 for (const term of [
   "validateCalendarMetadataMapping",
   "calendarDuplicateMetadataField",
-  "buildOptions([\"text\", \"template\"], mapping.recurrenceFieldID)",
+  // Template fields are computed, so a calendar write into them is always lost:
+  // the metadata mappings must only offer text fields.
+  "buildOptions([\"text\"], mapping.recurrenceFieldID)",
+  "buildOptions([\"text\"], mapping.exceptionFieldID)",
+  "buildOptions([\"text\"], mapping.locationFieldID)",
+  "buildOptions([\"text\"], mapping.descriptionFieldID)",
   "buildOptions([\"select\", \"mSelect\"], mapping.colorFieldID)",
   "item.value = previous[item.dataset.field",
 ]) {
@@ -341,7 +346,7 @@ const mappedFieldsCode = read("app/src/protyle/render/av/calendar/mapped-fields.
 for (const term of [
   "getMappedFieldID",
   "allowedTypes.includes(field.type)",
-  "getMappedFieldID(calendarData, persisted.recurrenceFieldID, [\"text\", \"template\"])",
+  "getMappedFieldID(calendarData, persisted.recurrenceFieldID, [\"text\"])",
   "getMappedFieldID(calendarData, persisted.colorFieldID, [\"select\", \"mSelect\"])",
   "const hasDateField = !!persistedDateFieldID && calendarData.fields.some(field => field.id === persistedDateFieldID && field.type === \"date\")",
 ]) {

@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "خيار «هذا وما يليه» متاح فقط من الظهورات المُنشأة.",
 	"newEvent": "حدث جديد",
 	"calendarStaleMapping": "الحقل مفقود أو غير صالح",
+	"today": "اليوم",
+	"allDay": "طوال اليوم",
+	"calendarAllDay": "طوال اليوم",
+	"none": "لا شيء",
+	"saved": "تم الحفظ",
+	"dateField": "حقل التاريخ",
 	"calendarEmptyHint": "لا توجد عناصر تقويم بعد — انقر على يوم أو فترة زمنية لإنشاء العنصر الأول."
 	}

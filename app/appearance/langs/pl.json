@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "Opcja „to i następne” jest dostępna tylko z wygenerowanych wystąpień.",
 	"newEvent": "Nowe wydarzenie",
 	"calendarStaleMapping": "Brakujące lub nieprawidłowe pole",
+	"today": "Dzisiaj",
+	"allDay": "Cały dzień",
+	"calendarAllDay": "Cały dzień",
+	"none": "Brak",
+	"saved": "Zapisano",
+	"dateField": "Pole daty",
 	"calendarEmptyHint": "Brak jeszcze elementów kalendarza — kliknij dzień lub przedział czasowy, aby utworzyć pierwszy."
 	}

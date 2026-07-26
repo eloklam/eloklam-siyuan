@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "«Ця та наступні» доступно лише зі згенерованих повторень.",
 	"newEvent": "Нова подія",
 	"calendarStaleMapping": "Поле відсутнє або недійсне",
+	"today": "Сьогодні",
+	"allDay": "Цілий день",
+	"calendarAllDay": "Цілий день",
+	"none": "Немає",
+	"saved": "Збережено",
+	"dateField": "Поле дати",
 	"calendarEmptyHint": "Елементів календаря поки немає — натисніть на день або часовий проміжок, щоб створити перший."
 	}

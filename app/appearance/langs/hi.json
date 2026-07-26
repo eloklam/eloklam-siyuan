@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "यह और आगामी केवल जनित आवृत्तियों से उपलब्ध है।",
 	"newEvent": "नया इवेंट",
 	"calendarStaleMapping": "फ़ील्ड गुम या अमान्य है",
+	"today": "आज",
+	"allDay": "पूरे दिन",
+	"calendarAllDay": "पूरे दिन",
+	"none": "कोई नहीं",
+	"saved": "सहेजा गया",
+	"dateField": "दिनांक फ़ील्ड",
 	"calendarEmptyHint": "अभी कोई कैलेंडर आइटम नहीं है — पहला आइटम बनाने के लिए किसी दिन या समय स्लॉट पर क्लिक करें।"
 	}

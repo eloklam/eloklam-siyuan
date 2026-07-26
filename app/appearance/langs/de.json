@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "„Diesen und folgende“ ist nur über generierte Termine verfügbar.",
 	"newEvent": "Neuer Termin",
 	"calendarStaleMapping": "Feld fehlt oder ist ungültig",
+	"today": "Heute",
+	"allDay": "Ganztägig",
+	"calendarAllDay": "Ganztägig",
+	"none": "Keine",
+	"saved": "Gespeichert",
+	"dateField": "Datumsfeld",
 	"calendarEmptyHint": "Noch keine Kalendereinträge — klicken Sie auf einen Tag oder ein Zeitfenster, um den ersten Eintrag zu erstellen."
 	}

@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "“Questa e le successive” è disponibile solo dalle occorrenze generate.",
 	"newEvent": "Nuovo evento",
 	"calendarStaleMapping": "Campo mancante o non valido",
+	"today": "Oggi",
+	"allDay": "Tutto il giorno",
+	"calendarAllDay": "Tutto il giorno",
+	"none": "Nessuno",
+	"saved": "Salvato",
+	"dateField": "Campo data",
 	"calendarEmptyHint": "Ancora nessun elemento nel calendario — fai clic su un giorno o una fascia oraria per creare il primo."
 	}

@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "\"รายการนี้และรายการถัดไป\" ใช้ได้จากรายการที่ระบบสร้างขึ้นเท่านั้น",
 	"newEvent": "กิจกรรมใหม่",
 	"calendarStaleMapping": "ฟิลด์หายไปหรือไม่ถูกต้อง",
+	"today": "วันนี้",
+	"allDay": "ทั้งวัน",
+	"calendarAllDay": "ทั้งวัน",
+	"none": "ไม่มี",
+	"saved": "บันทึกแล้ว",
+	"dateField": "ฟิลด์วันที่",
 	"calendarEmptyHint": "ยังไม่มีรายการปฏิทิน — คลิกที่วันหรือช่วงเวลาเพื่อสร้างรายการแรก"
 	}

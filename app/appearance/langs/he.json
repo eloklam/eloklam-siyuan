@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "האפשרות \"זה והבאים\" זמינה רק ממופעים שנוצרו.",
 	"newEvent": "אירוע חדש",
 	"calendarStaleMapping": "שדה חסר או לא תקין",
+	"today": "היום",
+	"allDay": "כל היום",
+	"calendarAllDay": "כל היום",
+	"none": "אין",
+	"saved": "נשמר",
+	"dateField": "שדה תאריך",
 	"calendarEmptyHint": "אין עדיין פריטים בלוח השנה — לחץ על יום או על משבצת זמן כדי ליצור את הפריט הראשון."
 	}

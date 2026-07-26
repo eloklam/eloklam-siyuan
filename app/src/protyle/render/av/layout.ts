@@ -137,6 +137,13 @@ export const getLayoutHTML = (data: IAV) => {
         const calendarView = data.view as IAVCalendar;
         const fields = getFieldsByData(data);
         const mapping = calendarView.fieldMapping || {};
+        // The recurrence / exception / location / description mappings only accept
+        // "text" fields: a template field is computed, so kernel/sql/av.go
+        // fillAttributeViewBaseValue() overwrites the persisted cell with the
+        // field's template expression on every render and every calendar write
+        // into it is silently lost. A database that already has a template field
+        // mapped keeps showing it through the stale-mapping option below, so the
+        // now-invalid choice stays visible instead of looking unset.
         const buildOptions = (fieldTypes: TAVCol[], selected = "", allowEmpty = true) => {
             let options = allowEmpty ? `<option value="">${escapeHtml(window.siyuan.languages.calcOperatorNone)}</option>` : "";
             const matched = fields.filter(field => fieldTypes.includes(field.type));
@@ -166,22 +173,22 @@ export const getLayoutHTML = (data: IAV) => {
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarRecurrence || "Recurrence"}</label>
         <select class="b3-select fn__block" data-type="calendar-map-field" data-field="recurrenceFieldID">
-            ${buildOptions(["text", "template"], mapping.recurrenceFieldID)}
+            ${buildOptions(["text"], mapping.recurrenceFieldID)}
         </select>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarExceptions || "Exceptions"}</label>
         <select class="b3-select fn__block" data-type="calendar-map-field" data-field="exceptionFieldID">
-            ${buildOptions(["text", "template"], mapping.exceptionFieldID)}
+            ${buildOptions(["text"], mapping.exceptionFieldID)}
         </select>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarLocation || "Location"}</label>
         <select class="b3-select fn__block" data-type="calendar-map-field" data-field="locationFieldID">
-            ${buildOptions(["text", "template"], mapping.locationFieldID)}
+            ${buildOptions(["text"], mapping.locationFieldID)}
         </select>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarDescription || "Description"}</label>
         <select class="b3-select fn__block" data-type="calendar-map-field" data-field="descriptionFieldID">
-            ${buildOptions(["text", "template"], mapping.descriptionFieldID)}
+            ${buildOptions(["text"], mapping.descriptionFieldID)}
         </select>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.color || "Color"}</label>
@@ -190,6 +197,10 @@ export const getLayoutHTML = (data: IAV) => {
         </select>
     </div>
 </div>`;
+    }
+    if (data.viewType === "calendar") {
+        // 日历渲染始终请求整个数据库（pageSize -1），分页项对它无效，不展示。
+        return html + "</div>";
     }
     return html + `<button class="b3-menu__item" data-type="set-page-size" data-size="${view.pageSize}">
         <span class="fn__flex-center">${window.siyuan.languages.entryNum}</span>

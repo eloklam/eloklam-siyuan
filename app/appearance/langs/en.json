@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "This and following is only available from generated occurrences.",
 	"newEvent": "New event",
 	"calendarStaleMapping": "Missing or invalid field",
+	"today": "Today",
+	"allDay": "All day",
+	"calendarAllDay": "All day",
+	"none": "None",
+	"saved": "Saved",
+	"dateField": "Date field",
 	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

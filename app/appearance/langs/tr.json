@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "“Bu ve sonrakiler” yalnızca oluşturulan yinelemelerden kullanılabilir.",
 	"newEvent": "Yeni etkinlik",
 	"calendarStaleMapping": "Alan eksik veya geçersiz",
+	"today": "Bugün",
+	"allDay": "Tüm gün",
+	"calendarAllDay": "Tüm gün",
+	"none": "Yok",
+	"saved": "Kaydedildi",
+	"dateField": "Tarih alanı",
 	"calendarEmptyHint": "Henüz takvim ögesi yok — ilkini oluşturmak için bir güne veya zaman aralığına tıklayın."
 	}

@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "« Celui-ci et les suivants » n'est disponible qu'à partir des occurrences générées.",
 	"newEvent": "Nouvel événement",
 	"calendarStaleMapping": "Champ manquant ou non valide",
+	"today": "Aujourd'hui",
+	"allDay": "Toute la journée",
+	"calendarAllDay": "Toute la journée",
+	"none": "Aucun",
+	"saved": "Enregistré",
+	"dateField": "Champ de date",
 	"calendarEmptyHint": "Aucun élément de calendrier pour le moment — cliquez sur un jour ou un créneau horaire pour créer le premier."
 	}

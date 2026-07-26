@@ -7,6 +7,7 @@ import {bindAvSearch} from "../search";
 import {processRender} from "../../../util/processCode";
 import {getPageSize} from "../groups";
 import {renderKanban} from "../kanban/render";
+import {renderCalendar} from "../calendar/render";
 import {getBodyVirtualData, initVirtualScroll} from "../virtualScroll";
 import {getRowHTML, updateHeader} from "../row";
 import {beginAVRender, finishAVLocate, getAVLocateParams, isCurrentAVRender, prepareAVLocate} from "../locate";
@@ -268,6 +269,17 @@ export const renderGallery = async (options: {
     if (data.viewType === "kanban") {
         options.blockElement.setAttribute("data-av-type", data.viewType);
         renderKanban({
+            blockElement: options.blockElement,
+            protyle: options.protyle,
+            cb: options.cb,
+            renderAll: options.renderAll,
+            data
+        });
+        return;
+    }
+    if (data.viewType === "calendar") {
+        options.blockElement.setAttribute("data-av-type", data.viewType);
+        renderCalendar({
             blockElement: options.blockElement,
             protyle: options.protyle,
             cb: options.cb,

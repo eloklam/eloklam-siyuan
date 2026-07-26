@@ -2288,5 +2288,11 @@
 	"calendarRecurrenceScopeRootFutureDisabled": "„Táto a nasledujúce“ je dostupné len z vygenerovaných výskytov.",
 	"newEvent": "Nová udalosť",
 	"calendarStaleMapping": "Pole chýba alebo je neplatné",
+	"today": "Dnes",
+	"allDay": "Celý deň",
+	"calendarAllDay": "Celý deň",
+	"none": "Žiadny",
+	"saved": "Uložené",
+	"dateField": "Pole dátumu",
 	"calendarEmptyHint": "Zatiaľ žiadne položky kalendára — kliknite na deň alebo časový úsek a vytvorte prvú položku."
 	}

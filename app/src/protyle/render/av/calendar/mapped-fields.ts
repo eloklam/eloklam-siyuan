@@ -15,10 +15,10 @@ export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFie
         // A stale or wrong-typed persisted date field must not satisfy the
         // write-path guards, so only expose it when it is actually usable.
         dateFieldID: hasDateField ? persistedDateFieldID : "",
-        recurrenceFieldID: getMappedFieldID(calendarData, persisted.recurrenceFieldID, ["text", "template"]),
-        exceptionFieldID: getMappedFieldID(calendarData, persisted.exceptionFieldID, ["text", "template"]),
-        locationFieldID: getMappedFieldID(calendarData, persisted.locationFieldID, ["text", "template"]),
-        descriptionFieldID: getMappedFieldID(calendarData, persisted.descriptionFieldID, ["text", "template"]),
+        recurrenceFieldID: getMappedFieldID(calendarData, persisted.recurrenceFieldID, ["text"]),
+        exceptionFieldID: getMappedFieldID(calendarData, persisted.exceptionFieldID, ["text"]),
+        locationFieldID: getMappedFieldID(calendarData, persisted.locationFieldID, ["text"]),
+        descriptionFieldID: getMappedFieldID(calendarData, persisted.descriptionFieldID, ["text"]),
         colorFieldID: getMappedFieldID(calendarData, persisted.colorFieldID, ["select", "mSelect"]),
         hasDateField,
     };
