@@ -139,7 +139,14 @@ export const getLayoutHTML = (data: IAV) => {
         const mapping = calendarView.fieldMapping || {};
         const buildOptions = (fieldTypes: TAVCol[], selected = "", allowEmpty = true) => {
             let options = allowEmpty ? `<option value="">${escapeHtml(window.siyuan.languages.calcOperatorNone)}</option>` : "";
-            fields.filter(field => fieldTypes.includes(field.type)).forEach(field => {
+            const matched = fields.filter(field => fieldTypes.includes(field.type));
+            if (selected && !matched.some(field => field.id === selected)) {
+                // The persisted mapping points at a deleted or retyped field:
+                // show that honestly instead of implying "None", so the user can
+                // pick a valid field (or None) to repair it.
+                options += `<option value="${escapeAttr(selected)}" selected disabled>${escapeHtml(window.siyuan.languages.calendarStaleMapping || "Missing or invalid field")}</option>`;
+            }
+            matched.forEach(field => {
                 options += `<option value="${escapeAttr(field.id)}"${field.id === selected ? " selected" : ""}>${escapeHtml(field.name)}</option>`;
             });
             return options;
@@ -382,13 +389,13 @@ const bindCalendarLayoutEvent = (options: {
                 action: "setAttrViewCalendarFieldMapping",
                 avID,
                 blockID,
-                data: next,
+                data: {[item.dataset.field]: item.value},
                 viewID
             }], [{
                 action: "setAttrViewCalendarFieldMapping",
                 avID,
                 blockID,
-                data: previous,
+                data: {[item.dataset.field]: previous[item.dataset.field as keyof NonNullable<IAVCalendar["fieldMapping"]>] || ""},
                 viewID
             }]);
             calendarView.fieldMapping = next;

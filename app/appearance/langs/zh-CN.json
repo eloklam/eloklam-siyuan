@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "更改整个重复系列。",
 	"calendarRecurrenceScopePrompt": "选择此次更改的应用范围。",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "此来源事件存储整个重复系列,单次更改仅能从生成的重复项进行。",
-	"calendarRecurrenceScopeRootFutureDisabled": "“此项及以后”仅能从生成的重复项进行。"
+	"calendarRecurrenceScopeRootFutureDisabled": "“此项及以后”仅能从生成的重复项进行。",
+	"newEvent": "新建事件",
+	"calendarStaleMapping": "字段已丢失或类型不符",
+	"calendarEmptyHint": "当前没有任何日历项——点击日期或时间段即可创建第一条。"
 	}

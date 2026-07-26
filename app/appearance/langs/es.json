@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "Todos los elementos de la serie recurrente.",
 	"calendarRecurrenceScopePrompt": "Elige el alcance de este cambio.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Este evento de origen almacena la serie recurrente. Los cambios en una sola repetición solo están disponibles desde las repeticiones generadas.",
-	"calendarRecurrenceScopeRootFutureDisabled": "«Este y los siguientes» solo está disponible desde las repeticiones generadas."
+	"calendarRecurrenceScopeRootFutureDisabled": "«Este y los siguientes» solo está disponible desde las repeticiones generadas.",
+	"newEvent": "New event",
+	"calendarStaleMapping": "Missing or invalid field",
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

@@ -21,10 +21,12 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
     if (end.isBefore(start)) {
         end = dateValue.isNotTime === false ? start.add(1, "hour") : start.endOf("day");
     }
+    const realTitle = blockValue?.content || getTextFromCell(blockCell);
     return {
         id: card.id,
         blockID: blockValue?.id,
-        title: blockValue?.content || getTextFromCell(blockCell) || window.siyuan.languages.untitled,
+        title: realTitle || window.siyuan.languages.untitled,
+        isTitleFallback: !realTitle,
         start,
         end,
         isAllDay: dateValue.isNotTime !== false,

@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "繰り返しシリーズ内のすべての項目。",
 	"calendarRecurrenceScopePrompt": "変更を適用する範囲を選択してください。",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "このソースイベントには繰り返しシリーズが保存されています。単一の回のみの変更は、生成された回からのみ行えます。",
-	"calendarRecurrenceScopeRootFutureDisabled": "「これ以降」は、生成された回からのみ利用できます。"
+	"calendarRecurrenceScopeRootFutureDisabled": "「これ以降」は、生成された回からのみ利用できます。",
+	"newEvent": "New event",
+	"calendarStaleMapping": "Missing or invalid field",
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "Alle Termine der Wiederholungsserie.",
 	"calendarRecurrenceScopePrompt": "Wählen Sie, wie weit diese Änderung gelten soll.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Dieser Quelltermin speichert die Wiederholungsserie. Änderungen an einzelnen Terminen sind nur über generierte Termine möglich.",
-	"calendarRecurrenceScopeRootFutureDisabled": "„Diesen und folgende“ ist nur über generierte Termine verfügbar."
+	"calendarRecurrenceScopeRootFutureDisabled": "„Diesen und folgende“ ist nur über generierte Termine verfügbar.",
+	"newEvent": "New event",
+	"calendarStaleMapping": "Missing or invalid field",
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

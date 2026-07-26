@@ -43,6 +43,7 @@ export interface ICalendarNormalizedEvent {
     id: string;
     blockID?: string;
     title: string;
+    isTitleFallback?: boolean;
     start: dayjs.Dayjs;
     end?: dayjs.Dayjs;
     isAllDay: boolean;

@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "Every item in the recurring series.",
 	"calendarRecurrenceScopePrompt": "Choose how far this change should apply.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "This source event stores the recurring series. Single-occurrence changes are only available from generated occurrences.",
-	"calendarRecurrenceScopeRootFutureDisabled": "This and following is only available from generated occurrences."
+	"calendarRecurrenceScopeRootFutureDisabled": "This and following is only available from generated occurrences.",
+	"newEvent": "New event",
+	"calendarStaleMapping": "Missing or invalid field",
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

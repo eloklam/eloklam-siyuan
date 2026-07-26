@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "كل عنصر في السلسلة المتكررة.",
 	"calendarRecurrenceScopePrompt": "اختر نطاق تطبيق هذا التغيير.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "هذا الحدث المصدر يخزّن سلسلة التكرار. تغييرات الظهور الفردي متاحة فقط من الظهورات المُنشأة.",
-	"calendarRecurrenceScopeRootFutureDisabled": "خيار «هذا وما يليه» متاح فقط من الظهورات المُنشأة."
+	"calendarRecurrenceScopeRootFutureDisabled": "خيار «هذا وما يليه» متاح فقط من الظهورات المُنشأة.",
+	"newEvent": "New event",
+	"calendarStaleMapping": "Missing or invalid field",
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

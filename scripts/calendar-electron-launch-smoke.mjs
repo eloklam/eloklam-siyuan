@@ -261,6 +261,7 @@ exports.escapeHtml = escapeHtml;
 exports.escapeAttr = escapeHtml;
 `);
   writeFile(path.join(tempDir, "src/util/fetch.js"), "exports.fetchSyncPost = async () => globalThis.__calendarRenderFetchResponse || {data: {}};\n");
+  writeFile(path.join(tempDir, "src/protyle/util/selection.js"), "exports.focusBlock = (element) => (globalThis.__calendarRenderFocusBlocks ||= []).push(element && element.getAttribute && element.getAttribute('data-av-id'));\n");
   writeFile(path.join(tempDir, "src/protyle/util/hasClosest.js"), `
 exports.hasClosestByAttribute = (element, attr, value) => {
   let current = element;

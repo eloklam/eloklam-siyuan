@@ -1,4 +1,4 @@
-import {ICalendarFieldMapping, ICalendarNormalizedEvent, getCellByFieldID, getTextFromCell} from "./model";
+import {ICalendarFieldMapping, getCellByFieldID, getTextFromCell} from "./model";
 
 const getMappedFieldID = (calendarData: IAVCalendar, fieldID: string | undefined, allowedTypes: TAVCol[]) => {
     if (!fieldID) {
@@ -8,16 +8,19 @@ const getMappedFieldID = (calendarData: IAVCalendar, fieldID: string | undefined
 };
 
 export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFieldMapping => {
-    const dateFieldID = calendarData.dateFieldID || "";
+    const persistedDateFieldID = calendarData.dateFieldID || "";
     const persisted = calendarData.fieldMapping || {};
+    const hasDateField = !!persistedDateFieldID && calendarData.fields.some(field => field.id === persistedDateFieldID && field.type === "date");
     return {
-        dateFieldID,
+        // A stale or wrong-typed persisted date field must not satisfy the
+        // write-path guards, so only expose it when it is actually usable.
+        dateFieldID: hasDateField ? persistedDateFieldID : "",
         recurrenceFieldID: getMappedFieldID(calendarData, persisted.recurrenceFieldID, ["text", "template"]),
         exceptionFieldID: getMappedFieldID(calendarData, persisted.exceptionFieldID, ["text", "template"]),
         locationFieldID: getMappedFieldID(calendarData, persisted.locationFieldID, ["text", "template"]),
         descriptionFieldID: getMappedFieldID(calendarData, persisted.descriptionFieldID, ["text", "template"]),
         colorFieldID: getMappedFieldID(calendarData, persisted.colorFieldID, ["select", "mSelect"]),
-        hasDateField: !!dateFieldID && calendarData.fields.some(field => field.id === dateFieldID && field.type === "date"),
+        hasDateField,
     };
 };
 
@@ -44,43 +47,3 @@ export const getMappedMetadata = (card: IAVGalleryItem, mapping: ICalendarFieldM
     };
 };
 
-export const findExistingCell = (event: ICalendarNormalizedEvent, fieldID?: string): IAVCell | undefined => {
-    return getCellByFieldID(event.sourceCard, fieldID);
-};
-
-export const buildTextCellUpdate = (options: {
-    avID: string;
-    event: ICalendarNormalizedEvent;
-    fieldID?: string;
-    value?: string;
-    oldValue?: string;
-}): { doOp: IOperation; undoOp: IOperation } | null => {
-    const {avID, event, fieldID, value = "", oldValue = ""} = options;
-    const cell = findExistingCell(event, fieldID);
-    if (!fieldID || !cell?.id) {
-        return null;
-    }
-    const oldCellValue: IAVCellValue = cell.value ? JSON.parse(JSON.stringify(cell.value)) : {
-        type: "text",
-        id: cell.id,
-        keyID: fieldID,
-        text: {content: oldValue},
-    };
-    const newCellValue: IAVCellValue = {
-        ...JSON.parse(JSON.stringify(oldCellValue)),
-        type: oldCellValue.type === "template" ? "template" : "text",
-        id: cell.id,
-        keyID: fieldID,
-    };
-    if (newCellValue.type === "template") {
-        newCellValue.template = {content: value};
-        delete newCellValue.text;
-    } else {
-        newCellValue.text = {content: value};
-        delete newCellValue.template;
-    }
-    return {
-        doOp: {action: "updateAttrViewCell", id: cell.id, avID, keyID: fieldID, rowID: event.id, data: newCellValue},
-        undoOp: {action: "updateAttrViewCell", id: cell.id, avID, keyID: fieldID, rowID: event.id, data: oldCellValue},
-    };
-};

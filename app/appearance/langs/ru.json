@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "Все элементы повторяющейся серии.",
 	"calendarRecurrenceScopePrompt": "Выберите, к чему применить это изменение.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Это исходное событие хранит повторяющуюся серию. Изменение отдельного повторения доступно только из созданных повторений.",
-	"calendarRecurrenceScopeRootFutureDisabled": "«Это и все последующие» доступно только из созданных повторений."
+	"calendarRecurrenceScopeRootFutureDisabled": "«Это и все последующие» доступно только из созданных повторений.",
+	"newEvent": "New event",
+	"calendarStaleMapping": "Missing or invalid field",
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

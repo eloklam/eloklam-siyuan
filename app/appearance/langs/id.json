@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "Setiap item dalam seri berulang.",
 	"calendarRecurrenceScopePrompt": "Pilih sejauh mana perubahan ini diterapkan.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Acara sumber ini menyimpan seri berulang. Perubahan satu kejadian hanya tersedia dari kejadian yang dihasilkan.",
-	"calendarRecurrenceScopeRootFutureDisabled": "\"Ini dan berikutnya\" hanya tersedia dari kejadian yang dihasilkan."
+	"calendarRecurrenceScopeRootFutureDisabled": "\"Ini dan berikutnya\" hanya tersedia dari kejadian yang dihasilkan.",
+	"newEvent": "New event",
+	"calendarStaleMapping": "Missing or invalid field",
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
 	}

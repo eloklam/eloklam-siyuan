@@ -823,6 +823,34 @@ func removeMissingField(attrView *av.AttributeView, view *av.View, missingKeyID 
 		}
 	}
 
+	if nil != view.Calendar {
+		for i, calendarField := range view.Calendar.Fields {
+			if calendarField.ID == missingKeyID {
+				view.Calendar.Fields = append(view.Calendar.Fields[:i], view.Calendar.Fields[i+1:]...)
+				changed = true
+				break
+			}
+		}
+		if view.Calendar.DateFieldID == missingKeyID {
+			view.Calendar.DateFieldID = ""
+			changed = true
+		}
+		if nil != view.Calendar.FieldMapping {
+			for _, fieldID := range []*string{
+				&view.Calendar.FieldMapping.RecurrenceFieldID,
+				&view.Calendar.FieldMapping.ExceptionFieldID,
+				&view.Calendar.FieldMapping.LocationFieldID,
+				&view.Calendar.FieldMapping.DescriptionFieldID,
+				&view.Calendar.FieldMapping.ColorFieldID,
+			} {
+				if *fieldID == missingKeyID {
+					*fieldID = ""
+					changed = true
+				}
+			}
+		}
+	}
+
 	if changed {
 		av.SaveAttributeView(attrView)
 	}

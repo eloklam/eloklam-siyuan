@@ -2284,5 +2284,8 @@
 	"calendarRecurrenceScopeSeriesDesc": "更改整個重複系列。",
 	"calendarRecurrenceScopePrompt": "選擇此次更改的套用範圍。",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "此來源事件儲存整個重複系列,單次變更僅能從產生的重複項目進行。",
-	"calendarRecurrenceScopeRootFutureDisabled": "「此項目及之後」僅能從產生的重複項目進行。"
+	"calendarRecurrenceScopeRootFutureDisabled": "「此項目及之後」僅能從產生的重複項目進行。",
+	"newEvent": "新增事件",
+	"calendarStaleMapping": "欄位已遺失或型別不符",
+	"calendarEmptyHint": "目前沒有任何行事曆項目——點擊日期或時段即可建立第一筆。"
 	}

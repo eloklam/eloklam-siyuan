@@ -5806,6 +5806,9 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 					removeAttributeViewGroup0(view)
 				}
 			}
+			if nil != view.Calendar {
+				pruneCalendarFieldReferencesByType(view.Calendar, operation.ID, colType)
+			}
 		}
 	}
 
@@ -6023,6 +6026,37 @@ func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err er
 		ReloadAttrView(destAv.ID)
 	}
 	return
+}
+
+// pruneCalendarFieldReferencesByType 在字段类型变更后清理日历视图中不再兼容的字段引用，
+// 避免残留的映射阻塞后续 setAttrViewCalendarFieldMapping 校验。
+func pruneCalendarFieldReferencesByType(calendar *av.LayoutCalendar, keyID string, keyType av.KeyType) {
+	if nil == calendar {
+		return
+	}
+	if calendar.DateFieldID == keyID && av.KeyTypeDate != keyType {
+		calendar.DateFieldID = ""
+	}
+	if nil == calendar.FieldMapping {
+		return
+	}
+	textLike := av.KeyTypeText == keyType || av.KeyTypeTemplate == keyType
+	if calendar.FieldMapping.RecurrenceFieldID == keyID && !textLike {
+		calendar.FieldMapping.RecurrenceFieldID = ""
+	}
+	if calendar.FieldMapping.ExceptionFieldID == keyID && !textLike {
+		calendar.FieldMapping.ExceptionFieldID = ""
+	}
+	if calendar.FieldMapping.LocationFieldID == keyID && !textLike {
+		calendar.FieldMapping.LocationFieldID = ""
+	}
+	if calendar.FieldMapping.DescriptionFieldID == keyID && !textLike {
+		calendar.FieldMapping.DescriptionFieldID = ""
+	}
+	selectLike := av.KeyTypeSelect == keyType || av.KeyTypeMSelect == keyType
+	if calendar.FieldMapping.ColorFieldID == keyID && !selectLike {
+		calendar.FieldMapping.ColorFieldID = ""
+	}
 }
 
 func removeCalendarFieldReferences(calendar *av.LayoutCalendar, keyID string) {

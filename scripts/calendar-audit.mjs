@@ -69,6 +69,10 @@ const expectedFeatureTerms = [
   "getEventTooltip",
   "av__calendar-recurring",
   "data-days",
+  "computeTimedEventColumns",
+  "calendar-more",
+  "av__calendar-empty-hint",
+  "isTitleFallback",
 ];
 
 const missingFeatureTerms = expectedFeatureTerms.filter((term) => !joinedFrontendCode.includes(term));
@@ -338,7 +342,7 @@ for (const term of [
   "allowedTypes.includes(field.type)",
   "getMappedFieldID(calendarData, persisted.recurrenceFieldID, [\"text\", \"template\"])",
   "getMappedFieldID(calendarData, persisted.colorFieldID, [\"select\", \"mSelect\"])",
-  "hasDateField: !!dateFieldID && calendarData.fields.some(field => field.id === dateFieldID && field.type === \"date\")",
+  "const hasDateField = !!persistedDateFieldID && calendarData.fields.some(field => field.id === persistedDateFieldID && field.type === \"date\")",
 ]) {
   if (!mappedFieldsCode.includes(term)) {
     fail(`mapped field guard missing ${term}`);
@@ -571,6 +575,16 @@ for (const term of [
 ]) {
   if (!electronDocumentFlowSmoke.includes(term)) {
     fail(`calendar electron document flow smoke missing ${term}`);
+  }
+}
+
+for (const [file, term] of [
+  ["app/src/protyle/render/av/layout.ts", "calendarStaleMapping"],
+  ["app/src/protyle/render/av/calendar/mapped-fields.ts", "dateFieldID: hasDateField ?"],
+  ["app/src/protyle/render/av/calendar/render.ts", "editable && mapping.hasDateField"],
+]) {
+  if (!read(file).includes(term)) {
+    fail(`${file} missing mapping-robustness guard: ${term}`);
   }
 }
 

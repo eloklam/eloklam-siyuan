@@ -239,7 +239,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     <button class="b3-button b3-button--text av__calendar-dialog-close" data-type="event-close" aria-label="${window.siyuan.languages.close || "Close"}">×</button>
     ${!readOnly && editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${window.siyuan.languages.title || "Title"}" value="${escapeAttr(event?.title || draft?.title || "")}"${disabledAttr}>
+        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${escapeAttr((event?.isTitleFallback ? event.title : "") || window.siyuan.languages.title || "Title")}" value="${escapeAttr((event?.isTitleFallback ? "" : event?.title) || draft?.title || "")}"${disabledAttr}>
     </div>
     <div class="b3-form__space fn__flex">
         <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${startDate}"${disabledAttr}>

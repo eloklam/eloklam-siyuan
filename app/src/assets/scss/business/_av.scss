@@ -2052,6 +2052,32 @@ img.av__cellassetimg {
     text-align: center;
   }
 
+  &-empty-hint {
+    border: 1px dashed var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    margin-bottom: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+
+  &-more {
+    background: transparent;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+    display: block;
+    font-size: 85%;
+    padding: 0 4px;
+    text-align: left;
+    width: 100%;
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--b3-list-hover);
+    }
+  }
+
   &-dialog {
     padding: 16px;
   }

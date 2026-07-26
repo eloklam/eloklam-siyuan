@@ -262,3 +262,54 @@ func TestRemoveCalendarFieldReferences(t *testing.T) {
 		t.Fatalf("color mapping should be cleared, got %s", calendar.FieldMapping.ColorFieldID)
 	}
 }
+
+func TestPruneCalendarFieldReferencesByType(t *testing.T) {
+	newCalendar := func() *av.LayoutCalendar {
+		return &av.LayoutCalendar{
+			DateFieldID: "date",
+			FieldMapping: &av.CalendarFieldMapping{
+				RecurrenceFieldID:  "recurrence",
+				ExceptionFieldID:   "exception",
+				LocationFieldID:    "location",
+				DescriptionFieldID: "description",
+				ColorFieldID:       "color",
+			},
+		}
+	}
+
+	calendar := newCalendar()
+	pruneCalendarFieldReferencesByType(calendar, "date", av.KeyTypeNumber)
+	if calendar.DateFieldID != "" {
+		t.Fatalf("date field should be cleared after type change, got %s", calendar.DateFieldID)
+	}
+
+	calendar = newCalendar()
+	pruneCalendarFieldReferencesByType(calendar, "recurrence", av.KeyTypeNumber)
+	if calendar.FieldMapping.RecurrenceFieldID != "" {
+		t.Fatalf("recurrence mapping should be cleared after type change, got %s", calendar.FieldMapping.RecurrenceFieldID)
+	}
+
+	calendar = newCalendar()
+	pruneCalendarFieldReferencesByType(calendar, "recurrence", av.KeyTypeTemplate)
+	if calendar.FieldMapping.RecurrenceFieldID != "recurrence" {
+		t.Fatalf("template stays valid for recurrence mapping, got %s", calendar.FieldMapping.RecurrenceFieldID)
+	}
+
+	calendar = newCalendar()
+	pruneCalendarFieldReferencesByType(calendar, "color", av.KeyTypeText)
+	if calendar.FieldMapping.ColorFieldID != "" {
+		t.Fatalf("color mapping should be cleared after type change, got %s", calendar.FieldMapping.ColorFieldID)
+	}
+
+	calendar = newCalendar()
+	pruneCalendarFieldReferencesByType(calendar, "color", av.KeyTypeMSelect)
+	if calendar.FieldMapping.ColorFieldID != "color" {
+		t.Fatalf("mSelect stays valid for color mapping, got %s", calendar.FieldMapping.ColorFieldID)
+	}
+
+	calendar = newCalendar()
+	pruneCalendarFieldReferencesByType(calendar, "unrelated", av.KeyTypeNumber)
+	if calendar.DateFieldID != "date" || calendar.FieldMapping.LocationFieldID != "location" {
+		t.Fatalf("unrelated key must not touch calendar references: %#v", calendar.FieldMapping)
+	}
+}
