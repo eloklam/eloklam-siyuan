@@ -696,6 +696,16 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     host.querySelector('.av__calendar').dispatchEvent(new KeyboardEvent('keydown', {key: '1', bubbles: true}));
     await new Promise(resolve => setTimeout(resolve, 100));
     const modeAfterKeyboard = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
+    const selectableCell = host.querySelector('.av__calendar-day[data-date="2026-05-27"]');
+    selectableCell.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    const selectedDateAfterClick = host.dataset.calendarDate || '';
+    const selectedClassApplied = selectableCell.classList.contains('av__calendar-day--selected');
+    const selectedJumpValue = host.querySelector('[data-type="calendar-jump-date"]')?.value || '';
+    host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const selectedDayViewDate = host.querySelector('.av__calendar-day-view')?.getAttribute('data-date') || '';
+    host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
     const search = host.querySelector('[data-type="calendar-search"]');
     search.value = 'none';
     search.dispatchEvent(new Event('input', {bubbles: true}));
@@ -799,6 +809,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       dayMode,
       scheduleMode,
       modeAfterKeyboard,
+      selectedDateAfterClick,
+      selectedClassApplied,
+      selectedJumpValue,
+      selectedDayViewDate,
       anchorAfterPrevEvent,
       anchorAfterNextEvent,
       filteredEventText,
@@ -834,6 +848,8 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.slotCreateDraft?.isAllDay !== false ||
     result.dayMode !== "2" ||
     result.scheduleMode !== "3" || result.modeAfterKeyboard !== "0" ||
+    result.selectedDateAfterClick !== "2026-05-27" || !result.selectedClassApplied ||
+    result.selectedJumpValue !== "2026-05-27" || result.selectedDayViewDate !== "2026-05-27" ||
     result.anchorAfterPrevEvent !== "2026-05-24" || result.anchorAfterNextEvent !== "2026-05-25" ||
     !result.filteredEventText.includes("Calendar none smoke event") ||
     result.filteredEventText.includes("Calendar UI render smoke event") ||

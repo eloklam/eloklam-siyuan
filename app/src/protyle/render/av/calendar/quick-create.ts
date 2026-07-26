@@ -18,6 +18,10 @@ const getDateTimeSummary = (draft: ICalendarEventDraft) => {
     return `${draft.date} ${draft.startTime} - ${draft.endTime}`;
 };
 
+// Creation is AV-row-first: onSave goes through createCalendarEvent, which
+// inserts a detached row in the current database. Rows can be bound to a real
+// document later through the row's own context; the calendar never keeps a
+// separate event store.
 export const openQuickCreate = (options: IQuickCreateOptions) => {
     document.querySelectorAll(".av__calendar-quick-create").forEach((item) => item.remove());
     const {target, draft} = options;

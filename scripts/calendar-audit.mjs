@@ -73,6 +73,7 @@ const expectedFeatureTerms = [
   "calendar-more",
   "av__calendar-empty-hint",
   "isTitleFallback",
+  "av__calendar-day--selected",
 ];
 
 const missingFeatureTerms = expectedFeatureTerms.filter((term) => !joinedFrontendCode.includes(term));

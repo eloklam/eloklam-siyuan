@@ -280,7 +280,7 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
         const hiddenCount = dayEvents.length - visibleEvents.length;
         const moreHTML = hiddenCount > 0 ?
             `<button class="av__calendar-more" data-type="calendar-more" data-date="${cursor.format("YYYY-MM-DD")}" aria-label="${escapeAttr(`+${hiddenCount} ${window.siyuan.languages.calendarEvents || "Events"}`)}">+${hiddenCount}</button>` : "";
-        html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
+        html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.isSame(anchor, "day") ? " av__calendar-day--selected" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}" data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-daynum" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${cursor.date()}</button>
     <div class="av__calendar-events">${visibleEvents.map(event => eventButtonHTML(event, cursor, editable)).join("")}${moreHTML}</div>
 </div>`;
@@ -591,6 +591,26 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         }
         options.blockElement.dataset.calendarDate = jumpDateInput.value;
         rerender();
+    });
+    calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
+        item.addEventListener("click", (event: MouseEvent) => {
+            if ((event.target as HTMLElement).closest(".av__calendar-event, .av__calendar-quick-create, button, input, select")) {
+                return;
+            }
+            const date = (item as HTMLElement).dataset.date;
+            if (!date || options.blockElement.dataset.calendarDate === date) {
+                return;
+            }
+            // Select without re-rendering so the current view stays put; the
+            // anchor is picked up by view switches and prev/next navigation.
+            options.blockElement.dataset.calendarDate = date;
+            const jumpInput = calendarElement.querySelector('[data-type="calendar-jump-date"]') as HTMLInputElement;
+            if (jumpInput) {
+                jumpInput.value = date;
+            }
+            calendarElement.querySelectorAll(".av__calendar-day--selected").forEach(selectedElement => selectedElement.classList.remove("av__calendar-day--selected"));
+            (item as HTMLElement).classList.add("av__calendar-day--selected");
+        });
     });
     calendarElement?.querySelectorAll('[data-type="calendar-more"]').forEach(item => {
         item.addEventListener("click", (event: MouseEvent) => {

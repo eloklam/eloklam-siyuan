@@ -2052,6 +2052,10 @@ img.av__cellassetimg {
     text-align: center;
   }
 
+  &-day--selected {
+    box-shadow: inset 0 0 0 2px var(--b3-theme-primary-lighter);
+  }
+
   &-empty-hint {
     border: 1px dashed var(--b3-border-color);
     border-radius: var(--b3-border-radius);
