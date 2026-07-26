@@ -193,7 +193,14 @@ const evaluateInTarget = async (debugPort, expression) => {
       timeout: 5000,
     });
     if (result.exceptionDetails) {
-      fail(`electron target evaluation failed: ${result.exceptionDetails.text}`);
+      // 带上真实的异常信息与调用栈，否则只会看到 "Uncaught (in promise) TypeError"
+      const details = result.exceptionDetails;
+      const description = details.exception?.description || details.exception?.value || "";
+      const frames = (details.stackTrace?.callFrames || [])
+        .slice(0, 6)
+        .map((frame) => `    at ${frame.functionName || "<anonymous>"} (line ${frame.lineNumber + 1}:${frame.columnNumber})`)
+        .join("\n");
+      fail(`electron target evaluation failed: ${details.text}\n${description}\n${frames}`);
     }
     return result.result?.value;
   } finally {
@@ -243,9 +250,25 @@ const compileCalendarRenderHarness = () => {
     });
     writeFile(path.join(calendarTargetDir, outputFile.replace(/\.ts$/, ".js")), result.outputText);
   };
+  // 纯工具模块没有任何 import，也没有 /// #if 分支，直接编译真身而不是写桩，
+  // 否则桩少导出一个函数（例如 hasClosestByClassName）只会在运行时炸成
+  // "not a function"，被 rerender() 吞掉后表现为“DOM 没更新”这种极难定位的症状。
+  const compileAppFile = (relativePath) => {
+    const source = fs.readFileSync(path.join(appDir, "src", relativePath), "utf8");
+    const result = ts.transpileModule(source, {
+      compilerOptions: {
+        esModuleInterop: false,
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2020,
+      },
+      fileName: path.basename(relativePath),
+    });
+    writeFile(path.join(tempDir, "src", relativePath.replace(/\.ts$/, ".js")), result.outputText);
+  };
   for (const file of ["model.ts", "mapped-fields.ts", "recurrence.ts", "normalize.ts", "quick-create.ts", "render.ts"]) {
     compileCalendarFile(file);
   }
+  compileAppFile("protyle/util/hasClosest.ts");
   // Compile the REAL event-dialog.ts to a side path so the event-dialog stub below
   // can re-export the production recurrence-scope helpers instead of hand-forking
   // them (which would silently drift from app/src/.../event-dialog.ts).
@@ -284,18 +307,31 @@ exports.escapeAttr = escapeHtml;
 `);
   writeFile(path.join(tempDir, "src/util/fetch.js"), "exports.fetchSyncPost = async () => globalThis.__calendarRenderFetchResponse || {data: {}};\n");
   writeFile(path.join(tempDir, "src/protyle/util/selection.js"), "exports.focusBlock = (element) => (globalThis.__calendarRenderFocusBlocks ||= []).push(element && element.getAttribute && element.getAttribute('data-av-id'));\n");
-  writeFile(path.join(tempDir, "src/protyle/util/hasClosest.js"), `
-exports.hasClosestByAttribute = (element, attr, value) => {
-  let current = element;
-  while (current) {
-    if (current.getAttribute && current.getAttribute(attr) === value) return current;
-    current = current.parentElement;
-  }
-  return undefined;
-};
-`);
   writeFile(path.join(tempDir, "src/protyle/wysiwyg/transaction.js"), "exports.transaction = (protyle, doOperations, undoOperations) => (globalThis.__calendarRenderTransactions ||= []).push({doOperations, undoOperations});\n");
-  writeFile(path.join(tempDir, "src/protyle/render/av/render.js"), "exports.genTabHeaderHTML = () => '<div class=\"av__header\"></div>';\n");
+  // render.ts re-dispatches to the sibling layouts and uses the shared
+  // search/locate pipeline, so those modules need stubs that record the calls.
+  writeFile(path.join(tempDir, "src/protyle/render/av/render.js"), `
+exports.genTabHeaderHTML = () => '<div class="av__header"></div>';
+exports.avRender = (...args) => (globalThis.__calendarRenderDispatches ||= []).push({layout: 'table', args});
+exports.updateSearch = (...args) => (globalThis.__calendarRenderSearchUpdates ||= []).push(args);
+`);
+  writeFile(path.join(tempDir, "src/protyle/render/av/gallery/render.js"), "exports.renderGallery = (options) => (globalThis.__calendarRenderDispatches ||= []).push({layout: 'gallery', options});\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/kanban/render.js"), "exports.renderKanban = (options) => (globalThis.__calendarRenderDispatches ||= []).push({layout: 'kanban', options});\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/search.js"), "exports.bindAvSearch = (options) => (globalThis.__calendarRenderSearchBinds ||= []).push(options);\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/locate.js"), `
+// 与真实实现一致：渲染令牌按 blockElement 存储，不能用单一全局计数器，
+// 否则多个宿主互相作废对方的渲染。
+const renderTokens = new WeakMap();
+exports.beginAVRender = (blockElement) => {
+  const token = Symbol();
+  renderTokens.set(blockElement, token);
+  return token;
+};
+exports.isCurrentAVRender = (blockElement, token) => renderTokens.get(blockElement) === token;
+exports.getAVLocateParams = () => undefined;
+exports.prepareAVLocate = () => undefined;
+exports.finishAVLocate = () => undefined;
+`);
   writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), `
 // Pure helpers come from the compiled real module so the harness cannot drift
 // from production logic; only the dialog openers are replaced with recorders.
@@ -569,6 +605,19 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     viewID: nodeID(),
   };
   const result = await evaluateInTarget(debugPort, `(async () => {
+    // rerender() 里的 renderCalendar(...).then(...) 没有 catch，渲染中途抛错只会变成
+    // 一条 unhandled rejection，DOM 静悄悄停在上一次的样子。把来自本 harness 模块的
+    // rejection 收集起来并在结尾断言为空，否则下次又要靠“DOM 为什么没更新”反推。
+    if (!globalThis.__calendarRenderRejectionHook) {
+      globalThis.__calendarRenderRejectionHook = true;
+      window.addEventListener('unhandledrejection', (event) => {
+        const detail = String(event.reason && (event.reason.stack || event.reason.message) || event.reason);
+        if (detail.includes('.calendar-electron-render-')) {
+          (globalThis.__calendarRenderRejections ||= []).push(detail.split('\\n').slice(0, 3).join(' | '));
+        }
+      });
+    }
+    globalThis.__calendarRenderRejections = [];
     const renderModule = require(${JSON.stringify(renderModule)});
     window.siyuan = window.siyuan || {};
     window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en'});
@@ -667,7 +716,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     };
     globalThis.__calendarRenderFetchResponse = {data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'}};
     await renderModule.renderCalendar({
-      protyle: {disabled: false, block: {action: []}},
+      protyle: {disabled: false, block: {action: []}, options: {}},
       blockElement: host,
       renderAll: true,
       data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'},
@@ -677,7 +726,19 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const initialEventCount = host.querySelectorAll('.av__calendar-event').length;
     const recurringCount = host.querySelectorAll('.av__calendar-recurring').length;
     const tooltip = host.querySelector('.av__calendar-event')?.getAttribute('title') || '';
-    host.querySelector('[data-type="calendar-new"]:not(.av__calendar-daynum)').click();
+    // 渲染失败时给出可读诊断，而不是让后面的 .click() 抛 "null.click"
+    if (!calendarElement) {
+      throw new Error('calendar did not render; host.innerHTML head=' + host.innerHTML.slice(0, 600));
+    }
+    const clickOrThrow = (selector, root) => {
+      const element = (root || host).querySelector(selector);
+      if (!element) {
+        throw new Error('missing element for click: ' + selector + '; calendar HTML head=' + calendarElement.innerHTML.slice(0, 600));
+      }
+      element.click();
+      return element;
+    };
+    clickOrThrow('[data-type="calendar-new"]:not(.av__calendar-daynum)');
     const toolbarQuickTitleFocused = document.activeElement?.getAttribute('data-type') === 'calendar-quick-create-title';
     const toolbarQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
     host.querySelector('[data-type="calendar-quick-create-more"]').click();
@@ -708,6 +769,15 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const weekMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
     const dialogCountBeforeSlot = globalThis.__calendarRenderDialogs.length;
     const slot = host.querySelector('[data-type="calendar-time-slot"][data-date="2026-05-26"][data-start="09:00"]');
+    if (!slot) {
+      const dates = Array.from(new Set(Array.from(host.querySelectorAll('[data-type="calendar-time-slot"]')).map(s => s.getAttribute('data-date'))));
+      throw new Error('week time slot missing; mode=' + (host.querySelector('.av__calendar')?.getAttribute('data-view-mode')) +
+        ' slotDates=' + JSON.stringify(dates.slice(0, 10)) + ' slotCount=' + host.querySelectorAll('[data-type="calendar-time-slot"]').length +
+        ' fixtureViewMode=' + calendar.viewMode + ' datasetMode=' + host.dataset.calendarViewMode +
+        ' modeButtons=' + host.querySelectorAll('[data-type="calendar-mode"]').length +
+        ' txActions=' + JSON.stringify((globalThis.__calendarRenderTransactions || []).flatMap(item => (item.doOperations || []).map(op => op.action)).slice(-6)) +
+        ' msgs=' + JSON.stringify((globalThis.__calendarRenderMessages || []).slice(-3)));
+    }
     slot.click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const slotQuickTitle = host.querySelector('[data-type="calendar-quick-create-title"]');
@@ -776,6 +846,12 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const overlapDayViewDate = host.querySelector('.av__calendar-day-view')?.getAttribute('data-date') || '';
+    if (!overlapDayViewDate) {
+      throw new Error('day view missing after mode=2; renderedMode=' + host.querySelector('.av__calendar')?.getAttribute('data-view-mode') +
+        ' datasetMode=' + host.dataset.calendarViewMode + ' fixtureMode=' + calendar.viewMode +
+        ' anchor=' + host.dataset.calendarDate +
+        ' calendarHTMLHead=' + (host.querySelector('.av__calendar')?.innerHTML || '').slice(0, 400));
+    }
     const overlapFirst = host.querySelector('.av__calendar-event[data-id="row-ov1"]')?.closest('.av__calendar-timed-event');
     const overlapSecond = host.querySelector('.av__calendar-event[data-id="row-ov2"]')?.closest('.av__calendar-timed-event');
     const overlapFirstWidth = overlapFirst?.style.width || '';
@@ -816,7 +892,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     readOnlyHost.innerHTML = '<div></div>';
     document.body.appendChild(readOnlyHost);
     await renderModule.renderCalendar({
-      protyle: {disabled: false, block: {action: []}},
+      protyle: {disabled: false, block: {action: []}, options: {}},
       blockElement: readOnlyHost,
       renderAll: true,
       data: {view: {...calendar, viewMode: 0}, viewID: ${JSON.stringify(fixture.viewID)} + '-readonly', viewType: 'calendar'},
@@ -836,7 +912,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     document.body.appendChild(setupHost);
     const setupTransactionStart = globalThis.__calendarRenderTransactions.length;
     await renderModule.renderCalendar({
-      protyle: {disabled: false, block: {action: []}},
+      protyle: {disabled: false, block: {action: []}, options: {}},
       blockElement: setupHost,
       renderAll: true,
       data: {view: {...calendar, dateFieldID: '', cards: []}, viewID: ${JSON.stringify(fixture.viewID)} + '-setup', viewType: 'calendar'},
@@ -855,7 +931,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     document.body.appendChild(createFieldHost);
     const createFieldTransactionStart = globalThis.__calendarRenderTransactions.length;
     await renderModule.renderCalendar({
-      protyle: {disabled: false, block: {action: []}},
+      protyle: {disabled: false, block: {action: []}, options: {}},
       blockElement: createFieldHost,
       renderAll: true,
       data: {view: {...calendar, dateFieldID: '', fields: calendar.fields.filter(field => field.type !== 'date'), cards: []}, viewID: ${JSON.stringify(fixture.viewID)} + '-create-field', viewType: 'calendar'},
@@ -875,7 +951,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     emptyHost.innerHTML = '<div></div>';
     document.body.appendChild(emptyHost);
     await renderModule.renderCalendar({
-      protyle: {disabled: false, block: {action: []}},
+      protyle: {disabled: false, block: {action: []}, options: {}},
       blockElement: emptyHost,
       renderAll: true,
       data: {view: {...calendar, cards: []}, viewID: ${JSON.stringify(fixture.viewID)} + '-empty', viewType: 'calendar'},
@@ -894,7 +970,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     offRangeHost.innerHTML = '<div></div>';
     document.body.appendChild(offRangeHost);
     await renderModule.renderCalendar({
-      protyle: {disabled: false, block: {action: []}},
+      protyle: {disabled: false, block: {action: []}, options: {}},
       blockElement: offRangeHost,
       renderAll: true,
       data: {view: {...calendar}, viewID: ${JSON.stringify(fixture.viewID)} + '-offrange', viewType: 'calendar'},
@@ -979,6 +1055,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       setupOperationData: setupOperation.data || '',
       createFieldHasButton,
       createFieldOperations,
+      harnessRejections: (globalThis.__calendarRenderRejections || []).join(' ;; '),
     };
   })()`);
   if (!result?.hasCalendar || result.modeCount !== 4 || !result.hasSummary || !result.hasSearch ||
@@ -1021,7 +1098,8 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.readOnlyLocalMode !== "2" || result.readOnlyRenderedMode !== "2" ||
     !result.setupHasSelect || result.setupOperationAction !== "setAttrViewCalendarDateField" ||
     result.setupOperationData !== "date" || !result.createFieldHasButton ||
-    result.createFieldOperations.join(",") !== "addAttrViewCol,setAttrViewCalendarDateField") {
+    result.createFieldOperations.join(",") !== "addAttrViewCol,setAttrViewCalendarDateField" ||
+    result.harnessRejections !== "") {
     fail(`calendar Electron render smoke failed: ${JSON.stringify(result)}`);
   }
   return result;

@@ -493,6 +493,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             const searchInput = options.blockElement.querySelector('[data-type="calendar-search"]') as HTMLInputElement;
             searchInput?.focus();
             searchInput?.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        }).catch((error) => {
+            // 重绘抛错时 data-render 已被摘掉：不恢复标记的话日历会永久停在陈旧画面，
+            // 而且用户看不到任何提示（这正是渲染类缺陷难以察觉的原因）。
+            options.blockElement.setAttribute("data-render", "true");
+            showMessage(window.siyuan.languages._kernel[258]);
+            console.error("calendar rerender failed", error);
         });
     };
     const setCalendarAnchor = (date: dayjs.Dayjs) => {
