@@ -2294,5 +2294,9 @@
 	"none": "Geen",
 	"saved": "Opgeslagen",
 	"dateField": "Datumveld",
-	"calendarEmptyHint": "Nog geen kalenderitems — klik op een dag of een tijdvak om de eerste aan te maken."
+	"calendarEmptyHint": "Nog geen kalenderitems — klik op een dag of een tijdvak om de eerste aan te maken.",
+	"calendarRenamePageFailed": "Naam van de gebeurtenispagina wijzigen is mislukt.",
+	"calendarDeletePageFailed": "Verwijderen van de gebeurtenispagina is mislukt.",
+	"calendarOccurrenceRollbackFailed": "De herhaling bleef verborgen en er is geen vervanging gemaakt.",
+	"calendarSplitRollbackFailed": "De reeks is ingekort en er is geen vervolgreeks gemaakt."
 	}

@@ -2294,5 +2294,9 @@
 	"none": "אין",
 	"saved": "נשמר",
 	"dateField": "שדה תאריך",
-	"calendarEmptyHint": "אין עדיין פריטים בלוח השנה — לחץ על יום או על משבצת זמן כדי ליצור את הפריט הראשון."
+	"calendarEmptyHint": "אין עדיין פריטים בלוח השנה — לחץ על יום או על משבצת זמן כדי ליצור את הפריט הראשון.",
+	"calendarRenamePageFailed": "שינוי שם דף האירוע נכשל.",
+	"calendarDeletePageFailed": "מחיקת דף האירוע נכשלה.",
+	"calendarOccurrenceRollbackFailed": "המופע נותר מוסתר ולא נוצר תחליף.",
+	"calendarSplitRollbackFailed": "הסדרה קוצרה ולא נוצרה סדרת המשך."
 	}

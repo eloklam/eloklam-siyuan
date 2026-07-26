@@ -2294,5 +2294,9 @@
 	"none": "Žiadny",
 	"saved": "Uložené",
 	"dateField": "Pole dátumu",
-	"calendarEmptyHint": "Zatiaľ žiadne položky kalendára — kliknite na deň alebo časový úsek a vytvorte prvú položku."
+	"calendarEmptyHint": "Zatiaľ žiadne položky kalendára — kliknite na deň alebo časový úsek a vytvorte prvú položku.",
+	"calendarRenamePageFailed": "Premenovanie stránky udalosti zlyhalo.",
+	"calendarDeletePageFailed": "Odstránenie stránky udalosti zlyhalo.",
+	"calendarOccurrenceRollbackFailed": "Výskyt zostal skrytý a nevytvorila sa žiadna náhrada.",
+	"calendarSplitRollbackFailed": "Séria bola skrátená a nevytvorila sa nadväzujúca séria."
 	}

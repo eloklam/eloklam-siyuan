@@ -25,6 +25,7 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 		ret.DateFieldID = view.Calendar.DateFieldID
 		ret.ViewMode = view.Calendar.ViewMode
 		ret.WeekStart = view.Calendar.WeekStart
+		ret.NewItemTarget = view.Calendar.NewItemTarget
 		ret.FieldMapping = view.Calendar.FieldMapping
 
 		fields := make([]*av.ViewCalendarCardField, len(view.Calendar.Fields))

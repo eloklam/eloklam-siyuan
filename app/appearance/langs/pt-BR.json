@@ -2294,5 +2294,9 @@
 	"none": "Nenhum",
 	"saved": "Salvo",
 	"dateField": "Campo de data",
-	"calendarEmptyHint": "Ainda não há itens no calendário — clique em um dia ou em um horário para criar o primeiro."
+	"calendarEmptyHint": "Ainda não há itens no calendário — clique em um dia ou em um horário para criar o primeiro.",
+	"calendarRenamePageFailed": "Falha ao renomear a página do evento.",
+	"calendarDeletePageFailed": "Falha ao excluir a página do evento.",
+	"calendarOccurrenceRollbackFailed": "A ocorrência permaneceu oculta e nenhuma substituição foi criada.",
+	"calendarSplitRollbackFailed": "A série foi encurtada e nenhuma série subsequente foi criada."
 	}

@@ -2294,5 +2294,9 @@
 	"none": "無",
 	"saved": "已保存",
 	"dateField": "日期欄位",
-	"calendarEmptyHint": "目前沒有任何行事曆項目——點擊日期或時段即可建立第一筆。"
+	"calendarEmptyHint": "目前沒有任何行事曆項目——點擊日期或時段即可建立第一筆。",
+	"calendarRenamePageFailed": "重新命名行程頁面失敗。",
+	"calendarDeletePageFailed": "刪除行程頁面失敗。",
+	"calendarOccurrenceRollbackFailed": "該次重複項目已隱藏,但未建立替代項目。",
+	"calendarSplitRollbackFailed": "系列已截斷,但未建立後續系列。"
 	}

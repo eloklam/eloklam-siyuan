@@ -1798,6 +1798,29 @@ img.av__cellassetimg {
     }
   }
 
+  // Opens the scheduling dialog from a chip whose plain click opens the page.
+  &-schedule {
+    align-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 10px;
+    height: 16px;
+    justify-content: center;
+    line-height: 14px;
+    opacity: 0.82;
+    width: 16px;
+
+    &:hover,
+    &:focus-visible {
+      opacity: 1;
+      outline: 1px solid currentColor;
+      outline-offset: 1px;
+    }
+  }
+
   &-event-source {
     align-items: center;
     color: var(--b3-theme-on-surface);
@@ -1821,13 +1844,17 @@ img.av__cellassetimg {
     pointer-events: none;
   }
 
+  // Also worn by the optimistic chip a page create paints before the kernel
+  // answers: it is a preview, so it must never look interactive.
   &-event--pending {
+    cursor: default;
     opacity: .72;
     pointer-events: none;
     position: relative;
   }
 
   &-event--pending::after {
+    animation: av__calendar-pending 1.2s ease-in-out infinite;
     background: var(--b3-theme-primary);
     border-radius: 999px;
     bottom: 2px;
@@ -1836,6 +1863,26 @@ img.av__cellassetimg {
     left: 6px;
     position: absolute;
     right: 6px;
+  }
+
+  // A bound entry opens its page on click; keep that promise visible on hover.
+  &-event--page:hover {
+    box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
+  }
+
+  // "New entries" decides whether an entry is a page at all, so it is set apart
+  // from the field-mapping rows above it while keeping their stacked rhythm.
+  &-config-row {
+    border-top: 1px solid var(--b3-border-color);
+    padding-top: 8px;
+
+    label {
+      display: block;
+    }
+  }
+
+  &-new-item-target {
+    margin-top: 2px;
   }
 
   &-dialog-close {
@@ -2127,5 +2174,23 @@ img.av__cellassetimg {
 
   &-time-sep {
     line-height: 28px;
+  }
+}
+
+// The in-flight bar under an optimistic / pending calendar chip.
+@keyframes av__calendar-pending {
+  0%,
+  100% {
+    opacity: .35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .av__calendar-event--pending::after {
+    animation: none;
   }
 }

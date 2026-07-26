@@ -302,6 +302,101 @@ const orphanItemIDs = () => {
 };
 
 // ---------------------------------------------------------------------------
+// pushed-transaction capture: the ONLY place the kernel's undo unit is visible
+//
+// POST /api/av/createAttributeViewItem answers with {itemID, blockID} but the
+// Transaction it built (restoreCreatedDoc + insertAttrViewBlock + the cell
+// writes, with the matching undoOperations) is pushed over the websocket, and
+// that pushed transaction IS what the frontend puts on the undo stack. So the
+// "one undoable unit" claim can only be proven by reading it off /ws.
+// insertAttrViewBlock contains "attrview", so shouldBroadcastAttrViewTransactions()
+// upgrades the push to PushModeBroadcast and our own session receives it too.
+// ---------------------------------------------------------------------------
+const PUSH_APP = "calendar-contract-smoke";
+const PUSH_SESSION = "calendar-contract-smoke-ws";
+let pushSocket = null;
+const pushedTransactions = [];
+
+const connectPushSocket = async () => {
+  const url = `${baseURL.replace(/^http/, "ws")}/ws?app=${PUSH_APP}&id=${PUSH_SESSION}&type=main`;
+  const socket = new WebSocket(url);
+  socket.addEventListener("message", (event) => {
+    let message;
+    try {
+      message = JSON.parse(typeof event.data === "string" ? event.data : String(event.data));
+    } catch {
+      return;
+    }
+    if (message?.cmd === "transactions" && Array.isArray(message.data)) {
+      pushedTransactions.push(...message.data);
+    }
+  });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("websocket connect timed out")), 8000);
+    socket.addEventListener("open", () => {
+      clearTimeout(timer);
+      resolve();
+    }, {once: true});
+    socket.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("websocket connect failed"));
+    }, {once: true});
+  });
+  pushSocket = socket;
+};
+
+/** Wait for the pushed transaction that carries `itemID`, or undefined. */
+const waitForPushedTransaction = async (itemID, timeoutMs = 5000) => {
+  const matches = (tx) => (tx?.doOperations || []).some(op =>
+    (op.srcs || []).some(src => src.itemID === itemID) || op.rowID === itemID ||
+    (op.srcIDs || []).includes(itemID));
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = pushedTransactions.filter(matches);
+    if (found.length > 0) {
+      return found;
+    }
+    await sleep(100);
+  }
+  return [];
+};
+
+/** Recursively locate a .sy file under the workspace data dir. */
+const findSyFile = (dir, docID) => {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, {withFileTypes: true});
+  } catch {
+    return "";
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = findSyFile(full, docID);
+      if (found) {
+        return found;
+      }
+    } else if (entry.name === `${docID}.sy`) {
+      return full;
+    }
+  }
+  return "";
+};
+
+/** Root IAL of a created document, read straight off disk (index-lag proof). */
+const readDocIAL = (docID) => {
+  const file = findSyFile(path.join(workspace, "data"), docID);
+  if (!file) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8")).Properties || {};
+  } catch {
+    return null;
+  }
+};
+
+// ---------------------------------------------------------------------------
 // transpile the real frontend modules
 // ---------------------------------------------------------------------------
 let tempDir = "";
@@ -312,10 +407,21 @@ const transpileFrontend = async () => {
   tempDir = fs.mkdtempSync(path.join(appDir, ".calendar-contract-smoke-"));
   const calendarDir = path.join(tempDir, "src/protyle/render/av/calendar");
   const utilDir = path.join(tempDir, "src/util");
+  const dialogDir = path.join(tempDir, "src/dialog");
   fs.mkdirSync(calendarDir, {recursive: true});
   fs.mkdirSync(utilDir, {recursive: true});
+  fs.mkdirSync(dialogDir, {recursive: true});
   fs.writeFileSync(path.join(tempDir, "src/constants.js"),
     'exports.Constants = {SIYUAN_APPID: "calendar-contract-smoke"};\n');
+
+  // showMessage() is how the transaction helpers surface a failure reason to the
+  // user; record the calls so a "returned null/false" defect can name the reason.
+  fs.writeFileSync(path.join(dialogDir, "message.js"), `
+const messages = [];
+exports.__calendarMessages = messages;
+exports.showMessage = (text, timeout, type) => { messages.push({text, timeout, type}); return ""; };
+exports.hideMessage = () => undefined;
+`);
 
   // The real fetchSyncPost, pointed at the real kernel. Every transaction the
   // frontend performs is recorded so its undoOperations can be replayed later.
@@ -438,6 +544,11 @@ const main = async () => {
 
     await waitForBoot();
     resetLogCursor();
+    try {
+      await connectPushSocket();
+    } catch (error) {
+      recordDefect("could not attach to the kernel push socket", error.message);
+    }
 
     // -- real notebook + document + attribute view -------------------------
     const notebookData = await postJSONOk("/api/notebook/createNotebook", {
@@ -1008,6 +1119,266 @@ const main = async () => {
       }
     }
 
+    // ---------------------------------------------------------------------
+    // page-per-entry: a calendar entry must be a real SiYuan document
+    // ---------------------------------------------------------------------
+    console.log("\n== step: page-per-entry defaults (new-item template + newItemTarget) ==");
+    const calendarRender = await renderAV();
+    // K4: this calendar view was created during this run, so it must default to "document".
+    assertOrDefect(calendarRender.view?.newItemTarget === "document",
+      "a newly created calendar view does not default to the document (page) new-entry target",
+      `newItemTarget=${JSON.stringify(calendarRender.view?.newItemTarget)}`,
+      {file: "kernel/av/layout_calendar.go"});
+    // K3: turning a view into a calendar seeds a document-typed new-item template.
+    const docTemplate = (calendarRender.newItemTemplates || [])
+      .find(itemTemplate => itemTemplate.targetType === "document");
+    assertOrDefect(!!docTemplate,
+      "becoming a calendar view did not seed a document-typed new-item template",
+      `newItemTemplates=${JSON.stringify(calendarRender.newItemTemplates)}`,
+      {file: "kernel/model/attribute_view.go"});
+    if (docTemplate) {
+      assertOrDefect(!!docTemplate.saveLocation && !docTemplate.saveLocation.boxID &&
+        !docTemplate.saveLocation.pathTemplate,
+        "the seeded entry-page template does not resolve to the AV block's own notebook/root",
+        `saveLocation=${JSON.stringify(docTemplate.saveLocation)} ` +
+        "(empty boxID + empty pathTemplate is what makes the entry page a child of the doc holding the calendar)",
+        {file: "kernel/model/attribute_view.go"});
+    }
+
+    console.log("\n== step: createAttributeViewItem with primaryKey + fieldValues ==");
+    const pageTitle = "Page entry";
+    const pageStartMs = dayjs("2026-07-14T09:00:00").valueOf();
+    const pageEndMs = dayjs("2026-07-14T10:00:00").valueOf();
+    pushedTransactions.length = 0;
+    const createItemResult = await postJSON("/api/av/createAttributeViewItem", {
+      avID, blockID: avBlockID, viewID: calendarViewID,
+      templateID: docTemplate?.id || "",
+      primaryKey: pageTitle,
+      fieldValues: {
+        [keys.date]: {
+          type: "date",
+          date: {
+            content: pageStartMs, isNotEmpty: true,
+            content2: pageEndMs, isNotEmpty2: true,
+            hasEndDate: true, isNotTime: false,
+          },
+        },
+        [keys.location]: {type: "text", text: {content: "Page room"}},
+      },
+      app: PUSH_APP, session: PUSH_SESSION,
+    });
+    opsCovered.add("createAttributeViewItem");
+    const createItemClean = assertOrDefect(createItemResult.code === 0,
+      "createAttributeViewItem rejected the page-per-entry payload",
+      `code=${createItemResult.code} msg=${createItemResult.msg} data=${JSON.stringify(createItemResult.data)}`,
+      {file: "kernel/api/av.go"});
+    const pageItemID = createItemResult.data?.itemID;
+    const pageDocID = createItemResult.data?.blockID;
+    assertOrDefect(!!pageItemID && !!pageDocID,
+      "createAttributeViewItem did not return both itemID and blockID",
+      `data=${JSON.stringify(createItemResult.data)}`, {file: "kernel/api/av.go"});
+    assertOrDefect(!pageItemID || !pageDocID || pageItemID !== pageDocID,
+      "createAttributeViewItem returned the same id for the AV item and the document, so nothing was bound",
+      `itemID=${pageItemID} blockID=${pageDocID}`, {file: "kernel/model/attribute_view_new_item.go"});
+
+    if (createItemClean && pageItemID) {
+      const pageState = await renderAV();
+      const pageCard = cardByID(pageState, pageItemID);
+      assertOrDefect(!!pageCard,
+        "createAttributeViewItem: the created item is not in the calendar view",
+        `item IDs=${JSON.stringify((pageState.view.cards || []).map(c => c.id))}`);
+      const blockCell = pageCard?.values.find(cell => cell.valueType === "block")?.value;
+      assertOrDefect(blockCell?.block?.id === pageDocID,
+        "the created row is not bound to the created document",
+        `block value=${JSON.stringify(blockCell)} want block.id=${pageDocID}`,
+        {file: "kernel/model/attribute_view_new_item.go"});
+      assertOrDefect(blockCell?.isDetached !== true,
+        "the created row is still detached, so the entry has no page",
+        `block value=${JSON.stringify(blockCell)}`);
+      assertOrDefect(blockCell?.block?.content === pageTitle,
+        "the primary key of the bound row is not the caller-supplied title",
+        `content=${JSON.stringify(blockCell?.block?.content)} want=${pageTitle} ` +
+        "(for a bound row the kernel derives the primary key from the document, so the document " +
+        "must have been created with that title)",
+        {file: "kernel/model/attribute_view_new_item.go"});
+      const pageDate = cellValue(pageCard, keys.date)?.date;
+      assertOrDefect(pageDate?.isNotEmpty === true && pageDate?.content === pageStartMs,
+        "createAttributeViewItem: the fieldValues date cell was not written",
+        `date=${JSON.stringify(pageDate)} want content=${pageStartMs}`,
+        {file: "kernel/model/attribute_view_new_item.go"});
+      assertOrDefect(textOf(pageCard, keys.location) === "Page room",
+        "createAttributeViewItem: the fieldValues text cell was not written",
+        `got=${textOf(pageCard, keys.location)}`, {file: "kernel/model/attribute_view_new_item.go"});
+
+      // -- the document really exists and knows about the AV -----------------
+      const docInfo = await postJSON("/api/block/getBlockInfo", {id: pageDocID});
+      assertOrDefect(docInfo.code === 0,
+        "the document the calendar entry points at does not exist",
+        `getBlockInfo code=${docInfo.code} msg=${docInfo.msg}`);
+      assertOrDefect(docInfo.data?.rootID === pageDocID,
+        "createAttributeViewItem bound the row to something that is not a document root",
+        `rootID=${docInfo.data?.rootID} blockID=${pageDocID}`);
+      const indexedAttrs = await postJSON("/api/attr/getBlockAttrs", {id: pageDocID});
+      const diskIAL = readDocIAL(pageDocID);
+      const avsAttr = diskIAL?.["custom-avs"] ?? indexedAttrs.data?.["custom-avs"] ?? "";
+      assertOrDefect(String(avsAttr).split(",").includes(avID),
+        "the created entry page does not carry the avID in its custom-avs IAL, so the binding is one-way",
+        `custom-avs=${JSON.stringify(avsAttr)} want to contain ${avID}\n` +
+        `disk IAL=${JSON.stringify(diskIAL)}\nindexed attrs=${JSON.stringify(indexedAttrs.data)}`,
+        {file: "kernel/model/attribute_view.go"});
+
+      // -- one undoable unit -------------------------------------------------
+      const pushed = await waitForPushedTransaction(pageItemID);
+      assertOrDefect(pushed.length === 1,
+        "creating a calendar entry page is not ONE undoable unit",
+        `transactions pushed for item ${pageItemID}: ${pushed.length}\n` +
+        `${JSON.stringify(pushed.map(tx => (tx.doOperations || []).map(op => op.action)))}`,
+        {file: "kernel/model/attribute_view_new_item.go"});
+      const pushedTx = pushed[0];
+      if (pushedTx) {
+        const doActions = (pushedTx.doOperations || []).map(op => op.action);
+        const undoActions = (pushedTx.undoOperations || []).map(op => op.action);
+        (pushedTx.doOperations || []).forEach(op => op.action && opsCovered.add(op.action));
+        (pushedTx.undoOperations || []).forEach(op => op.action && opsCovered.add(op.action));
+        for (const action of ["restoreCreatedDoc", "insertAttrViewBlock", "updateAttrViewCell"]) {
+          assertOrDefect(doActions.includes(action),
+            `the pushed create transaction is missing ${action}, so the create is not atomic`,
+            `doOperations=${JSON.stringify(doActions)}`,
+            {file: "kernel/model/attribute_view_new_item.go"});
+        }
+        const pushedInsert = (pushedTx.doOperations || []).find(op => op.action === "insertAttrViewBlock");
+        assertOrDefect(pushedInsert?.srcs?.[0]?.itemID === pageItemID &&
+          pushedInsert?.srcs?.[0]?.id === pageDocID &&
+          pushedInsert?.srcs?.[0]?.isDetached === false,
+          "the pushed insert does not bind the new item to the new document",
+          `srcs=${JSON.stringify(pushedInsert?.srcs)} want itemID=${pageItemID} id=${pageDocID}`,
+          {file: "kernel/model/attribute_view_new_item.go"});
+        const pushedCellOps = (pushedTx.doOperations || [])
+          .filter(op => op.action === "updateAttrViewCell");
+        assertOrDefect(pushedCellOps.length > 0 && pushedCellOps.every(op => op.rowID === pageItemID),
+          "the pushed cell writes are not addressed at the new item id",
+          `rowIDs=${JSON.stringify(pushedCellOps.map(op => op.rowID))} want ${pageItemID}`,
+          {file: "kernel/model/attribute_view_new_item.go"});
+        assertOrDefect(undoActions.includes("removeAttrViewBlock") &&
+          undoActions.includes("removeCreatedDoc"),
+          "undoing a calendar entry page would leave the row or the document behind",
+          `undoOperations=${JSON.stringify(undoActions)}`,
+          {file: "kernel/model/attribute_view_new_item.go"});
+        const undoRemove = (pushedTx.undoOperations || [])
+          .find(op => op.action === "removeAttrViewBlock");
+        assertOrDefect((undoRemove?.srcIDs || []).includes(pageItemID),
+          "the undo of a calendar entry page targets the wrong item id",
+          `srcIDs=${JSON.stringify(undoRemove?.srcIDs)} want ${pageItemID}`,
+          {file: "kernel/model/attribute_view_new_item.go"});
+        const undoDoc = (pushedTx.undoOperations || []).find(op => op.action === "removeCreatedDoc");
+        assertOrDefect(undoDoc?.id === pageDocID,
+          "the undo of a calendar entry page targets the wrong document",
+          `removeCreatedDoc id=${undoDoc?.id} want ${pageDocID}`,
+          {file: "kernel/model/attribute_view_new_item.go"});
+      }
+    }
+
+    // -- templateID may be omitted: a document-target calendar view still pages
+    console.log("\n== step: createAttributeViewItem without templateID (view default) ==");
+    const defaultedItem = await postJSON("/api/av/createAttributeViewItem", {
+      avID, blockID: avBlockID, viewID: calendarViewID, primaryKey: "Defaulted entry",
+      app: PUSH_APP, session: PUSH_SESSION,
+    });
+    assertOrDefect(defaultedItem.code === 0 && defaultedItem.data?.itemID &&
+      defaultedItem.data?.blockID && defaultedItem.data.itemID !== defaultedItem.data.blockID,
+      "with no templateID a document-target calendar view still creates a detached row instead of a page",
+      `code=${defaultedItem.code} data=${JSON.stringify(defaultedItem.data)}`,
+      {file: "kernel/model/attribute_view_new_item.go"});
+
+    // -- K5: deleting the page must not leave a ghost event ------------------
+    console.log("\n== step: deleting the entry page removes the event (no ghost card) ==");
+    if (pageItemID && pageDocID) {
+      const removeDoc = await postJSON("/api/filetree/removeDocByID", {id: pageDocID});
+      assertOrDefect(removeDoc.code === 0, "could not remove the created entry page",
+        `code=${removeDoc.code} msg=${removeDoc.msg}`);
+      await sleep(600);
+      const afterRemoval = await renderAV();
+      const stillInAvJSON = (readAvJSON().keyValues || []).some(kv => kv.key?.type === "block" &&
+        (kv.values || []).some(value => value.blockID === pageItemID));
+      assertOrDefect(!cardByID(afterRemoval, pageItemID),
+        "deleting an entry page leaves a permanent ghost event on the calendar",
+        `item ${pageItemID} is still rendered; its row is ${stillInAvJSON ? "still" : "no longer"} in av.json\n` +
+        "kernel/sql/av.go filterNotFoundAttrViewItems() collects the BOUND BLOCK id into notFound but " +
+        "deletes from a map keyed by ITEM id; since v3.7.3 those differ, so the row is never hidden.",
+        {file: "kernel/sql/av.go"});
+      console.log(`  (dangling row still present in av.json: ${stillInAvJSON})`);
+    }
+
+    // The same thing again, but with the document's custom-avs IAL stripped first.
+    // deleteAttrView() only cleans up rows it can reach through that IAL, so this
+    // leaves a genuinely dangling bound row in av.json -- exactly the case
+    // kernel/sql/av.go filterNotFoundAttrViewItems() has to hide.
+    const defaultedItemID = defaultedItem.data?.itemID;
+    const defaultedDocID = defaultedItem.data?.blockID;
+    if (defaultedItemID && defaultedDocID && defaultedItemID !== defaultedDocID) {
+      await postJSONOk("/api/attr/setBlockAttrs", {id: defaultedDocID, attrs: {"custom-avs": null}});
+      const orphanRemoval = await postJSON("/api/filetree/removeDocByID", {id: defaultedDocID});
+      assertOrDefect(orphanRemoval.code === 0, "could not remove the second entry page",
+        `code=${orphanRemoval.code} msg=${orphanRemoval.msg}`);
+      await sleep(600);
+      const danglingRow = (readAvJSON().keyValues || []).some(kv => kv.key?.type === "block" &&
+        (kv.values || []).some(value => value.blockID === defaultedItemID));
+      assertOrDefect(!cardByID(await renderAV(), defaultedItemID),
+        "a bound row whose document no longer exists is still rendered as a ghost event",
+        `item ${defaultedItemID} bound to the deleted document ${defaultedDocID} is still rendered ` +
+        `(its row is ${danglingRow ? "still" : "no longer"} in av.json)\n` +
+        "kernel/sql/av.go filterNotFoundAttrViewItems() must delete from the item-keyed map by ITEM id, " +
+        "not by the bound BLOCK id.",
+        {file: "kernel/sql/av.go"});
+      console.log(`  (dangling bound row left in av.json: ${danglingRow} -- ` +
+        `${danglingRow ? "filterNotFoundAttrViewItems did the hiding" : "the delete path cleaned it up"})`);
+    }
+
+    // -- K4: the per-view setting is a real, validated, persisted toggle -----
+    console.log("\n== step: setAttrViewCalendarNewItemTarget ==");
+    await runOps("setAttrViewCalendarNewItemTarget(row)", [{
+      action: "setAttrViewCalendarNewItemTarget", avID, blockID: avBlockID,
+      viewID: calendarViewID, data: "row",
+    }], [{
+      action: "setAttrViewCalendarNewItemTarget", avID, blockID: avBlockID,
+      viewID: calendarViewID, data: "document",
+    }]);
+    assertOrDefect((await renderAV()).view?.newItemTarget === "row",
+      "setAttrViewCalendarNewItemTarget(row) did not persist",
+      `newItemTarget=${JSON.stringify((await renderAV()).view?.newItemTarget)}`,
+      {file: "kernel/model/attribute_view.go"});
+    // A row-only view must go back to the upstream detached behaviour.
+    const rowOnlyItem = await postJSON("/api/av/createAttributeViewItem", {
+      avID, blockID: avBlockID, viewID: calendarViewID, primaryKey: "Row only entry",
+      app: PUSH_APP, session: PUSH_SESSION,
+    });
+    assertOrDefect(rowOnlyItem.code === 0 &&
+      rowOnlyItem.data?.itemID === rowOnlyItem.data?.blockID,
+      "a row-only calendar view still creates a document for a new entry",
+      `code=${rowOnlyItem.code} data=${JSON.stringify(rowOnlyItem.data)}`,
+      {file: "kernel/model/attribute_view_new_item.go"});
+    // An invalid value must be refused, exactly like the other calendar setters.
+    const badTarget = await performTransactions([{
+      action: "setAttrViewCalendarNewItemTarget", avID, blockID: avBlockID,
+      viewID: calendarViewID, data: "page",
+    }], []);
+    assertOrDefect((await renderAV()).view?.newItemTarget === "row",
+      "setAttrViewCalendarNewItemTarget accepted an invalid value",
+      `newItemTarget=${JSON.stringify((await renderAV()).view?.newItemTarget)} ` +
+      `kernelErrors=${badTarget.kernelErrors.join(" | ") || "(none)"}`,
+      {file: "kernel/model/attribute_view.go"});
+    // An existing (already-configured) view must keep its setting across a layout round trip.
+    await postJSONOk("/api/av/changeAttrViewLayout", {blockID: avBlockID, avID, layoutType: "table"});
+    await postJSONOk("/api/av/changeAttrViewLayout", {blockID: avBlockID, avID, layoutType: "calendar"});
+    assertOrDefect((await renderAV()).view?.newItemTarget === "row",
+      "an existing calendar view was silently upgraded to page-per-entry by a layout round trip",
+      `newItemTarget=${JSON.stringify((await renderAV()).view?.newItemTarget)}`,
+      {file: "kernel/model/attribute_view.go"});
+    await runOps("setAttrViewCalendarNewItemTarget(document)", [{
+      action: "setAttrViewCalendarNewItemTarget", avID, blockID: avBlockID,
+      viewID: calendarViewID, data: "document",
+    }]);
+
     console.log("\n== step: addAttrViewView with layout calendar + removeAttrViewView undo ==");
     const addedViewID = nodeID();
     await runOps("addAttrViewView(calendar)", [{
@@ -1028,6 +1399,23 @@ const main = async () => {
       assertOrDefect(!!addedView.view?.dateFieldID,
         "addAttrViewView(calendar) produced a calendar view with no date field, so it renders the empty-state hint",
         `dateFieldID=${addedView.view?.dateFieldID}`);
+      // K4: a freshly created calendar view defaults to page-per-entry...
+      assertOrDefect(addedView.view?.newItemTarget === "document",
+        "addAttrViewView(calendar) did not default the new view to the document (page) new-entry target",
+        `newItemTarget=${JSON.stringify(addedView.view?.newItemTarget)}`,
+        {file: "kernel/av/layout_calendar.go"});
+      // K3: ...and the AV has a document-typed new-item template to create pages with.
+      assertOrDefect((addedView.newItemTemplates || [])
+          .some(itemTemplate => itemTemplate.targetType === "document"),
+        "addAttrViewView(calendar) left the AV without a document-typed new-item template",
+        `newItemTemplates=${JSON.stringify(addedView.newItemTemplates)}`,
+        {file: "kernel/model/attribute_view.go"});
+      // ...while the pre-existing view keeps whatever it was set to.
+      const untouched = readAvJSON().views.find(view => view.id === calendarViewID);
+      assertOrDefect(untouched?.calendar?.newItemTarget === "document",
+        "adding a calendar view changed the new-entry target of the pre-existing calendar view",
+        `view ${calendarViewID} newItemTarget=${JSON.stringify(untouched?.calendar?.newItemTarget)}`,
+        {file: "kernel/model/attribute_view.go"});
     }
 
     // addAttrViewView repoints the block's custom-sy-av-view attribute at the
@@ -1113,6 +1501,14 @@ const main = async () => {
     }
     console.log(`\ncalendar backend contract smoke passed: workspace=${workspace} port=${port} av=${avID}`);
   } finally {
+    if (pushSocket) {
+      try {
+        pushSocket.close();
+      } catch {
+        // the kernel may already be gone
+      }
+      pushSocket = null;
+    }
     if (kernel && !kernel.killed) {
       try {
         await postJSON("/api/system/exit", {});

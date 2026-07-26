@@ -2294,5 +2294,9 @@
 	"none": "Aucun",
 	"saved": "Enregistré",
 	"dateField": "Champ de date",
-	"calendarEmptyHint": "Aucun élément de calendrier pour le moment — cliquez sur un jour ou un créneau horaire pour créer le premier."
+	"calendarEmptyHint": "Aucun élément de calendrier pour le moment — cliquez sur un jour ou un créneau horaire pour créer le premier.",
+	"calendarRenamePageFailed": "Échec du renommage de la page de l'événement.",
+	"calendarDeletePageFailed": "Échec de la suppression de la page de l'événement.",
+	"calendarOccurrenceRollbackFailed": "L'occurrence est restée masquée et aucun remplacement n'a été créé.",
+	"calendarSplitRollbackFailed": "La série a été écourtée et aucune série de suivi n'a été créée."
 	}

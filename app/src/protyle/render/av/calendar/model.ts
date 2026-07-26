@@ -73,6 +73,35 @@ export const getBlockCell = (card: IAVGalleryItem): IAVCell | undefined => {
     return card.values.find(item => item.valueType === "block" || item.value?.type === "block");
 };
 
+/**
+ * The bound document id of a row, or "" when the row is detached.
+ *
+ * Never read `value.isDetached` to answer this: kernel/av/value.go:40 declares
+ * `IsDetached bool \`json:"isDetached,omitempty"\``, so a BOUND row (false) omits
+ * the field entirely and `value.isDetached ?? true` reports "detached" for every
+ * bound row. ValueBlock.ID is documented as "绑定的块 ID，非绑定块时为空" and
+ * kernel/model/attribute_view.go:4710 only assigns it when !isDetached, so the
+ * presence of the bound block id is the only trustworthy signal. The kernel
+ * derives it the same way (attribute_view.go:2632
+ * `blockValue.IsDetached || "" == blockValue.Block.ID`).
+ */
+export const getBoundBlockID = (card?: IAVGalleryItem): string => {
+    if (!card) {
+        return "";
+    }
+    return getBlockCell(card)?.value?.block?.id || "";
+};
+
+export const isDetachedCard = (card?: IAVGalleryItem): boolean => !getBoundBlockID(card);
+
+/** The document a calendar event opens, or "" when the event is a detached row. */
+export const getEventDocumentID = (event?: ICalendarNormalizedEvent): string => {
+    if (!event) {
+        return "";
+    }
+    return event.blockID || getBoundBlockID(event.sourceCard);
+};
+
 export const getTextFromCell = (cell?: IAVCell): string => {
     const value = cell?.value;
     if (!value) {

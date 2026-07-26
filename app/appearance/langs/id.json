@@ -2294,5 +2294,9 @@
 	"none": "Tidak ada",
 	"saved": "Tersimpan",
 	"dateField": "Bidang tanggal",
-	"calendarEmptyHint": "Belum ada item kalender — klik hari atau slot waktu untuk membuat item pertama."
+	"calendarEmptyHint": "Belum ada item kalender — klik hari atau slot waktu untuk membuat item pertama.",
+	"calendarRenamePageFailed": "Gagal mengganti nama halaman acara.",
+	"calendarDeletePageFailed": "Gagal menghapus halaman acara.",
+	"calendarOccurrenceRollbackFailed": "Kemunculan tetap tersembunyi dan tidak ada pengganti yang dibuat.",
+	"calendarSplitRollbackFailed": "Rangkaian dipersingkat dan tidak ada rangkaian lanjutan yang dibuat."
 	}

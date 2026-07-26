@@ -52,8 +52,8 @@ for (const term of [
   "import {openQuickCreate} from \"./quick-create\";",
   "openQuickCreate({",
   "onSave: async (savedDraft) => {",
-  "createCalendarEvent({",
-  "onMoreOptions: (moreDraft) => openEventDialog({",
+  "createCalendarEvent(createOptions)",
+  "onMoreOptions: (moreDraft) => openCalendarEventDialog({",
   "isAllDay: true",
 ]) {
   if (!render.includes(term)) {
@@ -61,15 +61,49 @@ for (const term of [
   }
 }
 
+// Page-per-entry: both quick-create entry points must go through the SAME
+// helper, so the time slot and the day cell can never disagree about whether a
+// new entry becomes a document.
+if (!render.includes("const startCalendarQuickCreate = (") ||
+  (render.match(/ startCalendarQuickCreate\(/g) || []).length < 2) {
+  fail("both quick-create sites must call the shared startCalendarQuickCreate helper");
+}
+if (!render.includes("const createsDocuments = calendarCreatesDocuments(calendar, options.blockElement);") ||
+  !render.includes("if (createsDocuments) {")) {
+  fail("quick-create must branch on the view's new-entry target");
+}
+if (!/createAsDocument: createsDocuments/.test(render)) {
+  fail("dialog entry points must forward the view's new-entry target");
+}
+
+// Optimistic create: the popover closes at once, the chip is painted, and the
+// chip is removed on BOTH the success and the failure path (no phantom chip).
+if (/if \(createsDocuments\) \{[\s\S]{0,400}await createCalendarEventAsDocument/.test(render)) {
+  fail("page create must not be awaited inside the quick-create popover");
+}
+for (const term of [
+  "const paintOptimisticEvent = (calendarElement: HTMLElement, draft: ICalendarEventDraft)",
+  "av__calendar-event--pending",
+  "createEventDocumentOptimistically",
+  "createCalendarEventAsDocument(createOptions).then(created => {",
+]) {
+  if (!render.includes(term)) {
+    fail(`render.ts missing optimistic quick-create wiring ${term}`);
+  }
+}
+if ((render.match(/pendingChip\?\.remove\(\);/g) || []).length < 2) {
+  fail("optimistic chip must be removed on both the success and the failure path");
+}
+
 if (!/\[data-type='calendar-time-slot'\]/.test(render)) {
   fail("drop-day dblclick guard must exclude calendar-time-slot targets");
 }
 
-if (!render.includes("top: slotElement.offsetTop")) {
+if (!render.includes("startCalendarQuickCreate(slotElement, slotElement.offsetTop, draft)")) {
   fail("time-slot quick-create must pass slot-relative top position");
 }
 
-if (!/calendar-new[\s\S]{0,900}openQuickCreate/.test(render)) {
+if (!/calendar-new"\]'\)[\s\S]{0,900}startCalendarQuickCreate/.test(render)) {
   fail("month/week/day new buttons should use quick-create for all-day drafts");
 }
 

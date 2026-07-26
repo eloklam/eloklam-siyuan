@@ -1,6 +1,6 @@
 import * as dayjs from "dayjs";
 import {expandRecurrences, parseRecurrence} from "./recurrence";
-import {getBlockCell, getCellByFieldID, getTextFromCell, ICalendarFieldMapping, ICalendarNormalizedEvent, ICalendarRange} from "./model";
+import {getBlockCell, getBoundBlockID, getCellByFieldID, getTextFromCell, ICalendarFieldMapping, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {getMappedMetadata} from "./mapped-fields";
 
 const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): ICalendarNormalizedEvent | undefined => {
@@ -24,7 +24,10 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
     const realTitle = blockValue?.content || getTextFromCell(blockCell);
     return {
         id: card.id,
-        blockID: blockValue?.id,
+        // "" for a detached row: the kernel only fills the block value id when the
+        // row is bound to a document (see getBoundBlockID). Never derive this from
+        // value.isDetached - it is `omitempty` and therefore absent on bound rows.
+        blockID: getBoundBlockID(card),
         title: realTitle || window.siyuan.languages.untitled,
         isTitleFallback: !realTitle,
         start,

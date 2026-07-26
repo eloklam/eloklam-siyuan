@@ -21,6 +21,12 @@ const checks = [
   [dialog.includes('[data-type="event-close"') && dialog.includes('closeEventDialogSafely(dialog)'), 'owned X close routes through dirty guard'],
   [dialog.includes('destroyCallback') && dialog.includes('removeEventListener("keydown"'), 'Escape guard is removed when dialog is destroyed'],
   [baseDialog.includes('disableClose') && baseDialog.includes('this.destroy();'), 'base dialog normally destroys on scrim/close, proving event dialog must opt out'],
+  // The calendar's undo can restore a row but never a document, so removing the
+  // page must stay a separate, confirmed, non-default action.
+  [dialog.includes('data-type="event-delete-page"'), 'removing the page is a separate explicit action, not the default delete'],
+  [/const confirmDeleteEventPage[\s\S]*?confirmDialog\(/.test(dialog), 'page removal is confirm gated'],
+  [/const deleteEventWithPage[\s\S]*?if \(!await deleteEvent\([\s\S]*?deleteCalendarEventDocument/.test(dialog), 'page removal only runs after the row removal succeeded'],
+  [!/deleteCalendarEventDocument/.test(dialog.match(/const deleteEvent = async[\s\S]*?\n};/)?.[0] || 'deleteCalendarEventDocument'), 'the plain delete removes the row only and never touches the page'],
 ];
 
 const failed = checks.filter(([ok]) => !ok);

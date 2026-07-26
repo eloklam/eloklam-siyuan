@@ -18,10 +18,17 @@ const getDateTimeSummary = (draft: ICalendarEventDraft) => {
     return `${draft.date} ${draft.startTime} - ${draft.endTime}`;
 };
 
-// Creation is AV-row-first: onSave goes through createCalendarEvent, which
-// inserts a detached row in the current database. Rows can be bound to a real
-// document later through the row's own context; the calendar never keeps a
-// separate event store.
+// This popover only collects the draft; WHAT gets created is the caller's
+// decision (render.ts branches on the view's new-entry target: a real SiYuan
+// document bound to the row, or a detached row). The calendar never keeps a
+// separate event store either way.
+//
+// onSave is awaited, so the popover stays disabled until it settles: that is
+// what makes a rejected row-only save show its reason inline instead of closing
+// on a write that never landed. The page-creating path deliberately resolves
+// immediately and reconciles an optimistic chip afterwards, because creating a
+// document takes createDocLock and flushes the transaction queue three times -
+// far too long to hold a popover open in front of the user.
 export const openQuickCreate = (options: IQuickCreateOptions) => {
     document.querySelectorAll(".av__calendar-quick-create").forEach((item) => item.remove());
     const {target, draft} = options;

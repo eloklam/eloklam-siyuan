@@ -1,7 +1,8 @@
 import * as dayjs from "dayjs";
 import {Constants} from "../../../../constants";
+import {showMessage} from "../../../../dialog/message";
 import {fetchSyncPost} from "../../../../util/fetch";
-import {cloneCellValue, getBlockCell, getCellByFieldID, getFieldByID, ICalendarEventDraft, ICalendarFieldMapping, ICalendarNormalizedEvent} from "./model";
+import {cloneCellValue, getBlockCell, getCellByFieldID, getEventDocumentID, getFieldByID, ICalendarEventDraft, ICalendarFieldMapping, ICalendarNormalizedEvent} from "./model";
 
 export interface ICalendarOperationSet {
     doOperations: IOperation[];
@@ -490,7 +491,7 @@ export const buildOccurrenceExceptionOperations = (options: {
     return ops;
 };
 
-export const buildSplitSeriesOperations = (options: {
+interface ICalendarSplitOptions {
     avID: string;
     blockID: string;
     dateFieldID: string;
@@ -500,13 +501,12 @@ export const buildSplitSeriesOperations = (options: {
     draft: ICalendarEventDraft;
     occurrenceDate: string;
     previousUpdated?: string;
-}): ICalendarOperationSet => {
-    if (!isRealDateInputValue(options.draft.date)) {
-        return {doOperations: [], undoOperations: []};
-    }
-    const recurrenceRaw = getEventRecurrenceRaw(options.event);
+}
+
+/** Truncate the original series so it stops before the edited occurrence. */
+const buildSplitTruncateOperations = (options: ICalendarSplitOptions): ICalendarOperationSet => {
     const untilDate = dayjs(options.occurrenceDate).subtract(1, "day").format("YYYY-MM-DD");
-    const truncatedRecurrence = recurrenceWithUntil(recurrenceRaw, untilDate);
+    const truncatedRecurrence = recurrenceWithUntil(getEventRecurrenceRaw(options.event), untilDate);
     const truncateOps: ICalendarOperationSet = {doOperations: [], undoOperations: []};
     addMetadataUpdate(truncateOps, {
         avID: options.avID,
@@ -520,17 +520,31 @@ export const buildSplitSeriesOperations = (options: {
     if (truncateOps.doOperations.length > 0) {
         pushUpdated(truncateOps, options.blockID, options.previousUpdated);
     }
+    return truncateOps;
+};
+
+/** The draft of the follow-up series that starts at the edited occurrence. */
+const buildSplitFutureDraft = (options: ICalendarSplitOptions): ICalendarEventDraft => {
+    const recurrenceRaw = getEventRecurrenceRaw(options.event);
+    return {
+        ...options.draft,
+        recurrenceRaw: recurrenceForSplitFuture(normalizeRecurrenceValue(options.draft.recurrenceRaw) || recurrenceRaw, options.event, options.occurrenceDate, recurrenceRaw),
+        recurrenceExceptionRaw: "",
+    };
+};
+
+export const buildSplitSeriesOperations = (options: ICalendarSplitOptions): ICalendarOperationSet => {
+    if (!isRealDateInputValue(options.draft.date)) {
+        return {doOperations: [], undoOperations: []};
+    }
+    const truncateOps = buildSplitTruncateOperations(options);
     const createOps = buildCreateEventOperations({
         avID: options.avID,
         blockID: options.blockID,
         dateFieldID: options.dateFieldID,
         fields: options.fields,
         mapping: options.mapping,
-        draft: {
-            ...options.draft,
-            recurrenceRaw: recurrenceForSplitFuture(normalizeRecurrenceValue(options.draft.recurrenceRaw) || recurrenceRaw, options.event, options.occurrenceDate, recurrenceRaw),
-            recurrenceExceptionRaw: "",
-        },
+        draft: buildSplitFutureDraft(options),
         previousUpdated: options.previousUpdated,
     });
     return {
@@ -656,13 +670,20 @@ export const buildUpdateEventOperations = (options: {
     }
     const ops: ICalendarOperationSet = {doOperations: [], undoOperations: []};
     const blockCell = getBlockCell(options.event.sourceCard);
-    pushUpdate(ops, {
-        avID: options.avID,
-        rowID: options.event.id,
-        keyID: blockCell?.value?.keyID,
-        oldValue: cloneCellValue(blockCell?.value),
-        newValue: buildBlockValue(options.event, options.draft.title),
-    });
+    // Only a DETACHED row stores its title in the block cell. Writing the block
+    // cell of a BOUND row makes the kernel persist a per-AV static anchor override
+    // (custom-sy-av-s-text-<avID>, kernel/model/attribute_view.go ~:6590-6601) that
+    // shadows the real document title forever. For bound rows the document title
+    // is authoritative and updateCalendarEvent renames the page instead.
+    if (!getEventDocumentID(options.event)) {
+        pushUpdate(ops, {
+            avID: options.avID,
+            rowID: options.event.id,
+            keyID: blockCell?.value?.keyID,
+            oldValue: cloneCellValue(blockCell?.value),
+            newValue: buildBlockValue(options.event, options.draft.title),
+        });
+    }
     pushUpdate(ops, {
         avID: options.avID,
         rowID: options.event.id,
@@ -724,7 +745,13 @@ export const buildDeleteEventOperations = (options: {
     const cellSnapshots = options.event.sourceCard.values
         .map(cell => ({keyID: cell.value?.keyID, value: cloneCellValue(cell.value)}))
         .filter(item => item.keyID && item.value);
-    const isDetached = blockValue?.isDetached ?? true;
+    // Boundness comes from the bound block id, NEVER from blockValue.isDetached:
+    // kernel/av/value.go:40 marks IsDetached `omitempty`, so a bound row (false)
+    // omits the field and `blockValue?.isDetached ?? true` used to answer
+    // "detached" for every bound row - which restored bound rows as detached
+    // duplicates on undo. See getBoundBlockID in ./model.
+    const boundBlockID = getEventDocumentID(options.event);
+    const isDetached = !boundBlockID;
     ops.doOperations.push({action: "removeAttrViewBlock", avID: options.avID, srcIDs: [options.event.id]});
     ops.undoOperations.push({
         action: "insertAttrViewBlock",
@@ -738,7 +765,7 @@ export const buildDeleteEventOperations = (options: {
             // BOUND BLOCK id: keep the real block for bound rows, and fall back to
             // the item id for detached rows where the kernel ignores it anyway.
             itemID: options.event.id,
-            id: (!isDetached && blockValue?.block?.id) || options.event.id,
+            id: boundBlockID || options.event.id,
             isDetached,
             content: blockValue?.block?.content || options.event.title || "",
         }],
@@ -770,6 +797,206 @@ export const createCalendarEvent = async (options: {
     return executeCalendarOperations(options.protyle, buildCreateEventOperations(options), options);
 };
 
+export interface ICalendarCreatedItem {
+    itemID: string;
+    /** The created document root id, or "" when the entry is a detached row. */
+    blockID: string;
+}
+
+export interface ICalendarCreateOptions {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    draft: ICalendarEventDraft;
+    viewID?: string;
+    /** New-item template that resolves the notebook/path of the created page. */
+    templateID?: string;
+    previousID?: string;
+    groupID?: string;
+    previousUpdated?: string;
+}
+
+/**
+ * Cell values for a NEW calendar entry, keyed by field id.
+ *
+ * Built with the SAME value builders the row-only path uses, so the payloads the
+ * kernel receives through /api/av/createAttributeViewItem are shape-identical to
+ * the ones /api/transactions already accepts.
+ *
+ * The title is not in here: for a bound row the kernel discards the caller's
+ * block content and derives the primary key from the document
+ * (getNodeAvBlockText, kernel/model/attribute_view.go ~:4673-4677), so the title
+ * travels as the request's primaryKey and becomes the document name.
+ */
+const buildCalendarFieldValues = (options: {
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    draft: ICalendarEventDraft;
+}): { [keyID: string]: IAVCellValue } | undefined => {
+    const dateValue = buildDateValue(options.draft);
+    if (!dateValue) {
+        return undefined;
+    }
+    const fieldValues: { [keyID: string]: IAVCellValue } = {};
+    fieldValues[options.dateFieldID] = {...dateValue, keyID: options.dateFieldID};
+    const addTextValue = (fieldID?: string, value?: string) => {
+        if (!fieldID || value === undefined) {
+            return;
+        }
+        const field = getFieldByID(options.fields, fieldID);
+        if (!field || field.type !== "text") {
+            return;
+        }
+        fieldValues[fieldID] = buildTextLikeValue(field, value);
+    };
+    addTextValue(options.mapping.recurrenceFieldID, normalizeRecurrenceValue(options.draft.recurrenceRaw));
+    addTextValue(options.mapping.exceptionFieldID, options.draft.recurrenceExceptionRaw);
+    addTextValue(options.mapping.locationFieldID, options.draft.location);
+    addTextValue(options.mapping.descriptionFieldID, options.draft.description);
+    const colorField = getFieldByID(options.fields, options.mapping.colorFieldID);
+    if (colorField && ["select", "mSelect"].includes(colorField.type)) {
+        const colorValue = buildSelectValue(colorField, options.draft.colorContent);
+        if (colorValue) {
+            fieldValues[colorField.id] = colorValue;
+        }
+    }
+    return fieldValues;
+};
+
+const buildCellOperations = (avID: string, rowID: string, fieldValues: { [keyID: string]: IAVCellValue }): IOperation[] =>
+    Object.keys(fieldValues).map(keyID => ({
+        action: "updateAttrViewCell",
+        avID,
+        keyID,
+        rowID,
+        data: fieldValues[keyID],
+    } as IOperation));
+
+/**
+ * The kernel writes fieldValues inside its own transaction, so this normally
+ * verifies and does nothing. It exists because a calendar entry whose date cell
+ * did not land is INVISIBLE in the calendar: if the read-back positively proves
+ * the cells are missing we write them once, rather than leaving a page the user
+ * can never find again. verifyCalendarWrite stays silent when the read cannot be
+ * trusted, so this never fires on a write that actually landed.
+ */
+const reconcileCreatedItemFieldValues = async (protyle: IProtyle, target: ICalendarWriteTarget, itemID: string, fieldValues: { [keyID: string]: IAVCellValue }) => {
+    const operations = buildCellOperations(target.avID, itemID, fieldValues);
+    if (operations.length === 0 || await verifyCalendarWrite(target, operations)) {
+        return;
+    }
+    await executeCalendarOperations(protyle, {doOperations: operations, undoOperations: []});
+};
+
+const createDetachedCalendarEventItem = async (options: ICalendarCreateOptions): Promise<ICalendarCreatedItem | null> => {
+    const ops = buildCreateEventOperations(options);
+    const itemID = (ops.doOperations[0]?.srcs || [])[0]?.itemID || "";
+    if (!itemID) {
+        return null;
+    }
+    return await executeCalendarOperations(options.protyle, ops, options) ? {itemID, blockID: ""} : null;
+};
+
+/**
+ * Create a calendar entry as a real SiYuan document bound to a new AV item.
+ *
+ * This cannot be expressed as an operation set: only the kernel can create the
+ * .sy file and bind it in one transaction, because Operation.Tree is `json:"-"`
+ * (kernel/model/transaction.go:2041) and restoreCreatedDoc is therefore
+ * kernel-only. So it is one POST to /api/av/createAttributeViewItem, which
+ * inserts the row with srcs[{itemID, id: <new doc id>, isDetached: false}] and
+ * writes the field values in the same kernel transaction.
+ *
+ * Returns null on failure, after showing the reason.
+ */
+export const createCalendarEventAsDocument = async (options: ICalendarCreateOptions): Promise<ICalendarCreatedItem | null> => {
+    const fieldValues = buildCalendarFieldValues(options);
+    if (!fieldValues) {
+        showMessage(`${window.siyuan.languages.date || "Date"} ${window.siyuan.languages.invalid || "Invalid"}`);
+        return null;
+    }
+    const response = await fetchSyncPost("/api/av/createAttributeViewItem", {
+        avID: options.avID,
+        blockID: options.blockID,
+        viewID: options.viewID || "",
+        templateID: options.templateID || "",
+        previousID: options.previousID || "",
+        groupID: options.groupID || "",
+        primaryKey: options.draft.title,
+        fieldValues,
+        app: options.protyle?.app?.appId || Constants.SIYUAN_APPID,
+        session: options.protyle?.id || "",
+    });
+    if (response?.code !== 0) {
+        if (response?.data?.unavailableNotebook) {
+            // The configured notebook is closed or gone. Never block the user on
+            // it: keep the entry as a row so the save still lands, and say why the
+            // page is missing.
+            showMessage(window.siyuan.languages.newItemTemplateUnavailableNotebookTip ||
+                "The notebook for new entries is unavailable, the entry was created without a page.", 6000, "error");
+            return createDetachedCalendarEventItem(options);
+        }
+        showMessage(response?.msg || window.siyuan.languages.calendarCreateFailed || "Create failed.");
+        return null;
+    }
+    const itemID = (response.data?.itemID || "") as string;
+    if (!itemID) {
+        showMessage(window.siyuan.languages.calendarCreateFailed || "Create failed.");
+        return null;
+    }
+    const warnings = (response.data?.warnings || []) as string[];
+    if (warnings.length > 0) {
+        showMessage(warnings.join("<br>"));
+    }
+    await reconcileCreatedItemFieldValues(options.protyle, options, itemID, fieldValues);
+    // The kernel answers BlockID == ItemID for a detached item (no document was
+    // created); report that as "no page" instead of a document id that does not
+    // resolve to anything openable.
+    const documentID = (response.data?.blockID || "") as string;
+    return {itemID, blockID: documentID === itemID ? "" : documentID};
+};
+
+/**
+ * The DOCUMENT title wins for a bound row, so editing the title renames the page.
+ * Endpoint verified against kernel/api/router.go:148 ->
+ * kernel/api/filetree.go:696 renameDocByID, which takes {id, title}.
+ */
+export const renameCalendarEventDocument = async (documentID: string, title: string) => {
+    const response = await fetchSyncPost("/api/filetree/renameDocByID", {id: documentID, title});
+    if (response?.code !== 0) {
+        showMessage(response?.msg || window.siyuan.languages.calendarRenamePageFailed || "Renaming the event page failed.");
+        return false;
+    }
+    return true;
+};
+
+/**
+ * Deleting the page behind an entry. Confirm-gated by the caller: the calendar's
+ * undo stack cannot restore a document.
+ * Endpoint verified against kernel/api/router.go:150 ->
+ * kernel/api/filetree.go:622 removeDocByID, which takes {id}.
+ */
+export const deleteCalendarEventDocument = async (documentID: string) => {
+    const response = await fetchSyncPost("/api/filetree/removeDocByID", {id: documentID});
+    if (response?.code !== 0) {
+        showMessage(response?.msg || window.siyuan.languages.calendarDeletePageFailed || "Deleting the event page failed.");
+        return false;
+    }
+    return true;
+};
+
+/** Undo an already committed operation set without registering a new undo step. */
+const revertCalendarOperations = async (protyle: IProtyle, ops: ICalendarOperationSet) => {
+    if (ops.undoOperations.length === 0) {
+        return true;
+    }
+    return executeCalendarOperations(protyle, {doOperations: [...ops.undoOperations], undoOperations: []});
+};
+
 export const createCalendarEventReplacingOccurrence = async (options: {
     protyle: IProtyle;
     avID: string;
@@ -782,6 +1009,9 @@ export const createCalendarEventReplacingOccurrence = async (options: {
     occurrenceDate: string;
     previousUpdated?: string;
     viewID?: string;
+    /** The view creates entries as documents, so the replacement needs a page too. */
+    createAsDocument?: boolean;
+    templateID?: string;
 }) => {
     const exceptionOps = buildOccurrenceExceptionOperations({
         avID: options.avID,
@@ -792,26 +1022,50 @@ export const createCalendarEventReplacingOccurrence = async (options: {
         occurrenceDate: options.occurrenceDate,
         previousUpdated: options.previousUpdated,
     });
-    const createOps = buildCreateEventOperations({
-        avID: options.avID,
-        blockID: options.blockID,
-        dateFieldID: options.dateFieldID,
-        fields: options.fields,
-        mapping: options.mapping,
-        draft: {
-            ...options.draft,
-            recurrenceRaw: "",
-            recurrenceExceptionRaw: "",
-        },
-        previousUpdated: options.previousUpdated,
-    });
-    if (exceptionOps.doOperations.length === 0 || createOps.doOperations.length === 0) {
+    const replacementDraft: ICalendarEventDraft = {
+        ...options.draft,
+        recurrenceRaw: "",
+        recurrenceExceptionRaw: "",
+    };
+    if (exceptionOps.doOperations.length === 0 || !isRealDateInputValue(options.draft.date)) {
         return false;
     }
-    return executeCalendarOperations(options.protyle, {
-        doOperations: [...exceptionOps.doOperations, ...createOps.doOperations],
-        undoOperations: [...createOps.undoOperations, ...exceptionOps.undoOperations],
-    }, options);
+    if (!options.createAsDocument) {
+        const createOps = buildCreateEventOperations({
+            avID: options.avID,
+            blockID: options.blockID,
+            dateFieldID: options.dateFieldID,
+            fields: options.fields,
+            mapping: options.mapping,
+            draft: replacementDraft,
+            previousUpdated: options.previousUpdated,
+        });
+        if (createOps.doOperations.length === 0) {
+            return false;
+        }
+        return executeCalendarOperations(options.protyle, {
+            doOperations: [...exceptionOps.doOperations, ...createOps.doOperations],
+            undoOperations: [...createOps.undoOperations, ...exceptionOps.undoOperations],
+        }, options);
+    }
+    // A page cannot be created from inside an operation set, so the two halves are
+    // sequenced instead. Hide the occurrence FIRST - that is a single, fully
+    // reversible cell write - and only then create the replacement page. If the
+    // page cannot be created the exception is put back, so the series is never
+    // left with a hidden occurrence and no replacement, and no freshly created
+    // document ever has to be destroyed to clean up.
+    if (!await executeCalendarOperations(options.protyle, exceptionOps, options)) {
+        return false;
+    }
+    const created = await createCalendarEventAsDocument({...options, draft: replacementDraft});
+    if (!created) {
+        if (!await revertCalendarOperations(options.protyle, exceptionOps)) {
+            showMessage(window.siyuan.languages.calendarOccurrenceRollbackFailed ||
+                "The occurrence stayed hidden and no replacement was created.");
+        }
+        return false;
+    }
+    return true;
 };
 
 export const updateCalendarEvent = async (options: {
@@ -827,6 +1081,16 @@ export const updateCalendarEvent = async (options: {
     viewID?: string;
 }) => {
     if (!isRealDateInputValue(options.draft.date)) {
+        return false;
+    }
+    // For a bound row the document title is authoritative, so the title edit is a
+    // page rename, not a cell write. Rename FIRST: if it fails nothing else has
+    // been written yet, so the save surfaces as a plain failure instead of leaving
+    // the cells updated against an old page name.
+    const documentID = getEventDocumentID(options.event);
+    const currentTitle = options.event.isTitleFallback ? "" : (options.event.title || "");
+    const nextTitle = (options.draft.title || "").trim();
+    if (documentID && nextTitle && nextTitle !== currentTitle && !await renameCalendarEventDocument(documentID, nextTitle)) {
         return false;
     }
     const ops = buildUpdateEventOperations(options);
@@ -848,13 +1112,34 @@ export const updateCalendarEventThisAndFuture = async (options: {
     occurrenceDate: string;
     previousUpdated?: string;
     viewID?: string;
+    /** The view creates entries as documents, so the follow-up series needs a page too. */
+    createAsDocument?: boolean;
+    templateID?: string;
 }) => {
     if (!isRealDateInputValue(options.draft.date)) {
         return false;
     }
-    const ops = buildSplitSeriesOperations(options);
-    if (ops.doOperations.length > 0) {
-        return executeCalendarOperations(options.protyle, ops, options);
+    if (!options.createAsDocument) {
+        const ops = buildSplitSeriesOperations(options);
+        if (ops.doOperations.length > 0) {
+            return executeCalendarOperations(options.protyle, ops, options);
+        }
+        return true;
+    }
+    // Same sequencing as the occurrence replacement: truncate the original series
+    // first (one reversible cell write), then create the follow-up series page,
+    // and put the original recurrence back if the page cannot be created.
+    const truncateOps = buildSplitTruncateOperations(options);
+    if (truncateOps.doOperations.length > 0 && !await executeCalendarOperations(options.protyle, truncateOps, options)) {
+        return false;
+    }
+    const created = await createCalendarEventAsDocument({...options, draft: buildSplitFutureDraft(options)});
+    if (!created) {
+        if (!await revertCalendarOperations(options.protyle, truncateOps)) {
+            showMessage(window.siyuan.languages.calendarSplitRollbackFailed ||
+                "The series was cut short and no follow-up series was created.");
+        }
+        return false;
     }
     return true;
 };

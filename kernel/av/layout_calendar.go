@@ -34,14 +34,38 @@ const (
 	WeekStartMonday
 )
 
+// CalendarNewItemTarget 描述日历视图新建条目时创建的目标。
+//   - 空字符串是历史视图的零值，等同于 CalendarNewItemTargetRow（只建游离行，不建文档），
+//     这样升级到本版本的既有视图行为保持不变。
+//   - CalendarNewItemTargetDocument 表示每个条目都是一篇真正的 SiYuan 文档（页面）。
+type CalendarNewItemTarget = string
+
+const (
+	CalendarNewItemTargetRow      CalendarNewItemTarget = "row"
+	CalendarNewItemTargetDocument CalendarNewItemTarget = "document"
+)
+
+// IsCalendarNewItemTargetValid 校验 setAttrViewCalendarNewItemTarget 的取值。
+// 允许空字符串，表示回到历史默认（只建行）。
+func IsCalendarNewItemTargetValid(target string) bool {
+	switch target {
+	case "", CalendarNewItemTargetRow, CalendarNewItemTargetDocument:
+		return true
+	}
+	return false
+}
+
 type LayoutCalendar struct {
 	*BaseLayout
 
-	DateFieldID  string                   `json:"dateFieldID"`
-	ViewMode     ViewMode                 `json:"viewMode"`
-	WeekStart    WeekStart                `json:"weekStart"`
-	Fields       []*ViewCalendarCardField `json:"fields"`
-	FieldMapping *CalendarFieldMapping    `json:"fieldMapping"`
+	DateFieldID string                   `json:"dateFieldID"`
+	ViewMode    ViewMode                 `json:"viewMode"`
+	WeekStart   WeekStart                `json:"weekStart"`
+	Fields      []*ViewCalendarCardField `json:"fields"`
+	// NewItemTarget 记录该视图新建条目时是创建文档（页面）还是只创建游离行。
+	// 零值 "" 表示历史视图，只建行。
+	NewItemTarget CalendarNewItemTarget `json:"newItemTarget,omitempty"`
+	FieldMapping  *CalendarFieldMapping `json:"fieldMapping"`
 }
 
 type CalendarFieldMapping struct {
@@ -59,13 +83,14 @@ type ViewCalendarCardField struct {
 type Calendar struct {
 	*BaseInstance
 
-	DateFieldID  string                `json:"dateFieldID"`
-	ViewMode     ViewMode              `json:"viewMode"`
-	WeekStart    WeekStart             `json:"weekStart"`
-	Fields       []*CalendarField      `json:"fields"`
-	Cards        []*CalendarCard       `json:"cards"`
-	CardCount    int                   `json:"cardCount"`
-	FieldMapping *CalendarFieldMapping `json:"fieldMapping"`
+	DateFieldID   string                `json:"dateFieldID"`
+	ViewMode      ViewMode              `json:"viewMode"`
+	WeekStart     WeekStart             `json:"weekStart"`
+	NewItemTarget CalendarNewItemTarget `json:"newItemTarget"`
+	Fields        []*CalendarField      `json:"fields"`
+	Cards         []*CalendarCard       `json:"cards"`
+	CardCount     int                   `json:"cardCount"`
+	FieldMapping  *CalendarFieldMapping `json:"fieldMapping"`
 }
 
 type CalendarCard struct {
@@ -91,6 +116,8 @@ func NewLayoutCalendar() (ret *LayoutCalendar) {
 		},
 		ViewMode: ViewModeMonth,
 		Fields:   []*ViewCalendarCardField{},
+		// 新建的日历视图默认「每个条目是一个页面」；磁盘上已有的视图解析出来是零值 ""，保持只建行。
+		NewItemTarget: CalendarNewItemTargetDocument,
 	}
 }
 

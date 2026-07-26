@@ -83,6 +83,7 @@ type TOperation =
     | "setAttrViewCalendarViewMode"
     | "setAttrViewCalendarDateField"
     | "setAttrViewCalendarWeekStart"
+    | "setAttrViewCalendarNewItemTarget"
     | "setAttrViewCalendarFieldMapping"
 type TBazaarType = "templates" | "icons" | "widgets" | "themes" | "plugins"
 type TCardType = "doc" | "notebook" | "all"
@@ -1092,6 +1093,8 @@ interface IAVCalendar extends IAVView {
     dateFieldID: string;
     viewMode: number; // 0: month, 1: week, 2: day, 3: schedule
     weekStart: number; // 0: Sunday, 1: Monday
+    // "" (absent) keeps the legacy row-only behaviour; "document" creates a page per entry
+    newItemTarget?: "" | "row" | "document";
     fields: IAVColumn[];
     cards: IAVGalleryItem[];
     cardCount: number;

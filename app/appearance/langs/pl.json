@@ -2294,5 +2294,9 @@
 	"none": "Brak",
 	"saved": "Zapisano",
 	"dateField": "Pole daty",
-	"calendarEmptyHint": "Brak jeszcze elementów kalendarza — kliknij dzień lub przedział czasowy, aby utworzyć pierwszy."
+	"calendarEmptyHint": "Brak jeszcze elementów kalendarza — kliknij dzień lub przedział czasowy, aby utworzyć pierwszy.",
+	"calendarRenamePageFailed": "Nie udało się zmienić nazwy strony wydarzenia.",
+	"calendarDeletePageFailed": "Nie udało się usunąć strony wydarzenia.",
+	"calendarOccurrenceRollbackFailed": "Wystąpienie pozostało ukryte i nie utworzono zamiennika.",
+	"calendarSplitRollbackFailed": "Seria została skrócona i nie utworzono serii następczej."
 	}

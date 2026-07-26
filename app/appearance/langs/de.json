@@ -2294,5 +2294,9 @@
 	"none": "Keine",
 	"saved": "Gespeichert",
 	"dateField": "Datumsfeld",
-	"calendarEmptyHint": "Noch keine Kalendereinträge — klicken Sie auf einen Tag oder ein Zeitfenster, um den ersten Eintrag zu erstellen."
+	"calendarEmptyHint": "Noch keine Kalendereinträge — klicken Sie auf einen Tag oder ein Zeitfenster, um den ersten Eintrag zu erstellen.",
+	"calendarRenamePageFailed": "Umbenennen der Terminseite fehlgeschlagen.",
+	"calendarDeletePageFailed": "Löschen der Terminseite fehlgeschlagen.",
+	"calendarOccurrenceRollbackFailed": "Der Termin bleibt ausgeblendet und es wurde kein Ersatz erstellt.",
+	"calendarSplitRollbackFailed": "Die Serie wurde gekürzt und es wurde keine Folgeserie erstellt."
 	}

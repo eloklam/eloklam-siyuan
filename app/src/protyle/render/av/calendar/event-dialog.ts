@@ -9,8 +9,8 @@ import {openMobileFileById} from "../../../../mobile/editor";
 /// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
-import {ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
-import {createCalendarEvent, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
+import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
+import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventDocument, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 export type CalendarRecurrenceScope = "occurrence" | "future" | "series";
 
@@ -34,7 +34,18 @@ export interface IEventDialogOptions {
     onSave?: () => void;
     onDelete?: () => void;
     readOnly?: boolean;
+    /** The view creates each entry as a SiYuan document instead of a bare row. */
+    createAsDocument?: boolean;
+    /** New-item template that resolves the notebook/path of created pages. */
+    templateID?: string;
 }
+
+/** "Rename Doc" - the title of a bound entry lives in the document, not the row. */
+const getRenamesPageHint = () => `${window.siyuan.languages.rename} ${window.siyuan.languages.doc}`;
+
+const getDeletePageLabel = () => `${window.siyuan.languages.delete} ${window.siyuan.languages.doc}`;
+
+const getViewID = (options: IEventDialogOptions) => options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "";
 
 const getCalendarLocale = () => window.siyuan.config.lang;
 
@@ -235,11 +246,15 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const startTime = event?.start.format("HH:mm") || draft?.startTime || "09:00";
     const endTime = event?.end?.format("HH:mm") || draft?.endTime || "10:00";
     const sourceLabel = event?.blockID ? (window.siyuan.languages.calendarSource || "Source note/block") : "";
+    // A bound entry keeps its title in the document (the kernel derives the
+    // primary key from it), so editing the title here renames the page.
+    const documentID = getEventDocumentID(event);
     const content = `<div class="b3-dialog__content av__calendar-dialog">
     <button class="b3-button b3-button--text av__calendar-dialog-close" data-type="event-close" aria-label="${window.siyuan.languages.close || "Close"}">×</button>
     ${!readOnly && editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-title" placeholder="${escapeAttr((event?.isTitleFallback ? event.title : "") || window.siyuan.languages.title || "Title")}" value="${escapeAttr((event?.isTitleFallback ? "" : event?.title) || draft?.title || "")}"${disabledAttr}>
+        <input class="b3-text-field fn__block" id="av-event-title" aria-label="${escapeAttr(documentID ? getRenamesPageHint() : (window.siyuan.languages.title || "Title"))}" placeholder="${escapeAttr((event?.isTitleFallback ? event.title : "") || window.siyuan.languages.title || "Title")}" value="${escapeAttr((event?.isTitleFallback ? "" : event?.title) || draft?.title || "")}"${disabledAttr}>
+        ${documentID ? `<div class="ft__on-surface ft__smaller" data-type="event-title-hint">${escapeHtml(getRenamesPageHint())}</div>` : ""}
     </div>
     <div class="b3-form__space fn__flex">
         <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${startDate}"${disabledAttr}>
@@ -274,6 +289,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <span class="fn__space"></span>
         ${event?.blockID ? `<button class="b3-button b3-button--outline" data-type="event-open-block">${window.siyuan.languages.calendarOpenSource || "Open source"}</button><span class="fn__space"></span>` : ""}
         ${isEditing && !readOnly ? `<button class="b3-button b3-button--outline" data-type="event-duplicate">${window.siyuan.languages.duplicate}</button><span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="event-delete">${deleteLabel}</button><span class="fn__space"></span>` : ""}
+        ${isEditing && !readOnly && documentID ? `<button class="b3-button b3-button--remove" data-type="event-delete-page" aria-label="${escapeAttr(getDeletePageLabel())}">${escapeHtml(getDeletePageLabel())}</button><span class="fn__space"></span>` : ""}
         ${readOnly ? "" : `<button class="b3-button b3-button--text" data-type="event-save">${window.siyuan.languages.save}</button>`}
     </div>
 </div>`;
@@ -341,6 +357,7 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     }
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => runRecurringEventAction(dialog, options, "edit", (scope) => withPendingSave(dialog, "event-save", () => saveEventWithScope(dialog, options, scope))));
     dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => runRecurringEventAction(dialog, options, "delete", (scope) => withCalendarDialogOperationFeedback(dialog, "event-delete", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEventWithScope(dialog, options, scope))));
+    dialog.element.querySelector('[data-type="event-delete-page"]')?.addEventListener("click", () => confirmDeleteEventPage(dialog, options));
     dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => withCalendarDialogOperationFeedback(dialog, "event-duplicate", window.siyuan.languages.calendarDuplicateFailed || "Duplicate failed.", () => duplicateEvent(dialog, options)));
     dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -537,6 +554,37 @@ const saveEventWithScope = async (dialog: Dialog, options: IEventDialogOptions, 
 
 const deleteEventWithScope = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope) => deleteEvent(dialog, options, scope);
 
+/**
+ * One new entry. When the view creates entries as documents this goes through the
+ * kernel (only it can create the .sy file and bind it in one transaction);
+ * otherwise it stays the detached row-only path.
+ */
+const createEntryFromDraft = async (options: IEventDialogOptions, args: {
+    avID: string;
+    blockID: string;
+    dateFieldID: string;
+    fields: IAVColumn[];
+    mapping: ReturnType<typeof getCalendarFieldMapping>;
+    draft: ICalendarEventDraft;
+}) => {
+    const createOptions = {
+        protyle: options.protyle,
+        avID: args.avID,
+        blockID: args.blockID,
+        viewID: getViewID(options),
+        dateFieldID: args.dateFieldID,
+        fields: args.fields,
+        mapping: args.mapping,
+        draft: args.draft,
+        templateID: options.templateID,
+        previousUpdated: options.blockElement.getAttribute("updated") || "",
+    };
+    if (options.createAsDocument) {
+        return !!await createCalendarEventAsDocument(createOptions);
+    }
+    return createCalendarEvent(createOptions);
+};
+
 const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope = "series") => {
     const calendarData = options.data.view as IAVCalendar;
     const mapping = getCalendarFieldMapping(calendarData);
@@ -560,6 +608,9 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
                 draft,
                 occurrenceDate: options.event.start.format("YYYY-MM-DD"),
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
+                viewID: getViewID(options),
+                createAsDocument: options.createAsDocument,
+                templateID: options.templateID,
             })) {
                 return false;
             }
@@ -580,19 +631,15 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
         })) {
             return false;
         }
-    } else {
-        if (!await createCalendarEvent({
-            protyle: options.protyle,
-            avID,
-            blockID,
-            dateFieldID: mapping.dateFieldID,
-            fields: calendarData.fields,
-            mapping,
-            draft,
-            previousUpdated: options.blockElement.getAttribute("updated") || "",
-        })) {
-            return false;
-        }
+    } else if (!await createEntryFromDraft(options, {
+        avID,
+        blockID,
+        dateFieldID: mapping.dateFieldID,
+        fields: calendarData.fields,
+        mapping,
+        draft,
+    })) {
+        return false;
     }
     dialog.destroy();
     options.onSave?.();
@@ -620,6 +667,9 @@ const saveFutureEvent = async (dialog: Dialog, options: IEventDialogOptions) => 
         draft,
         occurrenceDate: options.event.start.format("YYYY-MM-DD"),
         previousUpdated: options.blockElement.getAttribute("updated") || "",
+        viewID: getViewID(options),
+        createAsDocument: options.createAsDocument,
+        templateID: options.templateID,
     })) {
         return false;
     }
@@ -643,20 +693,51 @@ const duplicateEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
         showInvalidDraftMessage(draft, mapping, Boolean(options.event?.isTitleFallback));
         return false;
     }
-    if (!await createCalendarEvent({
-        protyle: options.protyle,
+    if (!await createEntryFromDraft(options, {
         avID,
         blockID,
         dateFieldID: mapping.dateFieldID,
         fields: calendarData.fields,
         mapping,
         draft,
-        previousUpdated: options.blockElement.getAttribute("updated") || "",
     })) {
         return false;
     }
     dialog.destroy();
     options.onSave?.();
+    return true;
+};
+
+/**
+ * Removing the PAGE is deliberately a separate, confirm-gated action: the
+ * calendar's undo can restore a row, never a document. The plain delete stays
+ * "remove from calendar" and always leaves the page alone.
+ */
+const confirmDeleteEventPage = (dialog: Dialog, options: IEventDialogOptions) => {
+    const documentID = getEventDocumentID(options.event);
+    if (!documentID || options.readOnly) {
+        return;
+    }
+    confirmDialog(
+        window.siyuan.languages.deleteOpConfirm,
+        (window.siyuan.languages.confirmDeleteTip || "${x}").replace("${x}", escapeHtml(options.event?.title || documentID)),
+        () => withCalendarDialogOperationFeedback(dialog, "event-delete-page", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEventWithPage(dialog, options))
+    );
+};
+
+const deleteEventWithPage = async (dialog: Dialog, options: IEventDialogOptions) => {
+    const documentID = getEventDocumentID(options.event);
+    if (!documentID) {
+        return false;
+    }
+    // The row removal runs FIRST: a page must never be destroyed for a row
+    // removal that did not land.
+    if (!await deleteEvent(dialog, options, "series")) {
+        return false;
+    }
+    // The row is already gone, so a failing page removal is not a failed delete -
+    // deleteCalendarEventDocument has shown why the page survived.
+    await deleteCalendarEventDocument(documentID);
     return true;
 };
 

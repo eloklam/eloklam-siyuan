@@ -482,3 +482,157 @@ func TestCalendarMetadataMappingRejectsTemplate(t *testing.T) {
 		}
 	}
 }
+
+// K4: 新建的日历视图默认「每个条目是一个页面」，磁盘上已有的视图（零值）保持只建行。
+func TestCalendarNewItemTargetDefaults(t *testing.T) {
+	seedCalendarI18n(t)
+
+	fresh := av.NewCalendarView()
+	if av.CalendarNewItemTargetDocument != fresh.Calendar.NewItemTarget {
+		t.Fatalf("a freshly created calendar view must default to document, got %q", fresh.Calendar.NewItemTarget)
+	}
+
+	// 解析磁盘上已有的视图得到的是零值，必须继续走只建行的老行为
+	legacy := &av.LayoutCalendar{BaseLayout: &av.BaseLayout{}}
+	if "" != legacy.NewItemTarget {
+		t.Fatalf("a legacy calendar layout must keep the zero value, got %q", legacy.NewItemTarget)
+	}
+	if av.CalendarNewItemTargetDocument == legacy.NewItemTarget {
+		t.Fatal("a legacy calendar layout must not be treated as document target")
+	}
+}
+
+// K4: setAttrViewCalendarNewItemTarget 的取值校验。
+func TestCalendarNewItemTargetFromOperationData(t *testing.T) {
+	for _, valid := range []string{"", "row", "document"} {
+		target, err := calendarNewItemTargetFromOperationData(valid)
+		if err != nil {
+			t.Fatalf("%q should be accepted: %v", valid, err)
+		}
+		if target != valid {
+			t.Fatalf("expected %q, got %q", valid, target)
+		}
+	}
+	for _, invalid := range []any{"page", "Document", 1, 1.0, true, nil, map[string]any{}} {
+		if _, err := calendarNewItemTargetFromOperationData(invalid); err == nil {
+			t.Fatalf("%#v should be rejected", invalid)
+		}
+	}
+}
+
+// K3: 日历视图按需补一个文档类型的新增条目模板，且不覆盖已有的。
+func TestEnsureCalendarNewItemDocumentTemplate(t *testing.T) {
+	seedCalendarI18n(t)
+
+	attrView := &av.AttributeView{}
+	created := ensureCalendarNewItemDocumentTemplate(attrView)
+	if nil == created {
+		t.Fatal("a document template should have been seeded")
+	}
+	if 1 != len(attrView.NewItemTemplates) {
+		t.Fatalf("expected exactly one template, got %d", len(attrView.NewItemTemplates))
+	}
+	if av.NewItemTargetDocument != created.TargetType {
+		t.Fatalf("seeded template must target a document, got %q", created.TargetType)
+	}
+	if "" == created.Name {
+		t.Fatal("seeded template must have a name, SetNewItemTemplates rejects empty names")
+	}
+	if nil == created.SaveLocation || "" != created.SaveLocation.BoxID || "" != created.SaveLocation.PathTemplate {
+		// 空 BoxID/PathTemplate 才会解析成数据库块自己的笔记本 + 以其根文档为父
+		t.Fatalf("seeded template save location must be empty, got %#v", created.SaveLocation)
+	}
+
+	// 幂等：已经有文档模板时不再追加，也不覆盖用户改过的保存位置
+	created.SaveLocation.PathTemplate = "/custom"
+	again := ensureCalendarNewItemDocumentTemplate(attrView)
+	if again != created {
+		t.Fatal("an existing document template must be reused, not replaced")
+	}
+	if 1 != len(attrView.NewItemTemplates) {
+		t.Fatalf("expected no extra template, got %d", len(attrView.NewItemTemplates))
+	}
+	if "/custom" != created.SaveLocation.PathTemplate {
+		t.Fatalf("an existing template must not be overwritten, got %q", created.SaveLocation.PathTemplate)
+	}
+
+	// 只有游离模板时仍然需要补一个文档模板
+	detachedOnly := &av.AttributeView{NewItemTemplates: []*av.NewItemTemplate{
+		{ID: "20240101000000-detached", Name: "Row", TargetType: av.NewItemTargetDetached},
+	}}
+	if nil == ensureCalendarNewItemDocumentTemplate(detachedOnly) {
+		t.Fatal("a detached-only AV should still get a document template")
+	}
+	if 2 != len(detachedOnly.NewItemTemplates) {
+		t.Fatalf("expected two templates, got %d", len(detachedOnly.NewItemTemplates))
+	}
+}
+
+// K1: 调用方传入的字段值必须校验后才写入，计算字段与主键一律拒绝。
+func TestResolveCallerItemFieldValuesForCalendar(t *testing.T) {
+	attrView := &av.AttributeView{
+		KeyValues: []*av.KeyValues{
+			{Key: &av.Key{ID: "block", Type: av.KeyTypeBlock}},
+			{Key: &av.Key{ID: "date", Type: av.KeyTypeDate}},
+			{Key: &av.Key{ID: "text", Type: av.KeyTypeText}},
+			{Key: &av.Key{ID: "template", Type: av.KeyTypeTemplate}},
+			{Key: &av.Key{ID: "rollup", Type: av.KeyTypeRollup}},
+			{Key: &av.Key{ID: "created", Type: av.KeyTypeCreated}},
+		},
+	}
+
+	empty, err := resolveCallerItemFieldValues(attrView, nil)
+	if err != nil {
+		t.Fatalf("nil field values should be accepted: %v", err)
+	}
+	if 0 != len(empty) {
+		t.Fatalf("nil field values should resolve to nothing, got %d", len(empty))
+	}
+
+	resolved, err := resolveCallerItemFieldValues(attrView, map[string]*av.Value{
+		"date": {Type: av.KeyTypeDate, Date: &av.ValueDate{Content: 1, IsNotEmpty: true}},
+		"text": {Text: &av.ValueText{Content: "Room A"}},
+	})
+	if err != nil {
+		t.Fatalf("valid field values should be accepted: %v", err)
+	}
+	if 2 != len(resolved) {
+		t.Fatalf("expected two resolved values, got %d", len(resolved))
+	}
+	if av.KeyTypeText != resolved["text"].Type {
+		t.Fatalf("a value with no type must inherit the field type, got %q", resolved["text"].Type)
+	}
+	if "" != resolved["date"].ID || "" != resolved["date"].BlockID {
+		t.Fatalf("caller supplied identifiers must be stripped: %#v", resolved["date"])
+	}
+
+	for _, keyID := range []string{"block", "template", "rollup", "created"} {
+		if _, err = resolveCallerItemFieldValues(attrView, map[string]*av.Value{
+			keyID: {Text: &av.ValueText{Content: "x"}},
+		}); err == nil {
+			t.Fatalf("field %s must be rejected as not writable", keyID)
+		}
+	}
+	if _, err = resolveCallerItemFieldValues(attrView, map[string]*av.Value{
+		"missing": {Text: &av.ValueText{Content: "x"}},
+	}); err == nil {
+		t.Fatal("an unknown field must be rejected")
+	}
+	if _, err = resolveCallerItemFieldValues(attrView, map[string]*av.Value{
+		"date": {Type: av.KeyTypeText, Text: &av.ValueText{Content: "x"}},
+	}); err == nil {
+		t.Fatal("a value whose type contradicts the field must be rejected")
+	}
+}
+
+// K1: 调用方给的标题优先于模板的 primaryKeyTemplate；为空时回退到模板。
+func TestCreateItemOptionsPrimaryKeyOverride(t *testing.T) {
+	merged := mergeCreateItemOptions([]*CreateItemOptions{nil, {PrimaryKey: "Standup"}})
+	if "Standup" != merged.PrimaryKey {
+		t.Fatalf("expected the supplied primary key, got %q", merged.PrimaryKey)
+	}
+	merged = mergeCreateItemOptions(nil)
+	if "" != merged.PrimaryKey || 0 != len(merged.FieldValues) {
+		t.Fatalf("no options must merge to the zero value, got %#v", merged)
+	}
+}

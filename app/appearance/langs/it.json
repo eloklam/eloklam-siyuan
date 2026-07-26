@@ -2294,5 +2294,9 @@
 	"none": "Nessuno",
 	"saved": "Salvato",
 	"dateField": "Campo data",
-	"calendarEmptyHint": "Ancora nessun elemento nel calendario — fai clic su un giorno o una fascia oraria per creare il primo."
+	"calendarEmptyHint": "Ancora nessun elemento nel calendario — fai clic su un giorno o una fascia oraria per creare il primo.",
+	"calendarRenamePageFailed": "Rinomina della pagina dell'evento non riuscita.",
+	"calendarDeletePageFailed": "Eliminazione della pagina dell'evento non riuscita.",
+	"calendarOccurrenceRollbackFailed": "L'occorrenza è rimasta nascosta e non è stata creata alcuna sostituzione.",
+	"calendarSplitRollbackFailed": "La serie è stata troncata e non è stata creata alcuna serie successiva."
 	}

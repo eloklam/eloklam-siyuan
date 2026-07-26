@@ -2294,5 +2294,9 @@
 	"none": "无",
 	"saved": "已保存",
 	"dateField": "日期字段",
-	"calendarEmptyHint": "当前没有任何日历项——点击日期或时间段即可创建第一条。"
+	"calendarEmptyHint": "当前没有任何日历项——点击日期或时间段即可创建第一条。",
+	"calendarRenamePageFailed": "重命名日程页面失败。",
+	"calendarDeletePageFailed": "删除日程页面失败。",
+	"calendarOccurrenceRollbackFailed": "该次重复项已隐藏,但未创建替代项。",
+	"calendarSplitRollbackFailed": "系列已截断,但未创建后续系列。"
 	}

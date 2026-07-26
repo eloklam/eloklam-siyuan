@@ -1,10 +1,6 @@
 import * as dayjs from "dayjs";
 import {Constants} from "../../../../constants";
 import {showMessage} from "../../../../dialog/message";
-import {openFileById} from "../../../../editor/util";
-/// #if MOBILE
-import {openMobileFileById} from "../../../../mobile/editor";
-/// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {fetchSyncPost} from "../../../../util/fetch";
 import {hasClosestByAttribute, hasClosestByClassName} from "../../../util/hasClosest";
@@ -15,12 +11,13 @@ import {renderGallery} from "../gallery/render";
 import {renderKanban} from "../kanban/render";
 import {bindAvSearch} from "../search";
 import {beginAVRender, finishAVLocate, getAVLocateParams, isCurrentAVRender, prepareAVLocate} from "../locate";
+import {openDatabaseRowByData} from "../openDatabaseRow";
 import {getCalendarFieldMapping} from "./mapped-fields";
-import {getCellByFieldID, ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
+import {getBlockCell, getCellByFieldID, getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {CalendarRecurrenceScope, getDisabledRecurrenceScopes, isRecurringSourceEvent, openEventDialog, openRecurrenceScopeDialog} from "./event-dialog";
 import {openQuickCreate} from "./quick-create";
-import {createCalendarEvent, createCalendarEventReplacingOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
+import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, ICalendarCreateOptions, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 interface IRenderCalendarOptions {
     protyle: IProtyle;
@@ -48,6 +45,44 @@ const getCalendarViewMode = (calendar: IAVCalendar, blockElement: HTMLElement) =
 };
 
 const getSafeWeekStart = (weekStart?: number) => weekStart === 1 ? 1 : 0;
+
+/** "each entry is a page": new entries become real SiYuan documents. */
+export const CALENDAR_NEW_ITEM_TARGET_DOCUMENT = "document";
+export const CALENDAR_NEW_ITEM_TARGET_ROW = "row";
+
+/** The persisted target, read through a cast (see getCalendarNewItemTarget). */
+const getPersistedNewItemTarget = (calendar: IAVCalendar) =>
+    calendar.newItemTarget || "";
+
+/**
+ * The view's new-entry target, as sent by the kernel alongside dateFieldID /
+ * viewMode / weekStart (kernel/av/layout_calendar.go Calendar.NewItemTarget).
+ *
+ * The zero value "" is a view that existed before page-per-entry shipped, and it
+ * must keep creating detached rows: only views created (or explicitly switched)
+ * after the upgrade create documents, so nobody's existing data habits change
+ * underneath them.
+ *
+ * The block-element override is what the config panel writes when the user flips
+ * the setting: "setAttrViewCalendarNewItemTarget" is not in the refresh list of
+ * app/src/protyle/wysiwyg/transaction.ts (not our file), so without it the very
+ * next create would still use the value this render was fetched with. Same
+ * mechanism as data-calendar-view-mode; renderCalendar drops it as soon as the
+ * kernel confirms the value.
+ *
+ * Read through a cast because IAVCalendar in app/src/types/index.d.ts does not
+ * declare the field yet - that file belongs to another agent in this change.
+ */
+export const getCalendarNewItemTarget = (calendar: IAVCalendar, blockElement?: HTMLElement) => {
+    const localTarget = blockElement?.dataset.calendarNewItemTarget;
+    if (localTarget === CALENDAR_NEW_ITEM_TARGET_DOCUMENT || localTarget === CALENDAR_NEW_ITEM_TARGET_ROW) {
+        return localTarget;
+    }
+    return getPersistedNewItemTarget(calendar);
+};
+
+export const calendarCreatesDocuments = (calendar: IAVCalendar, blockElement?: HTMLElement) =>
+    getCalendarNewItemTarget(calendar, blockElement) === CALENDAR_NEW_ITEM_TARGET_DOCUMENT;
 
 const getVisibleRange = (anchor: dayjs.Dayjs, viewMode: number, weekStart = 0): ICalendarRange => {
     if (viewMode === 1) {
@@ -184,6 +219,8 @@ const getEventTooltip = (event: ICalendarNormalizedEvent) => {
     return [
         event.title,
         getEventDateLabel(event),
+        // Bound entries open their page on a plain click, so say so before the click.
+        getEventDocumentID(event) ? getOpenPageLabel() : "",
         event.location ? `${window.siyuan.languages.calendarLocation || "Location"}: ${event.location}` : "",
         event.description ? `${window.siyuan.languages.calendarDescription || "Description"}: ${event.description}` : "",
         event.recurrenceRaw ? `${window.siyuan.languages.calendarRecurrence || "Recurrence"}: ${event.recurrenceRaw}` : "",
@@ -191,20 +228,45 @@ const getEventTooltip = (event: ICalendarNormalizedEvent) => {
     ].filter(Boolean).join("\n");
 };
 
-const openCalendarEventSource = (protyle: IProtyle, event: ICalendarNormalizedEvent) => {
-    if (!event.blockID) {
+const getOpenPageLabel = () => {
+    if (window.siyuan.languages.openBy && window.siyuan.languages.doc) {
+        return `${window.siyuan.languages.openBy} ${window.siyuan.languages.doc}`;
+    }
+    return window.siyuan.languages.calendarOpenSource || "Open page";
+};
+
+const getOpenScheduleLabel = () => {
+    const scheduleLabel = window.siyuan.languages.calendarSchedule || "Schedule";
+    return window.siyuan.languages.edit ? `${window.siyuan.languages.edit} ${scheduleLabel}` : scheduleLabel;
+};
+
+/**
+ * Open the page behind a bound entry.
+ *
+ * Goes through upstream's openDatabaseRowByData (../openDatabaseRow.ts:83-151)
+ * rather than a bare openFileById so the calendar behaves like every other
+ * database surface: an already open tab for that document is reused instead of
+ * spawning duplicates, and the database attribute panel is expanded so Date /
+ * Location stay editable on the page itself.
+ */
+const openCalendarEventSource = (protyle: IProtyle, blockElement: HTMLElement, event: ICalendarNormalizedEvent) => {
+    const documentID = getEventDocumentID(event);
+    if (!documentID) {
         showMessage(window.siyuan.languages.calendarSourceMissing || "Calendar item has no source block");
         return;
     }
-    /// #if !MOBILE
-    openFileById({
-        app: protyle.app,
-        id: event.blockID,
-        action: [Constants.CB_GET_FOCUS],
+    openDatabaseRowByData(protyle, {
+        avID: blockElement.getAttribute("data-av-id") || "",
+        databaseBlockID: blockElement.getAttribute("data-node-id") || "",
+        notebookID: protyle.notebookId,
+        // The item id of the row, never the occurrence id: a generated occurrence
+        // has no row of its own and shares the base item's document.
+        itemID: event.baseEventID || event.id,
+        valueID: getBlockCell(event.sourceCard)?.id || "",
+        title: event.title,
+        boundBlockID: documentID,
+        isDetached: false,
     });
-    /// #else
-    openMobileFileById(protyle.app, event.blockID, [Constants.CB_GET_FOCUS]);
-    /// #endif
 };
 
 const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Dayjs, editable = true) => {
@@ -215,10 +277,19 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
     const eventTooltip = getEventTooltip(event);
     const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence ?
         `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
-    const sourceMarker = event.blockID ?
-        `<span class="av__calendar-source" data-type="calendar-open-source" role="button" tabindex="0" title="${escapeAttr(window.siyuan.languages.calendarOpenSource || "Open source note/block")}" aria-label="${escapeAttr(window.siyuan.languages.calendarOpenSource || "Open source note/block")}">↗</span>` : "";
-    return `<button class="av__calendar-event${editable ? "" : " av__calendar-event--readonly"}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
+    const documentID = getEventDocumentID(event);
+    const sourceMarker = documentID ?
+        `<span class="av__calendar-source" data-type="calendar-open-source" role="button" tabindex="0" title="${escapeAttr(getOpenPageLabel())}" aria-label="${escapeAttr(getOpenPageLabel())}">↗</span>` : "";
+    // A bound chip opens its page on click, so the scheduling dialog needs its own
+    // labelled entry point: moving an event in time must never require opening the
+    // page first. Detached chips still open the dialog on click, so they do not
+    // carry this affordance.
+    const scheduleLabel = editable ? getOpenScheduleLabel() : (window.siyuan.languages.calendarSchedule || "Schedule");
+    const scheduleMarker = documentID ?
+        `<span class="av__calendar-schedule" data-type="calendar-open-dialog" role="button" tabindex="0" title="${escapeAttr(scheduleLabel)}" aria-label="${escapeAttr(scheduleLabel)}">◷</span>` : "";
+    return `<button class="av__calendar-event${editable ? "" : " av__calendar-event--readonly"}${documentID ? " av__calendar-event--page" : ""}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-page="${escapeAttr(documentID)}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
     <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
+    ${scheduleMarker}
     ${sourceMarker}
     ${recurrenceMarker}
     ${!editable ? "" : (event.isAllDay ?
@@ -226,6 +297,68 @@ const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Da
         "<span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-delta=\"-15\">-15m</span><span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-delta=\"15\">+15m</span>")}
     ${editable ? `<span class="av__calendar-resize" data-type="calendar-duplicate-next-day">${window.siyuan.languages.copy || "Copy"}</span>` : ""}
 </button>`;
+};
+
+const isDateKey = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
+
+const parseClockMinutes = (value: string) => {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(value || "");
+    if (!match) {
+        return 0;
+    }
+    return Math.min(Math.max(parseInt(match[1], 10) * 60 + parseInt(match[2], 10), 0), 24 * 60);
+};
+
+const buildOptimisticChip = (draft: ICalendarEventDraft) => {
+    const label = `${draft.isAllDay ? "" : `${draft.startTime} `}${draft.title}`;
+    const chip = document.createElement("div");
+    // Not a <button>: this chip has no listeners bound to it (it never went
+    // through a render pass), so it must not look or behave clickable.
+    chip.className = "av__calendar-event av__calendar-event--pending";
+    chip.setAttribute("aria-busy", "true");
+    chip.setAttribute("title", label);
+    chip.innerHTML = `<span class="av__calendar-event-text">${escapeHtml(label)}</span>`;
+    return chip;
+};
+
+/**
+ * Paint the entry the user just saved before the kernel has answered.
+ *
+ * Creating a page is much heavier than inserting a detached row (the kernel takes
+ * createDocLock and flushes the transaction queue three times), so the quick
+ * create popover closes at once and the chip appears immediately. The caller MUST
+ * remove the returned node in both the success and the failure path, otherwise a
+ * failed create leaves a phantom event on the grid.
+ *
+ * Returns null when the target day is not on screen (creating from the toolbar
+ * while looking at another month, for example); the reconciling rerender is then
+ * the only visible feedback, which is correct because there is nothing to paint.
+ */
+const paintOptimisticEvent = (calendarElement: HTMLElement, draft: ICalendarEventDraft): HTMLElement | null => {
+    if (!calendarElement || !isDateKey(draft.date) || !draft.title) {
+        return null;
+    }
+    const chip = buildOptimisticChip(draft);
+    if (!draft.isAllDay) {
+        const timedLayer = calendarElement.querySelector(`.av__calendar-time-day[data-date="${draft.date}"] .av__calendar-timed-events`);
+        if (timedLayer) {
+            const startMinutes = parseClockMinutes(draft.startTime);
+            const endMinutes = Math.max(parseClockMinutes(draft.endTime), startMinutes + SLOT_MINUTES);
+            const wrapper = document.createElement("div");
+            wrapper.className = "av__calendar-timed-event";
+            wrapper.style.gridRow = `${Math.floor(startMinutes / SLOT_MINUTES) + 1} / span ${Math.max(Math.ceil((endMinutes - startMinutes) / SLOT_MINUTES), 1)}`;
+            wrapper.appendChild(chip);
+            timedLayer.appendChild(wrapper);
+            return wrapper;
+        }
+    }
+    const dayElement = calendarElement.querySelector(`[data-type="calendar-drop-day"][data-date="${draft.date}"]`);
+    const container = dayElement?.querySelector(".av__calendar-all-day, .av__calendar-events, .av__calendar-list-events");
+    if (!container) {
+        return null;
+    }
+    container.appendChild(chip);
+    return chip;
 };
 
 const renderModeSwitcher = (viewMode: number) => {
@@ -484,6 +617,10 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     const viewMode = getCalendarViewMode(calendar, options.blockElement);
     const weekStart = getSafeWeekStart(calendar.weekStart);
     const editable = !options.protyle.disabled && !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed");
+    // "Each entry is a page" is a per-view setting; every creation site in this
+    // renderer (time slot, day cell, toolbar button, dialog) branches on this one
+    // value so they can never diverge.
+    const createsDocuments = calendarCreatesDocuments(calendar, options.blockElement);
     const rerender = (focusSearch = false, useCurrentData = false) => {
         options.blockElement.removeAttribute("data-render");
         renderCalendar({...options, data: useCurrentData ? data : undefined}).then(() => {
@@ -556,6 +693,88 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 operationElement.classList.remove("av__calendar-event--pending");
             }
         }
+    };
+    // Every dialog entry point in this renderer goes through here, so the
+    // "new entries are pages" decision cannot be forgotten at one of them.
+    const openCalendarEventDialog = (dialogOptions: {
+        date: string;
+        event?: ICalendarNormalizedEvent;
+        draft?: Partial<ICalendarEventDraft>;
+        readOnly?: boolean;
+        onSave?: () => void;
+        onDelete?: () => void;
+    }) => {
+        openEventDialog({
+            protyle: options.protyle,
+            blockElement: options.blockElement,
+            data,
+            createAsDocument: createsDocuments,
+            ...dialogOptions,
+        });
+    };
+    const buildCreateOptions = (draft: ICalendarEventDraft): ICalendarCreateOptions | null => {
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        const createMapping = getCalendarFieldMapping(calendar);
+        if (!avID || !blockID || !createMapping.dateFieldID) {
+            return null;
+        }
+        return {
+            protyle: options.protyle,
+            avID,
+            blockID,
+            viewID: data.viewID,
+            dateFieldID: createMapping.dateFieldID,
+            fields: calendar.fields,
+            mapping: createMapping,
+            draft,
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        };
+    };
+    /**
+     * Optimistic page create: the popover has already closed, the chip is on the
+     * grid, and the answer only decides whether the chip is replaced by the real
+     * render or removed with the reason shown. The chip is removed on every exit
+     * path - a failed create must not leave a phantom event behind.
+     */
+    const createEventDocumentOptimistically = (createOptions: ICalendarCreateOptions) => {
+        const pendingChip = paintOptimisticEvent(calendarElement, createOptions.draft);
+        createCalendarEventAsDocument(createOptions).then(created => {
+            pendingChip?.remove();
+            if (created) {
+                rerender();
+            }
+        }).catch(error => {
+            pendingChip?.remove();
+            showMessage(window.siyuan.languages.calendarCreateFailed || "Create failed.");
+            console.error("calendar page create failed", error);
+        });
+    };
+    const startCalendarQuickCreate = (target: HTMLElement, top: number, draft: ICalendarEventDraft) => {
+        openQuickCreate({
+            target: target.parentElement || target,
+            top,
+            draft,
+            onSave: async (savedDraft) => {
+                const createOptions = buildCreateOptions(savedDraft);
+                if (!createOptions) {
+                    throw new Error(window.siyuan.languages.calendarCreateFailed || "Create failed.");
+                }
+                if (createsDocuments) {
+                    // Do NOT await: creating a document takes createDocLock and
+                    // flushes the transaction queue three times, and the user must
+                    // not sit in a blocked popover for that.
+                    createEventDocumentOptimistically(createOptions);
+                    return;
+                }
+                if (!await createCalendarEvent(createOptions)) {
+                    throw new Error("calendar transaction rejected");
+                }
+                rerender();
+            },
+            onMoreOptions: (moreDraft) => openCalendarEventDialog({date: draft.date, draft: moreDraft, onSave: rerender}),
+            onCancel: () => undefined,
+        });
     };
     const setCalendarViewMode = (mode: number) => {
         const persistedMode = getSafeViewMode(calendar.viewMode);
@@ -670,31 +889,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 startTime: slotElement.dataset.start || "09:00",
                 endTime: slotElement.dataset.end || "09:30",
             };
-            openQuickCreate({
-                target: slotElement.parentElement || slotElement,
-                top: slotElement.offsetTop,
-                draft,
-                onSave: async (savedDraft) => {
-                    const avID = options.blockElement.getAttribute("data-av-id");
-                    const blockID = options.blockElement.getAttribute("data-node-id");
-                    const mapping = getCalendarFieldMapping(calendar);
-                    if (!avID || !blockID || !mapping.dateFieldID || !await createCalendarEvent({
-                        protyle: options.protyle,
-                        avID,
-                        blockID,
-                        dateFieldID: mapping.dateFieldID,
-                        fields: calendar.fields,
-                        mapping,
-                        draft: savedDraft,
-                        previousUpdated: options.blockElement.getAttribute("updated") || "",
-                    })) {
-                        throw new Error("calendar transaction rejected");
-                    }
-                    rerender();
-                },
-                onMoreOptions: (moreDraft) => openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date, draft: moreDraft, onSave: rerender}),
-                onCancel: () => undefined,
-            });
+            startCalendarQuickCreate(slotElement, slotElement.offsetTop, draft);
         });
     });
     calendarElement?.querySelectorAll('[data-type="calendar-new"]').forEach(item => {
@@ -712,31 +907,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 startTime: "09:00",
                 endTime: "09:30",
             };
-            openQuickCreate({
-                target: newElement.parentElement || newElement,
-                top: newElement.offsetTop + newElement.offsetHeight,
-                draft,
-                onSave: async (savedDraft) => {
-                    const avID = options.blockElement.getAttribute("data-av-id");
-                    const blockID = options.blockElement.getAttribute("data-node-id");
-                    const mapping = getCalendarFieldMapping(calendar);
-                    if (!avID || !blockID || !mapping.dateFieldID || !await createCalendarEvent({
-                        protyle: options.protyle,
-                        avID,
-                        blockID,
-                        dateFieldID: mapping.dateFieldID,
-                        fields: calendar.fields,
-                        mapping,
-                        draft: savedDraft,
-                        previousUpdated: options.blockElement.getAttribute("updated") || "",
-                    })) {
-                        throw new Error("calendar transaction rejected");
-                    }
-                    rerender();
-                },
-                onMoreOptions: (moreDraft) => openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date, draft: moreDraft, onSave: rerender}),
-                onCancel: () => undefined,
-            });
+            startCalendarQuickCreate(newElement, newElement.offsetTop + newElement.offsetHeight, draft);
         });
     });
     calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
@@ -744,7 +915,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (!editable || (event.target as HTMLElement).closest(".av__calendar-event, [data-type='calendar-new'], [data-type='calendar-time-slot']")) {
                 return;
             }
-            openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});
+            openCalendarEventDialog({date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});
         });
     });
     const searchInput = calendarElement?.querySelector('[data-type="calendar-search"]') as HTMLInputElement;
@@ -794,7 +965,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         } else if (event.key.toLowerCase() === "n") {
             event.preventDefault();
             if (editable && mapping.hasDateField) {
-                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, date: getCurrentAnchor().format("YYYY-MM-DD"), onSave: rerender});
+                openCalendarEventDialog({date: getCurrentAnchor().format("YYYY-MM-DD"), onSave: rerender});
             }
         } else if (event.key === "/") {
             event.preventDefault();
@@ -1074,21 +1245,59 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 return;
             }
             const calendarEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
+            const openEventScheduling = () => {
+                if (!calendarEvent) {
+                    return;
+                }
+                if (!editable) {
+                    openCalendarEventDialog({event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), readOnly: true});
+                    return;
+                }
+                const eventForDialog = getEditableEvent(calendarEvent);
+                openCalendarEventDialog({event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
+            };
+            const scheduleElement = (event.target as HTMLElement).closest('[data-type="calendar-open-dialog"]') as HTMLElement;
+            if (scheduleElement) {
+                event.preventDefault();
+                event.stopPropagation();
+                openEventScheduling();
+                return;
+            }
             const sourceElement = (event.target as HTMLElement).closest('[data-type="calendar-open-source"]') as HTMLElement;
             if (sourceElement) {
                 event.preventDefault();
                 event.stopPropagation();
-                if (calendarEvent?.blockID) {
-                    openCalendarEventSource(options.protyle, calendarEvent);
+                if (calendarEvent && getEventDocumentID(calendarEvent)) {
+                    openCalendarEventSource(options.protyle, options.blockElement, calendarEvent);
                 }
                 return;
             }
-            if (calendarEvent && editable) {
-                const eventForDialog = getEditableEvent(calendarEvent);
-                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
-            } else if (calendarEvent) {
-                openEventDialog({protyle: options.protyle, blockElement: options.blockElement, data, event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), readOnly: true});
+            // "Each entry is a page": for a bound entry the primary click opens the
+            // page, exactly like clicking a row in a table/gallery does. Detached
+            // rows have no page to open, so they keep opening the dialog.
+            if (calendarEvent && getEventDocumentID(calendarEvent)) {
+                openCalendarEventSource(options.protyle, options.blockElement, calendarEvent);
+                return;
             }
+            openEventScheduling();
+        });
+    });
+    // The chip is a <button>, so Enter/Space on the chip itself already reaches
+    // the click handler. The affordances inside it are role="button" spans, which
+    // get no native activation - without this, a keyboard user could reach the
+    // scheduling dialog of a bound entry only with a mouse.
+    calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
+        item.addEventListener("keydown", (event: KeyboardEvent) => {
+            if (event.key !== "Enter" && event.key !== " ") {
+                return;
+            }
+            const affordance = (event.target as HTMLElement).closest('[data-type="calendar-open-dialog"], [data-type="calendar-open-source"]') as HTMLElement;
+            if (!affordance || affordance === item) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            affordance.click();
         });
     });
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
@@ -1311,6 +1520,13 @@ export const renderCalendar = async (options: IRenderCalendarOptions) => {
         return;
     }
     e.setAttribute("data-av-type", "calendar");
+    // The local new-entry target has served its purpose once the kernel reports
+    // the same value; keeping it would silently outrank a change made elsewhere
+    // (another view of the same database, another window).
+    if (e.dataset.calendarNewItemTarget &&
+        e.dataset.calendarNewItemTarget === (getPersistedNewItemTarget(data.view as IAVCalendar) || CALENDAR_NEW_ITEM_TARGET_ROW)) {
+        delete e.dataset.calendarNewItemTarget;
+    }
     anchorCalendarOnLocateTarget(data, e);
     const editable = !options.protyle.disabled && !hasClosestByAttribute(e, "data-type", "NodeBlockQueryEmbed");
     const body = `<div class="av__body" data-page-size="-1">${getCalendarHTML(data, e, editable, resetData.query)}</div>`;

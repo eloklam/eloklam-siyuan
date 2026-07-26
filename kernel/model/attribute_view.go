@@ -1119,6 +1119,9 @@ func ChangeAttrViewLayout(blockID, avID string, newLayout av.LayoutType) (err er
 			}
 		}
 		setDefaultCalendarDateField(attrView, view)
+		if av.CalendarNewItemTargetDocument == view.Calendar.NewItemTarget {
+			ensureCalendarNewItemDocumentTemplate(attrView)
+		}
 	}
 
 	blockIDs := treenode.GetMirrorAttrViewBlockIDs(avID)
@@ -1634,6 +1637,89 @@ func calendarWeekStartFromOperationData(data any) (weekStart av.WeekStart, err e
 	if av.WeekStartSunday != weekStart && av.WeekStartMonday != weekStart {
 		return weekStart, fmt.Errorf("calendar week start [%d] is invalid", weekStart)
 	}
+	return
+}
+
+func (tx *Transaction) doSetAttrViewCalendarNewItemTarget(operation *Operation) (ret *TxErr) {
+	err := setAttrViewCalendarNewItemTarget(operation)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+// setAttrViewCalendarNewItemTarget 设置日历视图新建条目的目标：创建页面（文档）还是只创建游离行。
+func setAttrViewCalendarNewItemTarget(operation *Operation) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+
+	view, err := resolveAttrViewViewByOperation(attrView, operation)
+	if err != nil {
+		return
+	}
+
+	if av.LayoutTypeCalendar != view.LayoutType || nil == view.Calendar {
+		return fmt.Errorf("view is not a calendar layout")
+	}
+
+	target, err := calendarNewItemTargetFromOperationData(operation.Data)
+	if err != nil {
+		return
+	}
+
+	view.Calendar.NewItemTarget = target
+	if av.CalendarNewItemTargetDocument == target {
+		ensureCalendarNewItemDocumentTemplate(attrView)
+	}
+	err = av.SaveAttributeView(attrView)
+	ReloadAttrView(attrView.ID)
+	return
+}
+
+func calendarNewItemTargetFromOperationData(data any) (target av.CalendarNewItemTarget, err error) {
+	dataStr, ok := data.(string)
+	if !ok {
+		return "", fmt.Errorf("calendar new item target data must be a string")
+	}
+	if !av.IsCalendarNewItemTargetValid(dataStr) {
+		return "", fmt.Errorf("calendar new item target [%s] is invalid", dataStr)
+	}
+	return dataStr, nil
+}
+
+// calendarNewItemTemplateName 返回日历条目页面模板的名称。
+// 只复用已有的 _attrView.calendar 词条，避免为了一个模板名去改动 21 个 langs 文件。
+func calendarNewItemTemplateName() string {
+	if langs, ok := util.AttrViewLangs[util.Lang]; ok {
+		if name, ok := langs["calendar"].(string); ok && "" != strings.TrimSpace(name) {
+			return strings.TrimSpace(name)
+		}
+	}
+	return "Calendar"
+}
+
+// ensureCalendarNewItemDocumentTemplate 在数据库还没有任何「文档」类型的新增条目模板时补一个，
+// 这样日历视图新建的条目就是一篇真正的页面。空 BoxID/PathTemplate 会解析成数据库块自己的笔记本与根文档，
+// 也就是说条目页面成为放置该日历的文档的子文档。已有的文档类型模板不会被覆盖。
+func ensureCalendarNewItemDocumentTemplate(attrView *av.AttributeView) (ret *av.NewItemTemplate) {
+	if nil == attrView {
+		return
+	}
+	for _, itemTemplate := range attrView.NewItemTemplates {
+		if nil != itemTemplate && av.NewItemTargetDocument == itemTemplate.TargetType {
+			return itemTemplate
+		}
+	}
+
+	ret = &av.NewItemTemplate{
+		ID:           ast.NewNodeID(),
+		Name:         calendarNewItemTemplateName(),
+		TargetType:   av.NewItemTargetDocument,
+		SaveLocation: &av.NewItemSaveLocation{BoxID: "", PathTemplate: ""},
+	}
+	attrView.NewItemTemplates = append(attrView.NewItemTemplates, ret)
 	return
 }
 
@@ -3957,6 +4043,8 @@ func copyAttrViewViewLayout(view, masterView *av.View) {
 		view.Calendar.DateFieldID = masterView.Calendar.DateFieldID
 		view.Calendar.ViewMode = masterView.Calendar.ViewMode
 		view.Calendar.WeekStart = masterView.Calendar.WeekStart
+		// 复制视图沿用源视图的「新建条目目标」，包括源视图是历史视图时的 ""（只建行）。
+		view.Calendar.NewItemTarget = masterView.Calendar.NewItemTarget
 		if nil != masterView.Calendar.FieldMapping {
 			// 复制值而不是指针，避免复制出来的视图和原视图共享映射 https://github.com/siyuan-note/siyuan/issues/15587
 			mapping := *masterView.Calendar.FieldMapping
@@ -4104,8 +4192,13 @@ func addAttrViewView(avID, viewID, blockID string, layout av.LayoutType) (err er
 		setAttributeViewGroup(attrView, view, group)
 	}
 
-	if av.LayoutTypeCalendar == layout && "" == view.Calendar.DateFieldID {
-		view.Calendar.DateFieldID = getCalendarPreferredDateKey(attrView).ID
+	if av.LayoutTypeCalendar == layout {
+		if "" == view.Calendar.DateFieldID {
+			view.Calendar.DateFieldID = getCalendarPreferredDateKey(attrView).ID
+		}
+		if av.CalendarNewItemTargetDocument == view.Calendar.NewItemTarget {
+			ensureCalendarNewItemDocumentTemplate(attrView)
+		}
 	}
 
 	node, tree, _ := getNodeByBlockID(nil, blockID)

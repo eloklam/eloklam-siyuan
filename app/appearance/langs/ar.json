@@ -2294,5 +2294,9 @@
 	"none": "لا شيء",
 	"saved": "تم الحفظ",
 	"dateField": "حقل التاريخ",
-	"calendarEmptyHint": "لا توجد عناصر تقويم بعد — انقر على يوم أو فترة زمنية لإنشاء العنصر الأول."
+	"calendarEmptyHint": "لا توجد عناصر تقويم بعد — انقر على يوم أو فترة زمنية لإنشاء العنصر الأول.",
+	"calendarRenamePageFailed": "فشل إعادة تسمية صفحة الحدث.",
+	"calendarDeletePageFailed": "فشل حذف صفحة الحدث.",
+	"calendarOccurrenceRollbackFailed": "بقي التكرار مخفيًا ولم يتم إنشاء بديل.",
+	"calendarSplitRollbackFailed": "تم اختصار السلسلة ولم يتم إنشاء سلسلة لاحقة."
 	}

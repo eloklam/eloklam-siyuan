@@ -9,6 +9,22 @@ import {getFieldsByData} from "./view";
 
 const getCalendarLocale = () => window.siyuan.config.lang;
 
+// Mirrors ./calendar/render.ts. Declared locally instead of imported because
+// layout.ts is reached from calendar/render.ts through
+// av/render.ts -> openMenuPanel.ts, and importing back would close that cycle.
+// Values are the kernel's (kernel/av/layout_calendar.go CalendarNewItemTarget).
+const CALENDAR_NEW_ITEM_TARGET_DOCUMENT = "document";
+const CALENDAR_NEW_ITEM_TARGET_ROW = "row";
+
+/**
+ * The view's new-entry target. "" is a view that predates page-per-entry and
+ * keeps creating detached rows, so it renders as "Row".
+ * Read through a cast: IAVCalendar in app/src/types/index.d.ts does not declare
+ * the field yet - that file belongs to another agent in this change.
+ */
+const getCalendarNewItemTarget = (calendar: IAVCalendar) =>
+    calendar.newItemTarget || "";
+
 const getWeekdayLabel = (day: 0 | 1) => {
     return new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "long"}).format(new Date(2020, 5, 7 + day));
 };
@@ -170,6 +186,14 @@ export const getLayoutHTML = (data: IAV) => {
             <option value="0"${(calendarView.weekStart || 0) === 0 ? " selected" : ""}>${escapeHtml(getWeekdayLabel(0))}</option>
             <option value="1"${calendarView.weekStart === 1 ? " selected" : ""}>${escapeHtml(getWeekdayLabel(1))}</option>
         </select>
+        <div class="fn__hr"></div>
+        <div class="av__calendar-config-row">
+            <label class="ft__on-surface" for="av-calendar-new-item-target">${escapeHtml(window.siyuan.languages.newRow)}</label>
+            <select class="b3-select fn__block av__calendar-new-item-target" id="av-calendar-new-item-target" data-type="calendar-new-item-target">
+                <option value="${CALENDAR_NEW_ITEM_TARGET_DOCUMENT}"${getCalendarNewItemTarget(calendarView) === CALENDAR_NEW_ITEM_TARGET_DOCUMENT ? " selected" : ""}>${escapeHtml(window.siyuan.languages.doc)}</option>
+                <option value="${CALENDAR_NEW_ITEM_TARGET_ROW}"${getCalendarNewItemTarget(calendarView) === CALENDAR_NEW_ITEM_TARGET_DOCUMENT ? "" : " selected"}>${escapeHtml(window.siyuan.languages.row)}</option>
+            </select>
+        </div>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarRecurrence || "Recurrence"}</label>
         <select class="b3-select fn__block" data-type="calendar-map-field" data-field="recurrenceFieldID">
@@ -387,6 +411,47 @@ const bindCalendarLayoutEvent = (options: {
             viewID
         }]);
         calendarView.weekStart = current;
+    });
+    // "New entries": Page creates a real SiYuan document per entry and binds the
+    // row to it; Row only keeps the historic detached row. Mirrors the week-start
+    // setter, including viewID, because the target is per view.
+    const newItemTargetElement = options.menuElement.querySelector('select[data-type="calendar-new-item-target"]') as HTMLSelectElement;
+    newItemTargetElement?.addEventListener("change", () => {
+        // The undo value is the RAW persisted one: "" (a pre-upgrade view) is a
+        // valid target for the kernel and must not be normalised to "row" here,
+        // or undo would rewrite av.json with a value the view never had.
+        const previous = getCalendarNewItemTarget(calendarView);
+        const current = newItemTargetElement.value === CALENDAR_NEW_ITEM_TARGET_DOCUMENT ?
+            CALENDAR_NEW_ITEM_TARGET_DOCUMENT : CALENDAR_NEW_ITEM_TARGET_ROW;
+        if (current === previous) {
+            return;
+        }
+        // Cast: TOperation in app/src/types/index.d.ts does not list
+        // "setAttrViewCalendarNewItemTarget" yet (that file belongs to another
+        // agent in this change). The kernel already routes it -
+        // kernel/model/transaction.go:417 -> doSetAttrViewCalendarNewItemTarget.
+        // Drop the casts once the union gains the member.
+        transaction(options.protyle, [{
+            action: "setAttrViewCalendarNewItemTarget",
+            avID,
+            blockID,
+            data: current,
+            viewID
+        }], [{
+            action: "setAttrViewCalendarNewItemTarget",
+            avID,
+            blockID,
+            data: previous,
+            viewID
+        }]);
+        calendarView.newItemTarget = current;
+        // The panel holds its own copy of the view, and
+        // "setAttrViewCalendarNewItemTarget" is not in the refresh list of
+        // app/src/protyle/wysiwyg/transaction.ts (not our file), so the rendered
+        // calendar would keep creating with the old target until something else
+        // re-rendered it. This override is what calendar/render.ts reads until
+        // the kernel confirms the new value.
+        options.blockElement.setAttribute("data-calendar-new-item-target", current);
     });
     options.menuElement.querySelectorAll('select[data-type="calendar-map-field"]').forEach((item: HTMLSelectElement) => {
         item.addEventListener("change", () => {

@@ -2294,5 +2294,9 @@
 	"none": "None",
 	"saved": "Saved",
 	"dateField": "Date field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one.",
+	"calendarRenamePageFailed": "Renaming the event page failed.",
+	"calendarDeletePageFailed": "Deleting the event page failed.",
+	"calendarOccurrenceRollbackFailed": "The occurrence stayed hidden and no replacement was created.",
+	"calendarSplitRollbackFailed": "The series was cut short and no follow-up series was created."
 	}

@@ -311,13 +311,17 @@ func generateAttrViewItems(attrView *av.AttributeView, view *av.View) (ret map[s
 	return
 }
 
+// filterNotFoundAttrViewItems 从 itemID -> 键值 的映射中剔除绑定块已经不存在的条目。
+// keyValuesMap 的键是条目 ID（item id），而绑定块 ID（blockValue.Block.ID）自 v3.7.3 起与条目 ID 不同，
+// 所以存在性检查必须按绑定块 ID 做、删除必须按条目 ID 做，否则文档被删掉的条目会一直以幽灵卡片留在视图里。
 func filterNotFoundAttrViewItems(keyValuesMap map[string][]*av.KeyValues) {
 	var notFound []string
 	var toCheckBlockIDs []string
-	for blockID, keyValues := range keyValuesMap {
+	itemIDsByBlockID := map[string][]string{}
+	for itemID, keyValues := range keyValuesMap {
 		blockValue := getBlockValue(keyValues)
 		if nil == blockValue || nil == blockValue.Block {
-			notFound = append(notFound, blockID)
+			notFound = append(notFound, itemID)
 			continue
 		}
 
@@ -325,21 +329,25 @@ func filterNotFoundAttrViewItems(keyValuesMap map[string][]*av.KeyValues) {
 			continue
 		}
 
-		if "" == blockValue.Block.ID {
-			notFound = append(notFound, blockID)
+		boundBlockID := blockValue.Block.ID
+		if "" == boundBlockID {
+			notFound = append(notFound, itemID)
 			continue
 		}
 
-		toCheckBlockIDs = append(toCheckBlockIDs, blockValue.Block.ID)
+		if _, ok := itemIDsByBlockID[boundBlockID]; !ok {
+			toCheckBlockIDs = append(toCheckBlockIDs, boundBlockID)
+		}
+		itemIDsByBlockID[boundBlockID] = append(itemIDsByBlockID[boundBlockID], itemID)
 	}
 	checkRet := treenode.ExistBlockTrees(toCheckBlockIDs)
-	for blockID, exist := range checkRet {
+	for boundBlockID, exist := range checkRet {
 		if !exist {
-			notFound = append(notFound, blockID)
+			notFound = append(notFound, itemIDsByBlockID[boundBlockID]...)
 		}
 	}
-	for _, blockID := range notFound {
-		delete(keyValuesMap, blockID)
+	for _, itemID := range notFound {
+		delete(keyValuesMap, itemID)
 	}
 }
 

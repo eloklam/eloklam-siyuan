@@ -2294,5 +2294,9 @@
 	"none": "없음",
 	"saved": "저장됨",
 	"dateField": "날짜 필드",
-	"calendarEmptyHint": "아직 캘린더 항목이 없습니다. 날짜나 시간대를 클릭해 첫 번째 항목을 만드세요."
+	"calendarEmptyHint": "아직 캘린더 항목이 없습니다. 날짜나 시간대를 클릭해 첫 번째 항목을 만드세요.",
+	"calendarRenamePageFailed": "일정 페이지 이름 변경에 실패했습니다.",
+	"calendarDeletePageFailed": "일정 페이지 삭제에 실패했습니다.",
+	"calendarOccurrenceRollbackFailed": "해당 반복 항목은 숨겨진 상태이며 대체 항목이 생성되지 않았습니다.",
+	"calendarSplitRollbackFailed": "시리즈가 잘렸으며 후속 시리즈가 생성되지 않았습니다."
 	}

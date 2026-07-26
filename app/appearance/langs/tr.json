@@ -2294,5 +2294,9 @@
 	"none": "Yok",
 	"saved": "Kaydedildi",
 	"dateField": "Tarih alanı",
-	"calendarEmptyHint": "Henüz takvim ögesi yok — ilkini oluşturmak için bir güne veya zaman aralığına tıklayın."
+	"calendarEmptyHint": "Henüz takvim ögesi yok — ilkini oluşturmak için bir güne veya zaman aralığına tıklayın.",
+	"calendarRenamePageFailed": "Etkinlik sayfası yeniden adlandırılamadı.",
+	"calendarDeletePageFailed": "Etkinlik sayfası silinemedi.",
+	"calendarOccurrenceRollbackFailed": "Yineleme gizli kaldı ve yerine bir kayıt oluşturulmadı.",
+	"calendarSplitRollbackFailed": "Seri kısaltıldı ve devam serisi oluşturulmadı."
 	}

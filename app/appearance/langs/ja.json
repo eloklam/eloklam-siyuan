@@ -2294,5 +2294,9 @@
 	"none": "なし",
 	"saved": "保存しました",
 	"dateField": "日付フィールド",
-	"calendarEmptyHint": "カレンダー項目はまだありません。日付または時間帯をクリックして最初の項目を作成してください。"
+	"calendarEmptyHint": "カレンダー項目はまだありません。日付または時間帯をクリックして最初の項目を作成してください。",
+	"calendarRenamePageFailed": "予定ページの名前変更に失敗しました。",
+	"calendarDeletePageFailed": "予定ページの削除に失敗しました。",
+	"calendarOccurrenceRollbackFailed": "この繰り返しは非表示のままで、代替は作成されませんでした。",
+	"calendarSplitRollbackFailed": "シリーズは短縮されましたが、後続のシリーズは作成されませんでした。"
 	}

@@ -318,6 +318,8 @@ exports.updateSearch = (...args) => (globalThis.__calendarRenderSearchUpdates ||
   writeFile(path.join(tempDir, "src/protyle/render/av/gallery/render.js"), "exports.renderGallery = (options) => (globalThis.__calendarRenderDispatches ||= []).push({layout: 'gallery', options});\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/kanban/render.js"), "exports.renderKanban = (options) => (globalThis.__calendarRenderDispatches ||= []).push({layout: 'kanban', options});\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/search.js"), "exports.bindAvSearch = (options) => (globalThis.__calendarRenderSearchBinds ||= []).push(options);\n");
+  // 事件条目现在是真实文档：主点击走上游的“打开数据库行”，harness 记录调用即可
+  writeFile(path.join(tempDir, "src/protyle/render/av/openDatabaseRow.js"), "exports.openDatabaseRowByData = (...args) => (globalThis.__calendarRenderOpenRows ||= []).push(args);\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/locate.js"), `
 // 与真实实现一致：渲染令牌按 blockElement 存储，不能用单一全局计数器，
 // 否则多个宿主互相作废对方的渲染。
@@ -657,10 +659,12 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const timestamp = (value) => new Date(value).getTime();
     const field = (id, type, extra = {}) => ({id, type, name: id, desc: '', width: '', icon: '', wrap: false, pin: false, hidden: false, numberFormat: '', template: '', calc: {}, ...extra});
     const cell = (rowID, keyID, type, value) => ({id: rowID + '-' + keyID, valueType: type, color: '', bgColor: '', value: {id: rowID + '-' + keyID, keyID, type, ...value}});
-    const card = (rowID, title, start, end, recurrence, exception = '', isNotTime = false) => ({
+    // bound=false reproduces a legacy detached row: the block value carries no
+    // document id, so the primary click must still open the scheduling dialog.
+    const card = (rowID, title, start, end, recurrence, exception = '', isNotTime = false, bound = true) => ({
       id: rowID,
       values: [
-        cell(rowID, 'block', 'block', {block: {id: 'block-' + rowID, content: title}}),
+        cell(rowID, 'block', 'block', {block: bound ? {id: 'block-' + rowID, content: title} : {content: title}}),
         cell(rowID, 'date', 'date', {date: {content: timestamp(start), isNotEmpty: true, content2: timestamp(end), isNotEmpty2: true, hasEndDate: true, isNotTime}}),
         cell(rowID, 'recurrence', 'text', {text: {content: recurrence}}),
         cell(rowID, 'exception', 'text', {text: {content: exception}}),
@@ -698,6 +702,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       cards: [
         card('row-render', 'Calendar UI render smoke event', '2026-05-24T09:00:00', '2026-05-24T10:00:00', 'FREQ=WEEKLY;COUNT=2', '2026-05-31'),
         card('row-none', 'Calendar none smoke event', '2026-05-25T11:00:00', '2026-05-25T12:00:00', 'None'),
+        card('row-detached', 'Calendar detached smoke event', '2026-05-28T15:00:00', '2026-05-28T16:00:00', '', '', false, false),
         // Recurring series whose generated occurrences (05-25, 05-26) are NOT
         // excluded by an exception, so occurrence DOM + occurrence/future scope
         // paths are exercised.
@@ -748,8 +753,23 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const dayQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
     host.querySelector('[data-type="calendar-quick-create-more"]').click();
     const dayNewDialog = globalThis.__calendarRenderDialogs.at(-1);
+    // A bound entry is a real page: the primary click opens it (upstream's
+    // openDatabaseRowByData), and the ◷ affordance reaches the scheduling dialog.
+    const openRowsBeforeClick = (globalThis.__calendarRenderOpenRows || []).length;
+    const dialogsBeforeClick = globalThis.__calendarRenderDialogs.length;
     host.querySelector('.av__calendar-event[data-id="row-render"]').click();
+    const boundClickOpenedPage = (globalThis.__calendarRenderOpenRows || []).length === openRowsBeforeClick + 1;
+    const boundClickOpenedDialog = globalThis.__calendarRenderDialogs.length !== dialogsBeforeClick;
+    host.querySelector('.av__calendar-event[data-id="row-render"] [data-type="calendar-open-dialog"]').click();
     const editDialog = globalThis.__calendarRenderDialogs.at(-1);
+    // A detached entry has no page, so its primary click must still open the dialog.
+    const detachedDialogsBefore = globalThis.__calendarRenderDialogs.length;
+    const detachedOpenRowsBefore = (globalThis.__calendarRenderOpenRows || []).length;
+    host.querySelector('.av__calendar-event[data-id="row-detached"]').click();
+    const detachedDialog = globalThis.__calendarRenderDialogs.at(-1);
+    const detachedClickOpenedDialog = globalThis.__calendarRenderDialogs.length === detachedDialogsBefore + 1;
+    const detachedClickOpenedPage = (globalThis.__calendarRenderOpenRows || []).length !== detachedOpenRowsBefore;
+    const detachedHasSourceAffordance = !!host.querySelector('.av__calendar-event[data-id="row-detached"] [data-type="calendar-open-source"]');
     host.querySelector('.av__calendar-event[data-id="row-render"] [data-type="calendar-duplicate-next-day"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const duplicateCall = globalThis.__calendarRenderTxCalls.find(call => call.type === 'create');
@@ -998,6 +1018,12 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       toolbarNewDate: toolbarNewDialog?.date || '',
       dayNewDate: dayNewDialog?.date || '',
       editDialogEventID: editDialog?.event?.id || '',
+      boundClickOpenedPage,
+      boundClickOpenedDialog,
+      detachedDialogEventID: detachedDialog?.event?.id || '',
+      detachedClickOpenedDialog,
+      detachedClickOpenedPage,
+      detachedHasSourceAffordance,
       duplicateDraft: duplicateCall?.payload?.draft,
       resizeDraft: resizeCall?.payload?.draft,
       dragDraft: dragUpdateCall?.payload?.draft,
@@ -1065,6 +1091,9 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     !result.dayQuickAllDay || result.dayQuickSummary !== "2026-05-26" ||
     result.toolbarNewDate !== "2026-05-24" ||
     result.dayNewDate !== "2026-05-26" || result.editDialogEventID !== "row-render" ||
+    !result.boundClickOpenedPage || result.boundClickOpenedDialog ||
+    result.detachedDialogEventID !== "row-detached" || !result.detachedClickOpenedDialog ||
+    result.detachedClickOpenedPage || result.detachedHasSourceAffordance ||
     result.duplicateDraft?.date !== "2026-05-25" || result.duplicateDraft?.recurrenceRaw !== "" ||
     result.resizeDraft?.endTime !== "10:15" || result.persistedModeOperation !== "setAttrViewCalendarViewMode" ||
     result.dragDraft?.date !== "2026-05-26" || result.dragDraft?.title !== "Calendar none smoke event" ||
