@@ -575,12 +575,12 @@ for (const term of [
 }
 
 for (const [file, term] of [
-  ["app/src/protyle/render/av/calendar/render.ts", "return \"zh-Hant\""],
-  ["app/src/protyle/render/av/calendar/event-dialog.ts", "return \"zh-Hant\""],
-  ["app/src/protyle/render/av/layout.ts", "return \"zh-Hant\""],
+  ["app/src/protyle/render/av/calendar/render.ts", "const getCalendarLocale = () => window.siyuan.config.lang;"],
+  ["app/src/protyle/render/av/calendar/event-dialog.ts", "const getCalendarLocale = () => window.siyuan.config.lang;"],
+  ["app/src/protyle/render/av/layout.ts", "const getCalendarLocale = () => window.siyuan.config.lang;"],
 ]) {
   if (!read(file).includes(term)) {
-    fail(`${file} missing Traditional Chinese Intl locale guard`);
+    fail(`${file} missing BCP 47 calendar locale accessor`);
   }
 }
 
