@@ -353,7 +353,7 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
     globalThis.dayjs = require('dayjs');
     const dialogModule = require(${JSON.stringify(dialogModule)});
     window.siyuan = window.siyuan || {};
-    window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en_US'});
+    window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en'});
     window.siyuan.languages = Object.assign({
       allDay: 'All day',
       cancel: 'Cancel',
@@ -517,7 +517,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
   const result = await evaluateInTarget(debugPort, `(async () => {
     const renderModule = require(${JSON.stringify(renderModule)});
     window.siyuan = window.siyuan || {};
-    window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en_US'});
+    window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en'});
     window.siyuan.languages = Object.assign({
       calendar: 'Calendar',
       month: 'Month',
@@ -887,7 +887,7 @@ const main = async () => {
       "--wd", appDir,
       "--workspace", workspace,
       "--mode", "dev",
-      "--lang", "zh_CHT",
+      "--lang", "zh-TW",
     ], {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],

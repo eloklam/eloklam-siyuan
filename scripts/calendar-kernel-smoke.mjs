@@ -120,7 +120,7 @@ const main = async () => {
       "--wd", appDir,
       "--workspace", workspace,
       "--mode", "dev",
-      "--lang", "zh_CHT",
+      "--lang", "zh-TW",
     ], {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
