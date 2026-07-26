@@ -557,6 +557,13 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             rerender(false, true);
             return;
         }
+        if (mode === persistedMode) {
+            // Leaving a local peek for the persisted mode must not touch av.json.
+            delete options.blockElement.dataset.calendarViewMode;
+            calendar.viewMode = mode;
+            rerender();
+            return;
+        }
         transaction(options.protyle, [{
             action: "setAttrViewCalendarViewMode",
             avID,

@@ -796,10 +796,16 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     await new Promise(resolve => setTimeout(resolve, 100));
     const moreLocalViewMode = host.dataset.calendarViewMode || '';
     const morePeekDayDate = host.querySelector('.av__calendar-day-view')?.getAttribute('data-date') || '';
-    delete host.dataset.calendarViewMode;
+    // Exiting the peek back to the persisted mode must clear the local
+    // override without issuing any transaction (no av.json churn, no dead
+    // undo step).
+    const morePeekExitTransactionStart = globalThis.__calendarRenderTransactions.length;
     host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const modeAfterMorePeek = host.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
+    const morePeekOverrideAfterExit = host.dataset.calendarViewMode || '';
+    const morePeekExitActions = globalThis.__calendarRenderTransactions.slice(morePeekExitTransactionStart)
+      .flatMap(item => (item.doOperations || []).map(op => op.action)).join(',');
 
     const readOnlyHost = document.createElement('div');
     readOnlyHost.className = 'av';
@@ -877,6 +883,25 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const emptyHintExists = !!emptyHost.querySelector('.av__calendar-empty-hint');
     const emptyHintEventCount = emptyHost.querySelectorAll('.av__calendar-event').length;
 
+    // Events exist in the database but none fall in the visible range: the
+    // create hint must stay hidden (distinguishes the baseEventsByID gate
+    // from the old rendered-count gate).
+    const offRangeHost = document.createElement('div');
+    offRangeHost.className = 'av';
+    offRangeHost.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)} + '-offrange');
+    offRangeHost.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)} + '-offrange');
+    offRangeHost.dataset.calendarDate = '2026-02-15';
+    offRangeHost.innerHTML = '<div></div>';
+    document.body.appendChild(offRangeHost);
+    await renderModule.renderCalendar({
+      protyle: {disabled: false, block: {action: []}},
+      blockElement: offRangeHost,
+      renderAll: true,
+      data: {view: {...calendar}, viewID: ${JSON.stringify(fixture.viewID)} + '-offrange', viewType: 'calendar'},
+    });
+    const offRangeHintExists = !!offRangeHost.querySelector('.av__calendar-empty-hint');
+    const offRangeEventCount = offRangeHost.querySelectorAll('.av__calendar-event').length;
+
     return {
       hasCalendar: !!calendarElement,
       eventCount: filteredEventCount,
@@ -923,8 +948,12 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       moreLocalViewMode,
       morePeekDayDate,
       modeAfterMorePeek,
+      morePeekOverrideAfterExit,
+      morePeekExitActions,
       emptyHintExists,
       emptyHintEventCount,
+      offRangeHintExists,
+      offRangeEventCount,
       slotDblclickDialogBlocked,
       slotCreateDraft: slotCreateCall?.payload?.draft,
       dayMode,
@@ -974,7 +1003,9 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     !result.nonOverlapFound || result.nonOverlapWidth !== "" ||
     result.moreButtonText !== "+3" || result.moreLocalViewMode !== "2" ||
     result.morePeekDayDate !== "2026-05-24" || result.modeAfterMorePeek !== "0" ||
+    result.morePeekOverrideAfterExit !== "" || result.morePeekExitActions !== "" ||
     !result.emptyHintExists || result.emptyHintEventCount !== 0 ||
+    result.offRangeHintExists || result.offRangeEventCount !== 0 ||
     !result.slotDblclickDialogBlocked || result.slotCreateDraft?.date !== "2026-05-26" ||
     result.slotCreateDraft?.startTime !== "09:00" || result.slotCreateDraft?.endTime !== "09:30" ||
     result.slotCreateDraft?.isAllDay !== false ||

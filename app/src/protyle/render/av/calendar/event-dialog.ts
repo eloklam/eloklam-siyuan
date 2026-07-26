@@ -436,8 +436,8 @@ const withCalendarDialogOperationFeedback = async (dialog: Dialog, actionType: s
     }
 };
 
-const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, mapping: ReturnType<typeof getCalendarFieldMapping>) => {
-    if (!draft.title) {
+const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, mapping: ReturnType<typeof getCalendarFieldMapping>, allowEmptyTitle = false) => {
+    if (!draft.title && !allowEmptyTitle) {
         showMessage(`${window.siyuan.languages.title || "Title"} ${window.siyuan.languages.invalid || "Invalid"}`);
         return;
     }
@@ -544,7 +544,7 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if ((!draft.title && !options.event?.isTitleFallback) || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
-        showInvalidDraftMessage(draft, mapping);
+        showInvalidDraftMessage(draft, mapping, Boolean(options.event?.isTitleFallback));
         return false;
     }
     if (options.event) {
@@ -608,8 +608,8 @@ const saveFutureEvent = async (dialog: Dialog, options: IEventDialogOptions) => 
     const draft = getDraftFromDialog(dialog);
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    if (!options.event || !options.event.isOccurrence || !draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {
-        showInvalidDraftMessage(draft, mapping);
+    if (!options.event || !options.event.isOccurrence || (!draft.title && !options.event.isTitleFallback) || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {
+        showInvalidDraftMessage(draft, mapping, Boolean(options.event?.isTitleFallback));
         return false;
     }
     if (!await updateCalendarEventThisAndFuture({
@@ -644,7 +644,7 @@ const duplicateEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if ((!draft.title && !options.event?.isTitleFallback) || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
-        showInvalidDraftMessage(draft, mapping);
+        showInvalidDraftMessage(draft, mapping, Boolean(options.event?.isTitleFallback));
         return false;
     }
     if (!await createCalendarEvent({
