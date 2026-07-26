@@ -511,6 +511,7 @@ export const openRecurrenceScopeDialog = (options: {
         });
     });
     dialog.element.querySelector('[data-type="calendar-scope-cancel"]')?.addEventListener("click", () => dialog.destroy());
+    (dialog.element.querySelector(".av__calendar-scope-option:not([disabled])") as HTMLButtonElement)?.focus();
     return dialog;
 };
 
