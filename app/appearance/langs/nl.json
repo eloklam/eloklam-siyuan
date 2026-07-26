@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "Kies hoe ver deze wijziging moet gelden.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Deze brongebeurtenis bevat de terugkerende reeks. Wijzigingen aan één gebeurtenis zijn alleen mogelijk vanuit gegenereerde gebeurtenissen.",
 	"calendarRecurrenceScopeRootFutureDisabled": "Deze en volgende is alleen beschikbaar vanuit gegenereerde gebeurtenissen.",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "Nieuwe gebeurtenis",
+	"calendarStaleMapping": "Veld ontbreekt of is ongeldig",
+	"calendarEmptyHint": "Nog geen kalenderitems — klik op een dag of een tijdvak om de eerste aan te maken."
 	}

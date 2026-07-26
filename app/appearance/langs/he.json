@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "בחרו על מה יחול השינוי.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "אירוע המקור הזה מאחסן את סדרת החזרות. שינויים במופע בודד זמינים רק ממופעים שנוצרו.",
 	"calendarRecurrenceScopeRootFutureDisabled": "האפשרות \"זה והבאים\" זמינה רק ממופעים שנוצרו.",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "אירוע חדש",
+	"calendarStaleMapping": "שדה חסר או לא תקין",
+	"calendarEmptyHint": "אין עדיין פריטים בלוח השנה — לחץ על יום או על משבצת זמן כדי ליצור את הפריט הראשון."
 	}

@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "Escolha o alcance desta alteração.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Este evento de origem armazena a série recorrente. Alterações de uma única ocorrência só estão disponíveis a partir das ocorrências geradas.",
 	"calendarRecurrenceScopeRootFutureDisabled": "“Esta e as seguintes” só está disponível a partir das ocorrências geradas.",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "Novo evento",
+	"calendarStaleMapping": "Campo ausente ou inválido",
+	"calendarEmptyHint": "Ainda não há itens no calendário — clique em um dia ou em um horário para criar o primeiro."
 	}

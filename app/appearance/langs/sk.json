@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "Vyberte, na čo sa má táto zmena vzťahovať.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Táto zdrojová udalosť uchováva opakujúcu sa sériu. Zmeny jednotlivého výskytu sú dostupné len z vygenerovaných výskytov.",
 	"calendarRecurrenceScopeRootFutureDisabled": "„Táto a nasledujúce“ je dostupné len z vygenerovaných výskytov.",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "Nová udalosť",
+	"calendarStaleMapping": "Pole chýba alebo je neplatné",
+	"calendarEmptyHint": "Zatiaľ žiadne položky kalendára — kliknite na deň alebo časový úsek a vytvorte prvú položku."
 	}

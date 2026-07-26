@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "เลือกขอบเขตที่จะให้การเปลี่ยนแปลงนี้มีผล",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "กิจกรรมต้นทางนี้เก็บข้อมูลชุดที่เกิดซ้ำ การแก้ไขเฉพาะครั้งทำได้จากรายการที่ระบบสร้างขึ้นเท่านั้น",
 	"calendarRecurrenceScopeRootFutureDisabled": "\"รายการนี้และรายการถัดไป\" ใช้ได้จากรายการที่ระบบสร้างขึ้นเท่านั้น",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "กิจกรรมใหม่",
+	"calendarStaleMapping": "ฟิลด์หายไปหรือไม่ถูกต้อง",
+	"calendarEmptyHint": "ยังไม่มีรายการปฏิทิน — คลิกที่วันหรือช่วงเวลาเพื่อสร้างรายการแรก"
 	}

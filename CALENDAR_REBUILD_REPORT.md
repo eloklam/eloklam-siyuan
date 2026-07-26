@@ -193,3 +193,40 @@ cd ../app && corepack pnpm run build:desktop
 ```
 
 After automated checks, only the short manual acceptance list above remains recommended for visual confidence.
+
+---
+
+# 2026-07-26 Productionization Update
+
+Branch `calendar-production` in worktree `/home/eloklam/Schreibtisch/Apps/SiYuan-Calender-next`.
+
+## Summary
+
+- Merged upstream SiYuan v3.7.3 (merge commit `bc0be0c9a`); adapted to RFC 5646
+  language codes, the cobra kernel CLI (`serve` subcommand), Electron 42, and
+  the reworked AV render pipeline. Calendar transaction ops were added to the
+  `TOperation` union (previously untyped).
+- Closed the P0.6 gap: recurring drag/drop/resize now go through the
+  recurrence scope dialog with per-scope transactions; `"None"` recurrence is
+  treated as non-recurring.
+- P1 readability: overlap-cluster columns for simultaneous timed events,
+  month-cell cap with "+N" day peek, zero-item create hint.
+- P2 robustness: single-key mapping payloads (stale entries can no longer
+  soft-lock settings), honest stale-mapping dropdown options, unusable date
+  fields rejected by `getCalendarFieldMapping`, backend pruning of calendar
+  references on column type change (`pruneCalendarFieldReferencesByType`,
+  tested) and in `removeMissingField`, synthetic titles never persisted.
+- P4: day-cell click selects the date; selection survives view switches and
+  drives prev/next navigation.
+- P5: `aria-current="date"`, scope-dialog initial focus.
+- i18n: every `calendar*` key localized in all 21 bundled languages.
+- Smoke suite modernized for v3.7.3 and de-time-bombed (document-flow event
+  date is now dynamic; layout-model readiness gates `openFileByURL`).
+
+## Verification
+
+The full battery in `CALENDAR_REBUILD_HANDOFF.md` passes: audit, 10 static
+smokes, kernel API smoke, Go tests (`./av ./model ./sql` — upstream Obsidian
+tests fail for environment reasons unrelated to the calendar), webpack desktop
+production build, Electron launch smoke (render + dialog harnesses, Chrome
+148), and the Electron document-flow smoke on both dev and production bundles.

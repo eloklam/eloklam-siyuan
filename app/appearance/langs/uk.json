@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "Виберіть, наскільки широко застосувати цю зміну.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "Ця джерельна подія зберігає повторювану серію. Зміни окремого повторення доступні лише зі згенерованих повторень.",
 	"calendarRecurrenceScopeRootFutureDisabled": "«Ця та наступні» доступно лише зі згенерованих повторень.",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "Нова подія",
+	"calendarStaleMapping": "Поле відсутнє або недійсне",
+	"calendarEmptyHint": "Елементів календаря поки немає — натисніть на день або часовий проміжок, щоб створити перший."
 	}

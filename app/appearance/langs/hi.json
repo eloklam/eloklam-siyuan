@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "चुनें कि यह परिवर्तन कहाँ तक लागू हो।",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "यह स्रोत इवेंट आवर्ती श्रृंखला संग्रहीत करता है। एकल आवृत्ति परिवर्तन केवल जनित आवृत्तियों से उपलब्ध हैं।",
 	"calendarRecurrenceScopeRootFutureDisabled": "यह और आगामी केवल जनित आवृत्तियों से उपलब्ध है।",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "नया इवेंट",
+	"calendarStaleMapping": "फ़ील्ड गुम या अमान्य है",
+	"calendarEmptyHint": "अभी कोई कैलेंडर आइटम नहीं है — पहला आइटम बनाने के लिए किसी दिन या समय स्लॉट पर क्लिक करें।"
 	}

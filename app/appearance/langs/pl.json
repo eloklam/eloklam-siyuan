@@ -2285,7 +2285,7 @@
 	"calendarRecurrenceScopePrompt": "Wybierz, jak szeroko zastosować tę zmianę.",
 	"calendarRecurrenceScopeRootOccurrenceDisabled": "To wydarzenie źródłowe przechowuje serię cykliczną. Zmiany pojedynczego wystąpienia są dostępne tylko z wygenerowanych wystąpień.",
 	"calendarRecurrenceScopeRootFutureDisabled": "Opcja „to i następne” jest dostępna tylko z wygenerowanych wystąpień.",
-	"newEvent": "New event",
-	"calendarStaleMapping": "Missing or invalid field",
-	"calendarEmptyHint": "No calendar items yet — click a day or a time slot to create the first one."
+	"newEvent": "Nowe wydarzenie",
+	"calendarStaleMapping": "Brakujące lub nieprawidłowe pole",
+	"calendarEmptyHint": "Brak jeszcze elementów kalendarza — kliknij dzień lub przedział czasowy, aby utworzyć pierwszy."
 	}
