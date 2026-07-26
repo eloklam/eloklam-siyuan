@@ -7,15 +7,7 @@ import {setPosition} from "../../../util/setPosition";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
 
-const getCalendarLocale = () => {
-    if (window.siyuan.config.lang === "zh_CHT") {
-        return "zh-Hant";
-    }
-    if (window.siyuan.config.lang === "zh_CN") {
-        return "zh-Hans";
-    }
-    return window.siyuan.config.lang.replace("_", "-");
-};
+const getCalendarLocale = () => window.siyuan.config.lang;
 
 const getWeekdayLabel = (day: 0 | 1) => {
     return new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "long"}).format(new Date(2020, 5, 7 + day));

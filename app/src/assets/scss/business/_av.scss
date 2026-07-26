@@ -1553,6 +1553,56 @@ img.av__cellassetimg {
   }
 }
 
+.b3-menu[data-name="av-new-item-template-field-value"] {
+  &:not(.b3-menu--fullscreen) {
+    min-width: 290px;
+    max-width: 290px;
+  }
+
+  .b3-menu__item .b3-chip {
+    max-width: 100%;
+    margin: 3px 0;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    float: left;
+  }
+
+  .b3-chips {
+    padding: 0;
+
+    input {
+      outline: none;
+      border: 0;
+      background-color: var(--b3-menu-background);
+      flex: 1;
+      height: 32px;
+      color: var(--b3-theme-on-background);
+    }
+  }
+}
+
+.b3-menu[data-name="av-new-item-template"] [data-template-id] {
+  &.dragover__top::after,
+  &.dragover__bottom::after {
+    background-color: var(--b3-theme-primary-lighter);
+    content: '';
+    height: 4px;
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+    z-index: 3;
+  }
+
+  &.dragover__top::after {
+    top: -3px;
+  }
+
+  &.dragover__bottom::after {
+    bottom: -2px;
+  }
+}
+
 .av__calendar {
   min-width: 320px;
   padding: 8px;
@@ -2042,52 +2092,5 @@ img.av__cellassetimg {
 
   &-time-sep {
     line-height: 28px;
-.b3-menu[data-name="av-new-item-template-field-value"] {
-  &:not(.b3-menu--fullscreen) {
-    min-width: 290px;
-    max-width: 290px;
-  }
-
-  .b3-menu__item .b3-chip {
-    max-width: 100%;
-    margin: 3px 0;
-    padding-top: 4px;
-    padding-bottom: 4px;
-    float: left;
-  }
-
-  .b3-chips {
-    padding: 0;
-
-    input {
-      outline: none;
-      border: 0;
-      background-color: var(--b3-menu-background);
-      flex: 1;
-      height: 32px;
-      color: var(--b3-theme-on-background);
-    }
-  }
-}
-
-.b3-menu[data-name="av-new-item-template"] [data-template-id] {
-  &.dragover__top::after,
-  &.dragover__bottom::after {
-    background-color: var(--b3-theme-primary-lighter);
-    content: '';
-    height: 4px;
-    left: 0;
-    pointer-events: none;
-    position: absolute;
-    right: 0;
-    z-index: 3;
-  }
-
-  &.dragover__top::after {
-    top: -3px;
-  }
-
-  &.dragover__bottom::after {
-    bottom: -2px;
   }
 }
