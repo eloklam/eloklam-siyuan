@@ -1883,7 +1883,8 @@
 		"kanban": "Kanbanbord",
 		"key": "Primaire sleutel",
 		"select": "Selecteren",
-		"calendar": "Kalender"
+		"calendar": "Kalender",
+		"date": "Datum"
 	},
 	"_kernel": {
 		"0": "Query notitieboek mislukt",

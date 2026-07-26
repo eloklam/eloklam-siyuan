@@ -1883,7 +1883,8 @@
 		"kanban": "Kanban",
 		"key": "Primárny kľúč",
 		"select": "Výber",
-		"calendar": "Kalendár"
+		"calendar": "Kalendár",
+		"date": "Dátum"
 	},
 	"_kernel": {
 		"0": "Dopyt na zápisník zlyhal",

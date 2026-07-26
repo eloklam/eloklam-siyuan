@@ -1883,7 +1883,8 @@
 		"kanban": "Kanban",
 		"key": "Chave Primária",
 		"select": "Selecionar",
-		"calendar": "Calendário"
+		"calendar": "Calendário",
+		"date": "Data"
 	},
 	"_kernel": {
 		"0": "Falha ao consultar o bloco de notas",

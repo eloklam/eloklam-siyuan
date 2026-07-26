@@ -449,7 +449,7 @@ const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, m
         showMessage(window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field");
         return;
     }
-    showMessage(window.siyuan.languages._kernel[29]);
+    showMessage(window.siyuan.languages._kernel[258]);
 };
 
 export const isRecurringSourceEvent = (event?: ICalendarNormalizedEvent) => {
@@ -561,7 +561,6 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
                 occurrenceDate: options.event.start.format("YYYY-MM-DD"),
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
             })) {
-                showMessage(window.siyuan.languages._kernel[29]);
                 return false;
             }
             dialog.destroy();
@@ -579,7 +578,6 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
             draft,
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         })) {
-            showMessage(window.siyuan.languages._kernel[29]);
             return false;
         }
     } else {
@@ -593,7 +591,6 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
             draft,
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         })) {
-            showMessage(window.siyuan.languages._kernel[29]);
             return false;
         }
     }
@@ -624,7 +621,6 @@ const saveFutureEvent = async (dialog: Dialog, options: IEventDialogOptions) => 
         occurrenceDate: options.event.start.format("YYYY-MM-DD"),
         previousUpdated: options.blockElement.getAttribute("updated") || "",
     })) {
-        showMessage(window.siyuan.languages._kernel[29]);
         return false;
     }
     dialog.destroy();
@@ -657,7 +653,6 @@ const duplicateEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
         draft,
         previousUpdated: options.blockElement.getAttribute("updated") || "",
     })) {
-        showMessage(window.siyuan.languages._kernel[29]);
         return false;
     }
     dialog.destroy();
@@ -684,7 +679,6 @@ const deleteEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: 
             occurrenceDate: options.event.start.format("YYYY-MM-DD"),
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         })) {
-            showMessage(window.siyuan.languages._kernel[29]);
             return false;
         }
         dialog.destroy();
@@ -698,7 +692,6 @@ const deleteEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: 
         event: options.event,
         previousUpdated: options.blockElement.getAttribute("updated") || "",
     })) {
-        showMessage(window.siyuan.languages._kernel[29]);
         return false;
     }
     dialog.destroy();

@@ -1883,7 +1883,8 @@
 		"kanban": "Kanban",
 		"key": "Clé primaire",
 		"select": "Sélectionner",
-		"calendar": "Calendrier"
+		"calendar": "Calendrier",
+		"date": "Date"
 	},
 	"_kernel": {
 		"0": "Échec du cahier de requêtes",

@@ -1883,7 +1883,8 @@
 		"kanban": "Kanban",
 		"key": "Kunci Utama",
 		"select": "Pilih",
-		"calendar": "Kalender"
+		"calendar": "Kalender",
+		"date": "Tanggal"
 	},
 	"_kernel": {
 		"0": "Kueri buku catatan gagal",

@@ -3989,6 +3989,36 @@ func addAttrViewView(avID, viewID, blockID string, layout av.LayoutType) (err er
 			for _, field := range firstView.Kanban.Fields {
 				view.Kanban.Fields = append(view.Kanban.Fields, &av.ViewKanbanField{BaseField: &av.BaseField{ID: field.ID}})
 			}
+		case av.LayoutTypeCalendar:
+			for _, field := range firstView.Calendar.Fields {
+				view.Kanban.Fields = append(view.Kanban.Fields, &av.ViewKanbanField{BaseField: &av.BaseField{ID: field.ID}})
+			}
+		}
+	case av.LayoutTypeCalendar:
+		view = av.NewCalendarView()
+		switch firstView.LayoutType {
+		case av.LayoutTypeTable:
+			for _, col := range firstView.Table.Columns {
+				view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: &av.BaseField{ID: col.ID}})
+			}
+		case av.LayoutTypeGallery:
+			for _, field := range firstView.Gallery.CardFields {
+				view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: &av.BaseField{ID: field.ID}})
+			}
+		case av.LayoutTypeKanban:
+			for _, field := range firstView.Kanban.Fields {
+				view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: &av.BaseField{ID: field.ID}})
+			}
+		case av.LayoutTypeCalendar:
+			for _, field := range firstView.Calendar.Fields {
+				view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: &av.BaseField{ID: field.ID}})
+			}
+			if nil != firstView.Calendar.FieldMapping {
+				mapping := *firstView.Calendar.FieldMapping
+				view.Calendar.FieldMapping = &mapping
+			}
+			view.Calendar.ViewMode = firstView.Calendar.ViewMode
+			view.Calendar.WeekStart = firstView.Calendar.WeekStart
 		}
 	default:
 		err = av.ErrWrongLayoutType
@@ -4005,6 +4035,10 @@ func addAttrViewView(avID, viewID, blockID string, layout av.LayoutType) (err er
 		preferredGroupKey := getKanbanPreferredGroupKey(attrView)
 		group := &av.ViewGroup{Field: preferredGroupKey.ID}
 		setAttributeViewGroup(attrView, view, group)
+	}
+
+	if av.LayoutTypeCalendar == layout && "" == view.Calendar.DateFieldID {
+		view.Calendar.DateFieldID = getCalendarPreferredDateKey(attrView).ID
 	}
 
 	node, tree, _ := getNodeByBlockID(nil, blockID)
@@ -4056,6 +4090,50 @@ func getKanbanPreferredGroupKey(attrView *av.AttributeView) (ret *av.Key) {
 			if nil != view.Kanban {
 				newField.Wrap = view.Kanban.WrapField
 				view.Kanban.Fields = append(view.Kanban.Fields, &av.ViewKanbanField{BaseField: newField})
+			}
+
+			if nil != view.Calendar {
+				newField.Wrap = view.Calendar.WrapField
+				view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: newField})
+			}
+		}
+	}
+	return
+}
+
+// getCalendarPreferredDateKey 返回日历布局可用的日期字段，没有时新建一个并同步到所有视图。
+func getCalendarPreferredDateKey(attrView *av.AttributeView) (ret *av.Key) {
+	for _, kv := range attrView.KeyValues {
+		if av.KeyTypeDate == kv.Key.Type {
+			ret = kv.Key
+			break
+		}
+	}
+
+	if nil == ret {
+		name := av.GetAttributeViewI18n("date")
+		ret = av.NewKey(ast.NewNodeID(), name, "", av.KeyTypeDate)
+		attrView.KeyValues = append(attrView.KeyValues, &av.KeyValues{Key: ret})
+		for _, view := range attrView.Views {
+			newField := &av.BaseField{ID: ret.ID}
+			if nil != view.Table {
+				newField.Wrap = view.Table.WrapField
+				view.Table.Columns = append(view.Table.Columns, &av.ViewTableColumn{BaseField: newField})
+			}
+
+			if nil != view.Gallery {
+				newField.Wrap = view.Gallery.WrapField
+				view.Gallery.CardFields = append(view.Gallery.CardFields, &av.ViewGalleryCardField{BaseField: newField})
+			}
+
+			if nil != view.Kanban {
+				newField.Wrap = view.Kanban.WrapField
+				view.Kanban.Fields = append(view.Kanban.Fields, &av.ViewKanbanField{BaseField: newField})
+			}
+
+			if nil != view.Calendar {
+				newField.Wrap = view.Calendar.WrapField
+				view.Calendar.Fields = append(view.Calendar.Fields, &av.ViewCalendarCardField{BaseField: newField})
 			}
 		}
 	}

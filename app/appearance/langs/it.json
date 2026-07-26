@@ -1883,7 +1883,8 @@
 		"kanban": "Kanban",
 		"key": "Chiave primaria",
 		"select": "Seleziona",
-		"calendar": "Calendario"
+		"calendar": "Calendario",
+		"date": "Data"
 	},
 	"_kernel": {
 		"0": "Query del taccuino fallita",

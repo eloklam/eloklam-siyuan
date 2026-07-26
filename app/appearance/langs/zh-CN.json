@@ -1883,7 +1883,8 @@
 		"kanban": "看板",
 		"key": "主键",
 		"select": "单选",
-		"calendar": "日历"
+		"calendar": "日历",
+		"date": "日期"
 	},
 	"_kernel": {
 		"0": "查询笔记本失败",

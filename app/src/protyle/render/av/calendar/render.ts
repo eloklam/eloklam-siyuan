@@ -527,7 +527,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         try {
             const saved = await callback();
             if (!saved) {
-                showMessage(`${failureMessage || window.siyuan.languages._kernel[29]} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
+                showMessage(`${failureMessage || window.siyuan.languages._kernel[258]} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
                 rerender();
                 return false;
             }
@@ -675,7 +675,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                         draft: savedDraft,
                         previousUpdated: options.blockElement.getAttribute("updated") || "",
                     })) {
-                        throw new Error(window.siyuan.languages._kernel[29]);
+                        throw new Error("calendar transaction rejected");
                     }
                     rerender();
                 },
@@ -717,7 +717,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                         draft: savedDraft,
                         previousUpdated: options.blockElement.getAttribute("updated") || "",
                     })) {
-                        throw new Error(window.siyuan.languages._kernel[29]);
+                        throw new Error("calendar transaction rejected");
                     }
                     rerender();
                 },
@@ -881,7 +881,6 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
         if (!avID || !blockID || !mapping.dateFieldID) {
-            showMessage(window.siyuan.languages._kernel[29]);
             showMessage(`${failureMessage} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
             rerender();
             return;

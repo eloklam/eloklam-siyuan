@@ -129,7 +129,7 @@ for (const term of [
   "draggable=\"${editable ? \"true\" : \"false\"}\"",
   "av__calendar-event--readonly",
   "${editable ? \"\" : \" disabled\"}",
-  "showMessage(window.siyuan.languages._kernel[29])",
+  "window.siyuan.languages._kernel[258]",
 ]) {
   if (!calendarRender.includes(term)) {
     fail(`calendar render missing read-only/error guard term: ${term}`);

@@ -1883,7 +1883,8 @@
 		"kanban": "Kanban",
 		"key": "Klucz główny",
 		"select": "Wybierz",
-		"calendar": "Kalendarz"
+		"calendar": "Kalendarz",
+		"date": "Data"
 	},
 	"_kernel": {
 		"0": "Nie udało się zapytać o notes",

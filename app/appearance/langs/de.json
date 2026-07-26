@@ -1883,7 +1883,8 @@
 		"kanban": "Kanban",
 		"key": "Primärschlüssel",
 		"select": "Auswählen",
-		"calendar": "Kalender"
+		"calendar": "Kalender",
+		"date": "Datum"
 	},
 	"_kernel": {
 		"0": "Abfrage des Notizbuchs fehlgeschlagen",

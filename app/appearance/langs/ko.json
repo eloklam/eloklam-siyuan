@@ -1883,7 +1883,8 @@
 		"kanban": "칸반",
 		"key": "기본 키",
 		"select": "선택",
-		"calendar": "캘린더"
+		"calendar": "캘린더",
+		"date": "날짜"
 	},
 	"_kernel": {
 		"0": "노트북 쿼리 실패",
