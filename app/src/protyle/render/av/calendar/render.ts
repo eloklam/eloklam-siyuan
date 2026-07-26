@@ -8,6 +8,7 @@ import {openMobileFileById} from "../../../../mobile/editor";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {fetchSyncPost} from "../../../../util/fetch";
 import {hasClosestByAttribute} from "../../../util/hasClosest";
+import {focusBlock} from "../../../util/selection";
 import {transaction} from "../../../wysiwyg/transaction";
 import {genTabHeaderHTML} from "../render";
 import {getCalendarFieldMapping} from "./mapped-fields";
@@ -1059,5 +1060,9 @@ export const renderCalendar = async (options: IRenderCalendarOptions) => {
         e.firstElementChild.querySelector(".av__scroll").innerHTML = body;
     }
     bindCalendarEvents(options, data);
+    if (e.getAttribute("data-need-focus") === "true") {
+        focusBlock(e);
+        e.removeAttribute("data-need-focus");
+    }
     options.cb?.(data);
 };
