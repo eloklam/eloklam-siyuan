@@ -214,9 +214,10 @@ const waitForAppShell = async (debugPort) => {
       hasSiyuan: !!window.siyuan,
       hasOpenFileByURL: typeof window.openFileByURL === 'function',
       hasLayout: !!document.querySelector('.layout, .layout__center, .fn__flex-column'),
+      hasLayoutModel: !!(window.siyuan && window.siyuan.layout && window.siyuan.layout.centerLayout),
       openedEditors: document.querySelectorAll('.protyle').length,
     }))()`, 5000);
-    if (lastState?.hasSiyuan && lastState.hasLayout && lastState.hasOpenFileByURL) {
+    if (lastState?.hasSiyuan && lastState.hasLayout && lastState.hasLayoutModel && lastState.hasOpenFileByURL) {
       return lastState;
     }
     await sleep(500);
@@ -286,9 +287,9 @@ const createCalendarFixture = async (baseURL) => {
     data: {
       type: "date",
       date: {
-        content: new Date("2026-05-24T09:00:00").getTime(),
+        content: new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate(), 9, 0, 0).getTime(),
         isNotEmpty: true,
-        content2: new Date("2026-05-24T10:00:00").getTime(),
+        content2: new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate(), 10, 0, 0).getTime(),
         isNotEmpty2: true,
         hasEndDate: true,
         isNotTime: false,
