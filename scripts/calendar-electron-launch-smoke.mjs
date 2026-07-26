@@ -231,7 +231,7 @@ const compileCalendarRenderHarness = () => {
   const tempDir = fs.mkdtempSync(path.join(appDir, ".calendar-electron-render-"));
   const calendarSourceDir = path.join(appDir, "src/protyle/render/av/calendar");
   const calendarTargetDir = path.join(tempDir, "src/protyle/render/av/calendar");
-  const compileCalendarFile = (file) => {
+  const compileCalendarFile = (file, outputFile = file) => {
     const source = fs.readFileSync(path.join(calendarSourceDir, file), "utf8");
     const result = ts.transpileModule(source, {
       compilerOptions: {
@@ -241,17 +241,39 @@ const compileCalendarRenderHarness = () => {
       },
       fileName: file,
     });
-    writeFile(path.join(calendarTargetDir, file.replace(/\.ts$/, ".js")), result.outputText);
+    writeFile(path.join(calendarTargetDir, outputFile.replace(/\.ts$/, ".js")), result.outputText);
   };
   for (const file of ["model.ts", "mapped-fields.ts", "recurrence.ts", "normalize.ts", "quick-create.ts", "render.ts"]) {
     compileCalendarFile(file);
   }
+  // Compile the REAL event-dialog.ts to a side path so the event-dialog stub below
+  // can re-export the production recurrence-scope helpers instead of hand-forking
+  // them (which would silently drift from app/src/.../event-dialog.ts).
+  compileCalendarFile("event-dialog.ts", "event-dialog-real.ts");
   writeFile(path.join(tempDir, "src/constants.js"), `
 exports.Constants = {
   CUSTOM_SY_AV_VIEW: 'custom-sy-av-view',
   CB_GET_AV_NO_CREATE: 'cb-get-av-no-create',
+  CB_GET_FOCUS: 'cb-get-focus',
 };
 `);
+  writeFile(path.join(tempDir, "src/dialog/index.js"), `
+class Dialog {
+  constructor(options) {
+    this.destroyed = false;
+    this.element = document.createElement('div');
+    this.element.className = 'calendar-render-dialog-smoke';
+    this.element.innerHTML = '<div class="b3-dialog"><div class="b3-dialog__body">' + ((options && options.content) || '') + '</div></div>';
+    document.body.appendChild(this.element);
+  }
+  destroy() {
+    this.destroyed = true;
+    this.element.remove();
+  }
+}
+exports.Dialog = Dialog;
+`);
+  writeFile(path.join(tempDir, "src/dialog/confirmDialog.js"), "exports.confirmDialog = (title, text, confirm) => { if (confirm) confirm(); };\n");
   writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = (message) => (globalThis.__calendarRenderMessages ||= []).push(message);\n");
   writeFile(path.join(tempDir, "src/editor/util.js"), "exports.openFileById = (options) => (globalThis.__calendarRenderOpenBlocks ||= []).push({options, blockID: options && options.id});\n");
   writeFile(path.join(tempDir, "src/mobile/editor.js"), "exports.openMobileFileById = (app, blockID) => (globalThis.__calendarRenderOpenBlocks ||= []).push({app, blockID, mobile: true});\n");
@@ -275,17 +297,16 @@ exports.hasClosestByAttribute = (element, attr, value) => {
   writeFile(path.join(tempDir, "src/protyle/wysiwyg/transaction.js"), "exports.transaction = (protyle, doOperations, undoOperations) => (globalThis.__calendarRenderTransactions ||= []).push({doOperations, undoOperations});\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/render.js"), "exports.genTabHeaderHTML = () => '<div class=\"av__header\"></div>';\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), `
+// Pure helpers come from the compiled real module so the harness cannot drift
+// from production logic; only the dialog openers are replaced with recorders.
+const realEventDialog = require('./event-dialog-real.js');
+exports.isRecurringSourceEvent = realEventDialog.isRecurringSourceEvent;
+exports.getDisabledRecurrenceScopes = realEventDialog.getDisabledRecurrenceScopes;
 exports.openEventDialog = (options) => (globalThis.__calendarRenderDialogs ||= []).push(options);
 exports.openRecurrenceScopeDialog = (options) => {
   (globalThis.__calendarRenderScopeDialogs ||= []).push({action: options.action, disabled: options.disabledScopes});
-  options.onSelect('series');
+  options.onSelect(globalThis.__calendarNextScope || 'series');
   return {destroy: () => {}};
-};
-exports.getDisabledRecurrenceScopes = () => ({occurrence: '', future: ''});
-exports.isRecurringSourceEvent = (event) => {
-  if (!event || event.isOccurrence) return false;
-  const raw = (event.recurrenceRaw || '').trim();
-  return !!event.recurrence || (!!raw && raw.toUpperCase() !== 'NONE');
 };
 `);
   writeFile(path.join(tempDir, "src/protyle/render/av/calendar/transactions.js"), `
@@ -296,6 +317,9 @@ const record = (type, payload) => {
 exports.createCalendarEvent = (payload) => record('create', payload);
 exports.createCalendarEventReplacingOccurrence = (payload) => record('replace-occurrence', payload);
 exports.updateCalendarEvent = (payload) => record('update', payload);
+exports.updateCalendarEventThisAndFuture = (payload) => record('future', payload);
+exports.deleteCalendarEvent = (payload) => record('delete', payload);
+exports.deleteCalendarOccurrence = (payload) => record('delete-occurrence', payload);
 `);
   return {tempDir, renderModule: path.join(calendarTargetDir, "render.js")};
 };
@@ -580,14 +604,15 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     globalThis.__calendarRenderTransactions = [];
     globalThis.__calendarRenderTxCalls = [];
     globalThis.__calendarRenderScopeDialogs = [];
+    globalThis.__calendarNextScope = 'series';
     const timestamp = (value) => new Date(value).getTime();
     const field = (id, type, extra = {}) => ({id, type, name: id, desc: '', width: '', icon: '', wrap: false, pin: false, hidden: false, numberFormat: '', template: '', calc: {}, ...extra});
     const cell = (rowID, keyID, type, value) => ({id: rowID + '-' + keyID, valueType: type, color: '', bgColor: '', value: {id: rowID + '-' + keyID, keyID, type, ...value}});
-    const card = (rowID, title, start, end, recurrence, exception = '') => ({
+    const card = (rowID, title, start, end, recurrence, exception = '', isNotTime = false) => ({
       id: rowID,
       values: [
         cell(rowID, 'block', 'block', {block: {id: 'block-' + rowID, content: title}}),
-        cell(rowID, 'date', 'date', {date: {content: timestamp(start), isNotEmpty: true, content2: timestamp(end), isNotEmpty2: true, hasEndDate: true, isNotTime: false}}),
+        cell(rowID, 'date', 'date', {date: {content: timestamp(start), isNotEmpty: true, content2: timestamp(end), isNotEmpty2: true, hasEndDate: true, isNotTime}}),
         cell(rowID, 'recurrence', 'text', {text: {content: recurrence}}),
         cell(rowID, 'exception', 'text', {text: {content: exception}}),
         cell(rowID, 'location', 'text', {text: {content: 'Render Room'}}),
@@ -624,8 +649,21 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       cards: [
         card('row-render', 'Calendar UI render smoke event', '2026-05-24T09:00:00', '2026-05-24T10:00:00', 'FREQ=WEEKLY;COUNT=2', '2026-05-31'),
         card('row-none', 'Calendar none smoke event', '2026-05-25T11:00:00', '2026-05-25T12:00:00', 'None'),
+        // Recurring series whose generated occurrences (05-25, 05-26) are NOT
+        // excluded by an exception, so occurrence DOM + occurrence/future scope
+        // paths are exercised.
+        card('row-recur2', 'Calendar occurrence smoke event', '2026-05-24T13:00:00', '2026-05-24T14:00:00', 'FREQ=DAILY;COUNT=3'),
+        // Same-day overlapping timed pair for the day-view column layout check
+        // (placed at 15:00 so it stays clear of row-render 09:00 and row-recur2 13:00).
+        card('row-ov1', 'Calendar overlap first smoke event', '2026-05-24T15:00:00', '2026-05-24T16:00:00', ''),
+        card('row-ov2', 'Calendar overlap second smoke event', '2026-05-24T15:30:00', '2026-05-24T16:30:00', ''),
+        // All-day fillers push the 05-24 month cell past the +N cap; they sort
+        // FIRST in month cells (all-day before timed), keeping row-render (09:00)
+        // inside the 3 visible events that earlier steps click on.
+        card('row-fill1', 'Calendar filler alpha smoke event', '2026-05-24T00:00:00', '2026-05-24T00:00:00', '', '', true),
+        card('row-fill2', 'Calendar filler beta smoke event', '2026-05-24T00:00:00', '2026-05-24T00:00:00', '', '', true),
       ],
-      cardCount: 2,
+      cardCount: 7,
     };
     globalThis.__calendarRenderFetchResponse = {data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'}};
     await renderModule.renderCalendar({
@@ -718,6 +756,51 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const searchAfterClear = host.dataset.calendarSearch || '';
     const filterAfterClear = host.dataset.calendarFilter || '';
 
+    // Scoped direct edits on a generated occurrence (month view, anchor 2026-05-27).
+    const occurrenceMonthCount = host.querySelectorAll('.av__calendar-event[data-occurrence^="row-recur2:"]').length;
+    const occurrenceElement = host.querySelector('.av__calendar-event[data-occurrence="row-recur2:20260525"]');
+    const occurrenceDate = occurrenceElement?.dataset.date || '';
+    globalThis.__calendarNextScope = 'occurrence';
+    occurrenceElement?.querySelector('[data-type="calendar-resize"][data-delta="15"]')?.click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const occurrenceScopeCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'replace-occurrence').at(-1);
+    globalThis.__calendarNextScope = 'future';
+    host.querySelector('.av__calendar-event[data-occurrence="row-recur2:20260525"] [data-type="calendar-resize"][data-delta="15"]')?.click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const futureScopeCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'future').at(-1);
+    globalThis.__calendarNextScope = 'series';
+
+    // Overlapping timed events must split the day column while a lone timed
+    // event keeps the full width (no inline width override).
+    host.dataset.calendarDate = '2026-05-24';
+    host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const overlapDayViewDate = host.querySelector('.av__calendar-day-view')?.getAttribute('data-date') || '';
+    const overlapFirst = host.querySelector('.av__calendar-event[data-id="row-ov1"]')?.closest('.av__calendar-timed-event');
+    const overlapSecond = host.querySelector('.av__calendar-event[data-id="row-ov2"]')?.closest('.av__calendar-timed-event');
+    const overlapFirstWidth = overlapFirst?.style.width || '';
+    const overlapSecondWidth = overlapSecond?.style.width || '';
+    const overlapFirstMargin = overlapFirst?.style.marginLeft || '';
+    const overlapSecondMargin = overlapSecond?.style.marginLeft || '';
+    const nonOverlapWrapper = host.querySelector('.av__calendar-event[data-id="row-render"]')?.closest('.av__calendar-timed-event');
+    const nonOverlapFound = !!nonOverlapWrapper;
+    const nonOverlapWidth = nonOverlapWrapper?.style.width || '';
+
+    // Month "+N" overflow chip peeks at the day locally (dataset override) and
+    // must not persist the saved view mode.
+    host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const moreButton = host.querySelector('[data-type="calendar-more"][data-date="2026-05-24"]');
+    const moreButtonText = moreButton?.textContent || '';
+    moreButton?.click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const moreLocalViewMode = host.dataset.calendarViewMode || '';
+    const morePeekDayDate = host.querySelector('.av__calendar-day-view')?.getAttribute('data-date') || '';
+    delete host.dataset.calendarViewMode;
+    host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const modeAfterMorePeek = host.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
+
     const readOnlyHost = document.createElement('div');
     readOnlyHost.className = 'av';
     readOnlyHost.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)} + '-readonly');
@@ -776,6 +859,24 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     await new Promise(resolve => setTimeout(resolve, 100));
     const createFieldOperations = globalThis.__calendarRenderTransactions[createFieldTransactionStart]?.doOperations?.map(op => op.action) || [];
 
+    // A configured calendar with zero cards must show the empty-state hint
+    // (rendered on a fresh host so shared main-host state stays untouched).
+    const emptyHost = document.createElement('div');
+    emptyHost.className = 'av';
+    emptyHost.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)} + '-empty');
+    emptyHost.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)} + '-empty');
+    emptyHost.dataset.calendarDate = '2026-05-24';
+    emptyHost.innerHTML = '<div></div>';
+    document.body.appendChild(emptyHost);
+    await renderModule.renderCalendar({
+      protyle: {disabled: false, block: {action: []}},
+      blockElement: emptyHost,
+      renderAll: true,
+      data: {view: {...calendar, cards: []}, viewID: ${JSON.stringify(fixture.viewID)} + '-empty', viewType: 'calendar'},
+    });
+    const emptyHintExists = !!emptyHost.querySelector('.av__calendar-empty-hint');
+    const emptyHintEventCount = emptyHost.querySelectorAll('.av__calendar-event').length;
+
     return {
       hasCalendar: !!calendarElement,
       eventCount: filteredEventCount,
@@ -804,6 +905,26 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       slotQuickTitleFocused,
       slotQuickTop,
       scopeDialogActions: (globalThis.__calendarRenderScopeDialogs || []).map(item => item.action).join(','),
+      scopeDialogDisabled: (globalThis.__calendarRenderScopeDialogs || []).map(item => (item.disabled?.occurrence ? '1' : '0') + (item.disabled?.future ? '1' : '0')).join(','),
+      occurrenceMonthCount,
+      occurrenceDate,
+      occurrenceScopeDate: occurrenceScopeCall?.payload?.occurrenceDate || '',
+      occurrenceScopeEndTime: occurrenceScopeCall?.payload?.draft?.endTime || '',
+      futureScopeDate: futureScopeCall?.payload?.occurrenceDate || '',
+      futureScopeEndTime: futureScopeCall?.payload?.draft?.endTime || '',
+      overlapDayViewDate,
+      overlapFirstWidth,
+      overlapSecondWidth,
+      overlapFirstMargin,
+      overlapSecondMargin,
+      nonOverlapFound,
+      nonOverlapWidth,
+      moreButtonText,
+      moreLocalViewMode,
+      morePeekDayDate,
+      modeAfterMorePeek,
+      emptyHintExists,
+      emptyHintEventCount,
       slotDblclickDialogBlocked,
       slotCreateDraft: slotCreateCall?.payload?.draft,
       dayMode,
@@ -842,7 +963,18 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.resizeDraft?.endTime !== "10:15" || result.persistedModeOperation !== "setAttrViewCalendarViewMode" ||
     result.dragDraft?.date !== "2026-05-26" || result.dragDraft?.title !== "Calendar none smoke event" ||
     result.weekMode !== "1" || !result.slotQuickTitleFocused || result.slotQuickTop === "" ||
-    result.scopeDialogActions !== "resize" ||
+    result.scopeDialogActions !== "resize,resize,resize" ||
+    result.scopeDialogDisabled !== "11,00,00" ||
+    result.occurrenceMonthCount < 1 || result.occurrenceDate !== "2026-05-25" ||
+    result.occurrenceScopeDate !== "2026-05-25" || result.occurrenceScopeEndTime !== "14:15" ||
+    result.futureScopeDate !== "2026-05-25" || result.futureScopeEndTime !== "14:15" ||
+    result.overlapDayViewDate !== "2026-05-24" ||
+    !result.overlapFirstWidth.includes("calc(50%") || !result.overlapSecondWidth.includes("calc(50%") ||
+    result.overlapFirstMargin !== "0%" || result.overlapSecondMargin !== "50%" ||
+    !result.nonOverlapFound || result.nonOverlapWidth !== "" ||
+    result.moreButtonText !== "+3" || result.moreLocalViewMode !== "2" ||
+    result.morePeekDayDate !== "2026-05-24" || result.modeAfterMorePeek !== "0" ||
+    !result.emptyHintExists || result.emptyHintEventCount !== 0 ||
     !result.slotDblclickDialogBlocked || result.slotCreateDraft?.date !== "2026-05-26" ||
     result.slotCreateDraft?.startTime !== "09:00" || result.slotCreateDraft?.endTime !== "09:30" ||
     result.slotCreateDraft?.isAllDay !== false ||
