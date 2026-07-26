@@ -18,6 +18,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -27,7 +28,6 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/model"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -88,10 +88,17 @@ func html2BlockDOM(c *gin.Context) {
 	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("dom", &dom, true, false)) {
 		return
 	}
+	// 可选 notebook 参数：指定目标加密笔记本时资源写入 box 内并加密
+	boxID := ""
+	if notebook, ok := arg["notebook"].(string); ok && notebook != "" {
+		if model.IsEncryptedBox(notebook) {
+			boxID = notebook
+		}
+	}
 	luteEngine := util.NewLute()
 	luteEngine.SetHTMLTag2TextMark(true)
 	luteEngine.SetHTML2MarkdownAttrs([]string{"alias", "memo", "bookmark", "custom-*"})
-	tree, _ := model.HTML2Tree(dom, luteEngine)
+	tree, _ := model.HTML2Tree(dom, luteEngine, boxID)
 	if nil == tree {
 		ret.Data = "Failed to convert"
 		return
@@ -176,12 +183,26 @@ func html2BlockDOM(c *gin.Context) {
 			ext := filepath.Ext(name)
 			name = name[0 : len(name)-len(ext)]
 			name = name + "-" + ast.NewNodeID() + ext
-			targetPath := filepath.Join(util.DataDir, "assets", name)
-			if err := filelock.Copy(localPath, targetPath); err != nil {
-				logging.LogErrorf("copy asset from [%s] to [%s] failed: %s", localPath, targetPath, err)
+
+			data, readErr := os.ReadFile(localPath)
+			if readErr != nil {
+				logging.LogErrorf("read asset [%s] failed: %s", localPath, readErr)
 				return ast.WalkStop
 			}
-			n.Tokens = gulu.Str.ToBytes("assets/" + name)
+			assetsDir := filepath.Join(util.DataDir, "assets")
+			if boxID != "" {
+				assetsDir = filepath.Join(util.DataDir, boxID, "assets")
+			}
+			storedName, storeErr := model.StoreAssetForBox(boxID, assetsDir, name, data)
+			if storeErr != nil {
+				logging.LogErrorf("store asset [%s] failed: %s", localPath, storeErr)
+				return ast.WalkStop
+			}
+			assetURL := "assets/" + storedName
+			if boxID != "" {
+				assetURL += "?box=" + boxID
+			}
+			n.Tokens = gulu.Str.ToBytes(assetURL)
 			return ast.WalkContinue
 		})
 	}
@@ -219,5 +240,40 @@ func spinBlockDOM(c *gin.Context) {
 	dom = luteEngine.SpinBlockDOM(dom)
 	ret.Data = map[string]any{
 		"dom": dom,
+	}
+}
+
+// md2HTML 将 Markdown 转换为 HTML。
+func md2HTML(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var markdown, mode string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("markdown", &markdown, true, false),
+		util.BindJsonArg("mode", &mode, false, false),
+	) {
+		return
+	}
+
+	var html string
+	switch mode {
+	case "protyle-preview":
+		html = model.MarkdownToProtylePreviewHTML(markdown)
+	case "":
+		html = model.MarkdownToMarkdownStrHTML(markdown)
+	default:
+		ret.Code = -1
+		ret.Msg = "unknown [mode]"
+		return
+	}
+
+	ret.Data = map[string]any{
+		"html": html,
 	}
 }

@@ -1,6 +1,6 @@
 import {fetchPost} from "../../util/fetch";
 import {Dialog} from "../../dialog";
-import {objEquals} from "../../util/functions";
+import {isMobile, objEquals} from "../../util/functions";
 import {confirmDialog} from "../../dialog/confirmDialog";
 import {Constants} from "../../constants";
 
@@ -8,7 +8,7 @@ export const renderSnippet = () => {
     fetchPost("/api/snippet/getSnippet", {type: "all", enabled: 2}, (response) => {
         response.data.snippets.forEach((item: ISnippet) => {
             const id = `snippet${item.type === "css" ? "CSS" : "JS"}${item.id}`;
-            let exitElement = document.getElementById(id) as HTMLScriptElement;
+            let exitElement = document.getElementById(id) as HTMLScriptElement | HTMLStyleElement;
             if ((!window.siyuan.config.snippet.enabledCSS && item.type === "css") ||
                 (!window.siyuan.config.snippet.enabledJS && item.type === "js")) {
                 if (exitElement) {
@@ -23,13 +23,16 @@ export const renderSnippet = () => {
                 return;
             }
             if (exitElement) {
-                if (exitElement.innerHTML === item.content) {
+                if (exitElement.textContent === item.content) {
                     return;
                 }
                 exitElement.remove();
             }
             if (item.type === "css") {
-                document.head.insertAdjacentHTML("beforeend", `<style id="${id}">${item.content}</style>`);
+                const styleEl = document.createElement("style");
+                styleEl.id = id;
+                styleEl.textContent = item.content;
+                document.head.appendChild(styleEl);
             } else if (item.type === "js") {
                 exitElement = document.createElement("script");
                 exitElement.type = "text/javascript";
@@ -53,19 +56,16 @@ export const openSnippets = () => {
             }
         });
         const dialog = new Dialog({
-            width: "70vw",
-            height: "80vh",
-            content: `<div class="layout-tab-bar fn__flex fn__flex-shrink" style="border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
+            width: isMobile() ? "100vw" : "50vw",
+            height: isMobile() ? "100vh" : "80vh",
+            content: `<div class="layout-tab-bar fn__flex fn__flex-shrink" style="${isMobile() ? "padding-right: 38px;" : ""}border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
     <div data-type="css" class="item item--full item--focus"><span class="fn__flex-1"></span><span class="item__text">CSS</span><span class="fn__flex-1"></span></div>
     <div data-type="js" class="item item--full"><span class="fn__flex-1"></span><span class="item__text">JS</span><span class="fn__flex-1"></span></div>
 </div>
 <div class="fn__flex-1" style="overflow:auto;padding: 16px 24px">
     <div>
         <div class="fn__flex">
-            <div class="b3-form__icon fn__flex-1">
-                <svg class="b3-form__icon-icon"><use xlink:href="#iconSearch"></use></svg>
-                <input data-type="css" data-action="search" type="text" placeholder="${window.siyuan.languages.search}" class="b3-text-field b3-form__icon-input fn__block">
-            </div>
+            <input data-type="css" data-action="search" type="text" placeholder="${window.siyuan.languages.search}" class="b3-text-field fn__block">
             <div class="fn__space"></div>
             <span aria-label="${window.siyuan.languages.addAttr} CSS" id="addCodeSnippetCSS" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
                 <svg><use xlink:href="#iconAdd"></use></svg>
@@ -77,10 +77,7 @@ export const openSnippets = () => {
     </div>
     <div class="fn__none">
         <div class="fn__flex">
-             <div class="b3-form__icon fn__flex-1">
-                <svg class="b3-form__icon-icon"><use xlink:href="#iconSearch"></use></svg>
-                <input data-type="js" data-action="search" type="text" placeholder="${window.siyuan.languages.search}" class="b3-text-field b3-form__icon-input fn__block">
-            </div>
+            <input data-type="js" data-action="search" type="text" placeholder="${window.siyuan.languages.search}" class="b3-text-field fn__block">
             <div class="fn__space"></div>
             <span aria-label="${window.siyuan.languages.addAttr} JS" id="addCodeSnippetJS" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
                 <svg><use xlink:href="#iconAdd"></use></svg>
@@ -192,15 +189,14 @@ const filterSnippet = (dialog: Dialog, inputItem: HTMLInputElement) => {
 const genSnippet = (options: ISnippet) => {
     return `<div data-id="${options.id || ""}" data-type="${options.type}">
     <div class="fn__hr--b"></div>
-    <div class="fn__flex">
-        <input type="text" class="fn__size200 b3-text-field" placeholder="${window.siyuan.languages.title}">
+    <label class="fn__flex${window.siyuan.config.publish.enable ? "" : " fn__none"}">
+        <input data-type="disabledInPublish" type="checkbox" class="b3-switch fn__flex-center" ${options.disabledInPublish ? "" : " checked"}>
         <div class="fn__space"></div>
-        <label class="fn__flex${window.siyuan.config.publish.enable ? "" : " fn__none"}">
-            <input data-type="disabledInPublish" type="checkbox" class="b3-switch fn__flex-center" ${options.disabledInPublish ? "" : " checked"}>
-            <div class="fn__space"></div>
-            <span class="fn__flex-center">${window.siyuan.languages.publishService}</span>
-        </label>
-        <div class="fn__flex-1"></div>
+        <span class="fn__flex-center">${window.siyuan.languages.publishService}</span>
+    </label>
+    <div class="fn__hr"></div>
+    <div class="fn__flex">
+        <input type="text" class="fn__flex-1 b3-text-field" placeholder="${window.siyuan.languages.title}">
         <div class="fn__space"></div>
         <span aria-label="${window.siyuan.languages.remove}" data-action="remove" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
             <svg><use xlink:href="#iconTrashcan"></use></svg>

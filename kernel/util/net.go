@@ -26,6 +26,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/88250/gulu"
@@ -35,6 +37,8 @@ import (
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
 )
+
+var auditedAddresses sync.Map // 用于记录已审计的 SSRF 地址，避免重复日志输出
 
 // GetPrivateIPv4s 获取本地所有的私有 IPv4 地址（排除虚拟网卡）
 func GetPrivateIPv4s() (ret []string) {
@@ -119,6 +123,32 @@ func IsLocalOrigin(origin string) bool {
 	return false
 }
 
+// SSRFSafeDialer returns a net.Dialer whose Control hook blocks private, loopback, link-local and unspecified IPs.
+func SSRFSafeDialer(timeout time.Duration) *net.Dialer {
+	return &net.Dialer{
+		Timeout: timeout,
+		Control: func(network, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			if ip := net.ParseIP(host); ip != nil && isPrivateIP(ip) {
+				if _, loaded := auditedAddresses.LoadOrStore(address, struct{}{}); !loaded {
+					logging.LogWarnf("Establishing a connection to the private network [address=%s, network=%s]", address, network)
+				}
+				if SafeMode {
+					return fmt.Errorf("ip address [%s] is prohibited", host)
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() || ip.IsUnspecified()
+}
+
 func IsOnline(checkURL string, skipTlsVerify bool, timeout int) bool {
 	if "" == checkURL {
 		return false
@@ -165,7 +195,7 @@ func isOnline(checkURL string, skipTlsVerify bool, timeout int) (ret bool) {
 		c.EnableInsecureSkipVerify()
 	}
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		resp, err := c.R().Get(checkURL)
 		if resp.GetHeader("Location") != "" {
 			return true
@@ -220,9 +250,51 @@ func JsonArg(c *gin.Context, result *gulu.Result) (arg map[string]any, ok bool) 
 	return
 }
 
+// GetRequestUrlStringParam extracts a string parameter from URL (path or query parameters).
+func GetRequestUrlStringParam(c *gin.Context, key string) string {
+	// /path/:name
+	if value := c.Param(key); value != "" {
+		return value
+	}
+
+	// /path?name=xxx
+	if value := c.Query(key); value != "" {
+		return value
+	}
+
+	return ""
+}
+
+// GetRequestStringParam extracts a string parameter from the request (URL or JSON body), with validation and error handling.
+func GetRequestStringParam(c *gin.Context, key string, result *gulu.Result) string {
+	// /path/:name
+	if value := GetRequestUrlStringParam(c, key); value != "" {
+		return value
+	}
+
+	// /path with JSON body {key: "xxx"}
+	arg, ok := JsonArg(c, result)
+	if !ok {
+		return ""
+	}
+	if arg[key] == nil {
+		result.Code = 1
+		result.Msg = fmt.Sprintf("Request body prop [%s] does not exist", key)
+		return ""
+	}
+
+	value, ok := arg[key].(string)
+	if !ok {
+		result.Code = 2
+		result.Msg = fmt.Sprintf("Request body prop [%s] is not a string", key)
+		return ""
+	}
+	return value
+}
+
 // ParseJsonArg 使用泛型从 JSON 参数中提取指定键的值。
 //   - 如果 required 为 true 但参数缺失，则会在 ret.Msg 中说明需要传入的键
-//   - 如果 rejectEmpty 为 true 但参数值为空，则会在 ret.Msg 中说明该键必须不为空
+//   - 如果 rejectEmpty 为 true 但参数值为空，则会在 ret.Msg 中说明该键必须不为空（字符串去空白后、空数组、无任何键的对象）
 //   - 如果参数存在但类型不匹配，则会在 ret.Msg 中说明该键期望的类型
 //   - 返回值 ok 为 false 时，表示提取失败、类型不匹配或不满足非空约束
 func ParseJsonArg[T any](key string, arg map[string]any, ret *gulu.Result, required, rejectEmpty bool) (value T, ok bool) {
@@ -273,6 +345,8 @@ func ParseJsonArg[T any](key string, arg map[string]any, ret *gulu.Result, requi
 				value = any(t).(T)
 			}
 		case []any:
+			bad = len(x) == 0
+		case map[string]any:
 			bad = len(x) == 0
 		}
 		if bad {

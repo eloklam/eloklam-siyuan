@@ -18,6 +18,7 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -27,7 +28,7 @@ import (
 	"math"
 	mathRand "math/rand"
 	"mime"
-	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -54,6 +55,8 @@ import (
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
+	"github.com/siyuan-note/siyuan/kernel/av"
+	"github.com/siyuan-note/siyuan/kernel/cache"
 	"github.com/siyuan-note/siyuan/kernel/conf"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/task"
@@ -70,6 +73,9 @@ func AutoPurgeRepoJob() {
 var (
 	autoPurgeRepoAfterFirstSync = false
 	lastAutoPurgeRepo           = time.Time{}
+
+	purgeCancelMu sync.Mutex
+	purgeCancel   context.CancelFunc
 )
 
 func autoPurgeRepo(cron bool) {
@@ -164,7 +170,30 @@ func autoPurgeRepo(cron bool) {
 		return
 	}
 
-	_, err = repo.Purge(retentionIndexIDs...)
+	purgeCancelMu.Lock()
+	var ctx context.Context
+	ctx, purgeCancel = context.WithCancel(context.Background())
+	cancelCtx := ctx
+	purgeCancelMu.Unlock()
+	defer func() {
+		purgeCancelMu.Lock()
+		if nil != purgeCancel {
+			purgeCancel()
+			purgeCancel = nil
+		}
+		purgeCancelMu.Unlock()
+	}()
+
+	_, err = repo.Purge(cancelCtx, retentionIndexIDs...)
+}
+
+func cancelPurge() {
+	purgeCancelMu.Lock()
+	defer purgeCancelMu.Unlock()
+	if nil != purgeCancel {
+		purgeCancel()
+		purgeCancel = nil
+	}
 }
 
 func GetRepoFile(fileID string) (ret []byte, p string, err error) {
@@ -216,15 +245,48 @@ func RollbackRepoSnapshotFile(fileID string) (err error) {
 		return
 	}
 
+	// 回滚快照时默认为当前数据创建一个快照
+	// When rolling back a snapshot, a snapshot is created for the current data by default https://github.com/siyuan-note/siyuan/issues/12470
+	FlushTxQueue()
+	_, err = repo.Index("Backup before checkout", false, map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBarAndProgress})
+	if err != nil {
+		logging.LogErrorf("index repository failed: %s", err)
+		util.PushClearProgress()
+		util.PushErrMsg(fmt.Sprintf(Conf.Language(140), err), 0)
+		return
+	}
+	util.PushClearProgress()
+
 	from := filepath.Join(tempRepoDiffDir, f)
+	// 加密笔记本的快照数据是密文，写入临时文件前先解密
+	if strings.HasSuffix(file.Path, ".sy") {
+		boxID := strings.TrimPrefix(file.Path, "/")
+		boxID = strings.Split(boxID, "/")[0]
+		if IsEncryptedBox(boxID) {
+			data = decryptRepoDataIfNeeded(data, file.Path)
+		}
+	}
 	if err = os.WriteFile(from, data, 0644); nil != err {
 		logging.LogErrorf("write file [%s] failed: %v", filepath.Join(tempRepoDiffDir, file.Path), err)
 		return
 	}
+	// 解密后的临时文件在函数返回时清理，避免加密文档明文残留在磁盘
+	defer os.Remove(from)
 
 	if strings.HasSuffix(file.Path, ".sy") {
 		boxID := strings.TrimPrefix(file.Path, "/")
 		boxID = strings.Split(boxID, "/")[0]
+		origBoxID := boxID // 保留原始 boxID 用于加密边界校验
+
+		// 加密笔记本的快照回滚要求原笔记本已挂载：
+		// WriteTree 根据 tree.Box 判断是否加密落盘。若原笔记本未挂载导致
+		// getRollbackBox fallback 到普通 Rollback 笔记本，解密后的 .sy 将被 WriteTree
+		// 以明文落盘，违反加密笔记本"数据不跨边界"的约束。
+		if IsEncryptedBox(origBoxID) && nil == Conf.Box(origBoxID) {
+			logging.LogErrorf("rollback encrypted repo snapshot requires notebook [%s] to be mounted", origBoxID)
+			err = errors.New(Conf.Language(314))
+			return
+		}
 
 		var box *Box
 		var needResetTree bool
@@ -249,7 +311,7 @@ func RollbackRepoSnapshotFile(fileID string) (err error) {
 		tree, _ := loadTree(from, util.NewLute())
 		if nil == tree {
 			msg := fmt.Sprintf("no such file or directory: %s", from)
-			logging.LogErrorf(msg)
+			logging.LogError(msg)
 			err = errors.New(msg)
 			return
 		}
@@ -269,10 +331,10 @@ func RollbackRepoSnapshotFile(fileID string) (err error) {
 			logging.LogInfof("removed working doc file [%s]", workingDocPath)
 		}
 		if nil != workingDoc {
-			treenode.RemoveBlockTreesByRootID(rootID)
+			treenode.RemoveBlockTreesByRootID(boxID, rootID)
 		}
 
-		sql.RemoveTreeQueue(rootID)
+		sql.RemoveTreeQueue(boxID, rootID)
 		if writeErr := indexWriteTreeIndexQueue(tree); nil != writeErr {
 			return
 		}
@@ -286,6 +348,12 @@ func RollbackRepoSnapshotFile(fileID string) (err error) {
 		if err = filelock.CopyNewtimes(from, to); nil != err {
 			logging.LogErrorf("copy file [%s] to [%s] failed: %s", from, to, err)
 			return
+		}
+
+		if strings.Contains(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
+			avID := strings.TrimSuffix(filepath.Base(file.Path), ".json")
+			cache.RemoveAVData(avID)
+			ReloadAttrView(avID)
 		}
 
 		msg := fmt.Sprintf(Conf.Language(286), to)
@@ -320,6 +388,8 @@ func OpenRepoSnapshotFile(fileID string) (title, content string, displayInText b
 	updated = file.Updated
 
 	if strings.HasSuffix(file.Path, ".sy") {
+		// 加密笔记本的 .sy 在仓库里是密文，按路径提取 boxID 解密
+		data = decryptRepoDataIfNeeded(data, file.Path)
 		luteEngine := NewLute()
 		var snapshotTree *parse.Tree
 		displayInText, snapshotTree, err = parseTreeInSnapshot(data, luteEngine)
@@ -368,13 +438,64 @@ func OpenRepoSnapshotFile(fileID string) (title, content string, displayInText b
 	} else {
 		displayInText = true
 		title = file.Path
+		// 加密 notebook 的 AV 定义在仓库里是密文，需先解密再展示
+		if strings.Contains(file.Path, "storage/av/") && strings.HasSuffix(file.Path, ".json") {
+			repoBoxID := ""
+			origPath := strings.TrimPrefix(file.Path, "/")
+			if parts := strings.SplitN(origPath, "/", 2); len(parts) >= 1 && ast.IsNodeIDPattern(parts[0]) {
+				repoBoxID = parts[0]
+			}
+			if repoBoxID != "" && IsEncryptedBox(repoBoxID) {
+				HoldBoxReadLock(repoBoxID)
+				defer ReleaseBoxReadLock(repoBoxID)
+				if dek, dekErr := GetDEKIfUnlocked(repoBoxID); dekErr == nil && dek != nil {
+					avID := strings.TrimSuffix(filepath.Base(file.Path), ".json")
+					if plainData, decErr := av.DecryptAVDataLocked(repoBoxID, avID, data); decErr == nil {
+						data = plainData
+					} else {
+						logging.LogWarnf("decrypt repo snapshot AV [%s] failed: %s", file.Path, decErr)
+						content = file.Path
+						return
+					}
+				} else {
+					content = file.Path
+					return
+				}
+			}
+		}
 		if mimeType := mime.TypeByExtension(filepath.Ext(file.Path)); strings.HasPrefix(mimeType, "text/") || strings.Contains(mimeType, "json") {
 			// 如果是文本文件，直接返回文本内容
 			// All plain text formats are supported when comparing data snapshots https://github.com/siyuan-note/siyuan/issues/12975
 			content = gulu.Str.FromBytes(data)
 		} else {
 			if strings.Contains(file.Path, "assets/") { // 剔除笔记本级或者文档级资源文件路径前缀
-				file.Path = file.Path[strings.Index(file.Path, "assets/"):]
+				// 加密 notebook 的 asset 在仓库里是密文，不解密直接写临时目录会泄漏密文
+				// 先用原始 path 检测是否加密 box，再裁剪 file.Path 到 assets/ 前缀
+				repoBoxID := ""
+				origPath := strings.TrimPrefix(file.Path, "/")
+				if parts := strings.SplitN(origPath, "/", 2); len(parts) >= 1 && ast.IsNodeIDPattern(parts[0]) {
+					repoBoxID = parts[0]
+				}
+				if repoBoxID != "" && IsEncryptedBox(repoBoxID) {
+					HoldBoxReadLock(repoBoxID)
+					defer ReleaseBoxReadLock(repoBoxID)
+					// 加密 asset：尝试解密后预览，无法解密则 fail-closed
+					if dek, dekErr := GetDEKIfUnlocked(repoBoxID); dekErr == nil && dek != nil {
+						diskName := filepath.Base(file.Path)
+						if plainData, decErr := DecryptAsset(repoBoxID, diskName, dek, data); decErr == nil {
+							data = plainData
+						} else {
+							logging.LogWarnf("decrypt repo snapshot asset [%s] failed: %s", file.Path, decErr)
+							content = file.Path
+							return
+						}
+					} else {
+						content = file.Path
+						return
+					}
+				}
+				// 保留 boxID 前缀，确保 LockBox 清理和 serveRepoDiff 加密校验能命中
+				file.Path = path.Join(repoBoxID, file.Path[strings.Index(file.Path, "assets/"):])
 				if util.IsDisplayableAsset(file.Path) {
 					dir, f := filepath.Split(file.Path)
 					tempRepoDiffDir := filepath.Join(util.TempDir, "repo", "diff", dir)
@@ -406,8 +527,10 @@ type LeftRightDiff struct {
 
 type DiffFile struct {
 	FileID  string `json:"fileID"`
+	IndexID string `json:"indexID"`
 	Title   string `json:"title"`
 	Path    string `json:"path"`
+	HPath   string `json:"hPath,omitempty"`
 	HSize   string `json:"hSize"`
 	Updated int64  `json:"updated"`
 }
@@ -445,7 +568,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 	luteEngine := NewLute()
 	for _, removeRight := range diff.RemovesRight {
-		title, parseErr := parseTitleInSnapshot(removeRight.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(removeRight.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -463,7 +586,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 
 	for _, addLeft := range diff.AddsLeft {
-		title, parseErr := parseTitleInSnapshot(addLeft.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(addLeft.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -481,7 +604,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 
 	for _, updateLeft := range diff.UpdatesLeft {
-		title, parseErr := parseTitleInSnapshot(updateLeft.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(updateLeft.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -499,7 +622,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 
 	for _, updateRight := range diff.UpdatesRight {
-		title, parseErr := parseTitleInSnapshot(updateRight.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(updateRight.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -518,7 +641,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	return
 }
 
-func parseTitleInSnapshot(fileID string, repo *dejavu.Repo, luteEngine *lute.Lute) (title string, err error) {
+func parseTitleInSnapshot(fileID string, repo *dejavu.Repo, luteEngine *lute.Lute) (title, rootID string, err error) {
 	file, err := repo.GetFile(fileID)
 	if err != nil {
 		logging.LogErrorf("get file [%s] failed: %s", fileID, err)
@@ -534,6 +657,9 @@ func parseTitleInSnapshot(fileID string, repo *dejavu.Repo, luteEngine *lute.Lut
 			return
 		}
 
+		// 加密笔记本的 .sy 在仓库里是密文，按路径提取 boxID 解密
+		data = decryptRepoDataIfNeeded(data, file.Path)
+
 		var tree *parse.Tree
 		tree, err = dataparser.ParseJSONWithoutFix(data, luteEngine.ParseOptions)
 		if err != nil {
@@ -542,15 +668,247 @@ func parseTitleInSnapshot(fileID string, repo *dejavu.Repo, luteEngine *lute.Lut
 		}
 
 		title = tree.Root.IALAttr("title")
+		rootID = tree.Root.ID
 	}
 	return
 }
 
+// decryptRepoDataIfNeeded 判断仓库数据是否属于加密笔记本，如果是则按路径类型分流解密。
+// file.Path 格式：/<boxID>/...
+// .sy → DecryptFile，assets/* → DecryptAsset，storage/av/*.json → av.DecryptAVData。
+// 其他文件或解锁失败时返回原数据（调用方 fallback）。
+func decryptRepoDataIfNeeded(data []byte, filePath string) []byte {
+	relPath := strings.TrimPrefix(filePath, "/")
+	parts := strings.SplitN(relPath, "/", 2)
+	if len(parts) < 1 || !ast.IsNodeIDPattern(parts[0]) {
+		return data
+	}
+	boxID := parts[0]
+	if !IsEncryptedBox(boxID) {
+		return data
+	}
+	// 持读锁，防止 LockBox 在解密期间清 DEK/缓存
+	HoldBoxReadLock(boxID)
+	defer ReleaseBoxReadLock(boxID)
+	dek, err := GetDEKIfUnlocked(boxID)
+	if err != nil {
+		return data // 加密笔记本未解锁：返回原数据
+	}
+	if len(parts) < 2 {
+		return data
+	}
+	boxRelPath := parts[1]
+	// 按路径类型分流
+	if strings.HasPrefix(boxRelPath, "assets/") {
+		diskName := filepath.Base(boxRelPath)
+		plain, decErr := DecryptAsset(boxID, diskName, dek, data)
+		if decErr != nil {
+			return data
+		}
+		return plain
+	}
+	if strings.HasPrefix(boxRelPath, "storage/av/") && strings.HasSuffix(boxRelPath, ".json") {
+		avID := strings.TrimSuffix(filepath.Base(boxRelPath), ".json")
+		plain, decErr := av.DecryptAVDataLocked(boxID, avID, data)
+		if decErr != nil {
+			return data
+		}
+		return plain
+	}
+	// .sy 和其他文件用 file 子密钥 + 相对路径 AAD
+	plain, decErr := DecryptFile(boxID, boxRelPath, dek, data)
+	if decErr != nil {
+		return data
+	}
+	return plain
+}
+
 func parseTreeInSnapshot(data []byte, luteEngine *lute.Lute) (isLargeDoc bool, tree *parse.Tree, err error) {
 	isLargeDoc = 1024*1024*1 <= len(data)
+	// data 可能是加密笔记本的密文，但 parseTreeInSnapshot 没有 file.Path 上下文
+	// 密文解析会失败返回 err，调用方会 fallback 到文件名
 	tree, err = dataparser.ParseJSONWithoutFix(data, luteEngine.ParseOptions)
 	if err != nil {
 		return
+	}
+	return
+}
+
+func SearchRepoFile(keyword string, page int) (ret []*DiffFile, pageCount, totalCount int, err error) {
+	ret = []*DiffFile{}
+	if 1 > len(Conf.Repo.Key) {
+		err = errors.New(Conf.Language(26))
+		return
+	}
+
+	repo, err := newRepository()
+	if err != nil {
+		return
+	}
+
+	files, fileIndexIDs, totalCount, pageCount, err := repo.SearchFile(keyword, page, 32)
+	if err != nil {
+		logging.LogErrorf("search repo file failed: %s", err)
+		return
+	}
+
+	if 1 > len(files) {
+		return
+	}
+
+	luteEngine := NewLute()
+	for _, file := range files {
+		title, rootID, parseErr := parseTitleInSnapshot(file.ID, repo, luteEngine)
+		if "" == title || nil != parseErr {
+			title = path.Base(file.Path)
+		}
+
+		var hpath string
+		if "" != rootID && treenode.ExistBlockTree(rootID) {
+			hpath, _ = GetHPathByID(rootID)
+		} else {
+			hpath = file.Path
+		}
+		ret = append(ret, &DiffFile{
+			FileID:  file.ID,
+			IndexID: fileIndexIDs[file.ID],
+			Title:   title,
+			Path:    file.Path,
+			HPath:   hpath,
+			HSize:   humanize.BytesCustomCeil(uint64(file.Size), 2),
+			Updated: file.Updated,
+		})
+	}
+	return
+}
+
+func ExportRepoFile(id string) (exportPath string, err error) {
+	if 1 > len(Conf.Repo.Key) {
+		err = errors.New(Conf.Language(26))
+		return
+	}
+
+	repo, err := newRepository()
+	if err != nil {
+		return
+	}
+
+	file, err := repo.GetFile(id)
+	if err != nil {
+		return
+	}
+
+	data, err := repo.OpenFile(file)
+	if err != nil {
+		return
+	}
+
+	repoRel := strings.TrimPrefix(file.Path, "/")
+	repoParts := strings.SplitN(repoRel, "/", 2)
+	var encryptedBoxID string
+	if len(repoParts) >= 1 && ast.IsNodeIDPattern(repoParts[0]) && IsEncryptedBox(repoParts[0]) {
+		encryptedBoxID = repoParts[0]
+	}
+
+	// 加密笔记本的 .sy 在仓库里是密文，按路径提取 boxID 解密
+	data = decryptRepoDataIfNeeded(data, file.Path)
+	// 如果加密 box 已锁定，decryptRepoDataIfNeeded 返回原密文，应拒绝导出
+	if encryptedBoxID != "" {
+		HoldBoxReadLock(encryptedBoxID)
+		defer ReleaseBoxReadLock(encryptedBoxID)
+		if _, dekErr := GetDEKIfUnlocked(encryptedBoxID); dekErr != nil {
+			err = errors.New(Conf.Language(314))
+			return
+		}
+	}
+
+	name := path.Base(file.Path)
+	exportRoot := filepath.Join(util.TempDir, "export", "repo")
+	managedKind := ""
+	if encryptedBoxID != "" {
+		var exportID string
+		exportID, err = newManagedEncryptedExportID()
+		if err != nil {
+			return
+		}
+		managedKind = path.Join("repo", exportID)
+		exportRoot = filepath.Join(util.TempDir, "export", encryptedBoxID, "repo", exportID)
+		defer func() {
+			if err != nil {
+				_ = os.RemoveAll(exportRoot)
+			}
+		}()
+	}
+	exportDir := exportRoot
+
+	// 如果是 .sy 文件需要打包为 .sy.zip 以便导入
+	var docTitle string
+	if strings.HasSuffix(file.Path, ".sy") {
+		var tree *parse.Tree
+		luteEngine := NewLute()
+		tree, err = dataparser.ParseJSONWithoutFix(data, luteEngine.ParseOptions)
+		if err != nil {
+			logging.LogErrorf("parse file [%s] failed: %s", id, err)
+			return
+		}
+
+		docTitle = util.FilterFileName(tree.Root.IALAttr("title"))
+		if docTitle == "" {
+			docTitle = strings.TrimSuffix(name, ".sy")
+		}
+		exportDir = filepath.Join(exportDir, docTitle)
+	}
+
+	if err = os.MkdirAll(exportDir, 0755); err != nil {
+		logging.LogErrorf("mkdir [%s] failed: %s", exportDir, err)
+		return
+	}
+
+	exportFilePath := filepath.Join(exportDir, name)
+	if err = os.WriteFile(exportFilePath, data, 0644); err != nil {
+		logging.LogErrorf("write file [%s] failed: %s", exportFilePath, err)
+		return
+	}
+
+	if strings.HasSuffix(file.Path, ".sy") {
+		zipPath := filepath.Join(exportRoot, docTitle+".sy.zip")
+		zip, zipErr := gulu.Zip.Create(zipPath)
+		if zipErr != nil {
+			logging.LogErrorf("create export .sy.zip [%s] failed: %s", exportDir, zipErr)
+			err = zipErr
+			return
+		}
+		zipClosed := false
+		defer func() {
+			if !zipClosed {
+				_ = zip.Close()
+			}
+		}()
+
+		if err = zip.AddDirectory(docTitle, exportDir); err != nil {
+			logging.LogErrorf("create export .sy.zip [%s] failed: %s", exportDir, err)
+			return
+		}
+
+		if err = zip.Close(); err != nil {
+			logging.LogErrorf("close export .sy.zip failed: %s", err)
+			return
+		}
+		zipClosed = true
+		_ = os.RemoveAll(exportDir)
+
+		if encryptedBoxID != "" {
+			exportPath = path.Join("/export", registerManagedEncryptedExport(encryptedBoxID, managedKind, zipPath))
+		} else {
+			exportPath = path.Join("/export/repo", url.PathEscape(filepath.Base(zipPath)))
+		}
+		return
+	}
+
+	if encryptedBoxID != "" {
+		exportPath = path.Join("/export", registerManagedEncryptedExport(encryptedBoxID, managedKind, exportFilePath))
+	} else {
+		exportPath = path.Join("/export/repo", url.PathEscape(name))
 	}
 	return
 }
@@ -735,7 +1093,7 @@ func PurgeRepo() (err error) {
 		return
 	}
 
-	stat, err := repo.Purge()
+	stat, err := repo.Purge(context.Background())
 	if err != nil {
 		return
 	}
@@ -827,13 +1185,17 @@ func initDataRepo() {
 	time.Sleep(1 * time.Second)
 	util.PushMsg(Conf.Language(138), 3000)
 	time.Sleep(1 * time.Second)
-	if initErr := IndexRepo("[Init] Init local data repo"); nil != initErr {
+	if _, initErr := IndexRepo("[Init] Init local data repo"); nil != initErr {
 		util.PushErrMsg(fmt.Sprintf(Conf.Language(140), initErr), 0)
 	}
 }
 
 func CheckoutRepo(id string) {
 	task.AppendTask(task.RepoCheckout, checkoutRepo, id)
+}
+
+func CheckoutRepoDirect(id string) {
+	checkoutRepo(id)
 }
 
 func checkoutRepo(id string) {
@@ -867,6 +1229,9 @@ func checkoutRepo(id string) {
 	syncEnabled := Conf.Sync.Enabled
 	Conf.Sync.Enabled = false
 	Conf.Save()
+	if syncEnabled {
+		util.PushMsg(Conf.Language(134), 0)
+	}
 
 	// 回滚快照时默认为当前数据创建一个快照
 	// When rolling back a snapshot, a snapshot is created for the current data by default https://github.com/siyuan-note/siyuan/issues/12470
@@ -887,12 +1252,68 @@ func checkoutRepo(id string) {
 		return
 	}
 
-	FullReindex(true)
-
-	if syncEnabled {
-		task.AppendAsyncTaskWithDelay(task.PushMsg, 7*time.Second, util.PushMsg, Conf.Language(134), 0)
-	}
+	FullReindexDirect()
+	appendAgentRollbackEntries()
+	time.Sleep(time.Second)
+	FlushTxQueue()
+	task.AppendAsyncTaskWithDelay(task.ReloadUI, 1*time.Second, util.ReloadUI)
 	return
+}
+
+func appendAgentRollbackEntries() {
+	pattern := filepath.Join(util.TempDir, "ai", "agent", "agentRollback_*.json")
+	markers, err := filepath.Glob(pattern)
+	if err != nil {
+		return
+	}
+	for _, markerPath := range markers {
+		data, err := os.ReadFile(markerPath)
+		if err != nil {
+			os.Remove(markerPath)
+			continue
+		}
+		var marker struct {
+			SessionID  string `json:"sessionID"`
+			SnapshotID string `json:"snapshotID"`
+		}
+		if nil != gulu.JSON.UnmarshalJSON(data, &marker) {
+			os.Remove(markerPath)
+			continue
+		}
+
+		sessionPath := filepath.Join(util.DataDir, "storage", "ai", "agent", "sessions",
+			marker.SessionID, "session.json")
+		sessionData, err := os.ReadFile(sessionPath)
+		if err != nil {
+			os.Remove(markerPath)
+			continue
+		}
+
+		var session map[string]any
+		if nil != gulu.JSON.UnmarshalJSON(sessionData, &session) {
+			os.Remove(markerPath)
+			continue
+		}
+
+		entries, ok := session["entries"].([]any)
+		if !ok {
+			entries = make([]any, 0)
+		}
+		entry := map[string]any{
+			"type":       "rollback",
+			"snapshotID": marker.SnapshotID,
+		}
+		entries = append(entries, entry)
+		session["entries"] = entries
+
+		newData, err := gulu.JSON.MarshalIndentJSON(session, "", "\t")
+		if err != nil {
+			os.Remove(markerPath)
+			continue
+		}
+		filelock.WriteFile(sessionPath, newData)
+		os.Remove(markerPath)
+	}
 }
 
 func DownloadCloudSnapshot(tag, id string) (err error) {
@@ -1159,7 +1580,7 @@ func TagSnapshot(id, name string) (err error) {
 	return
 }
 
-func IndexRepo(memo string) (err error) {
+func IndexRepo(memo string) (id string, err error) {
 	if 1 > len(Conf.Repo.Key) {
 		err = errors.New(Conf.Language(26))
 		return
@@ -1189,6 +1610,7 @@ func IndexRepo(memo string) (err error) {
 		util.PushStatusBar("Index data repo failed: " + html.EscapeString(err.Error()))
 		return
 	}
+	id = index.ID
 	elapsed := time.Since(start)
 
 	if nil == latest || latest.ID != index.ID {
@@ -1238,7 +1660,7 @@ func syncRepoDownload() (err error) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", err)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		util.PushStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
@@ -1312,7 +1734,7 @@ func syncRepoUpload() (err error) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", err)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		util.PushStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
@@ -1387,7 +1809,7 @@ func bootSyncRepo() (err error) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", html.EscapeString(err.Error()))
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		util.PushStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
@@ -1494,7 +1916,7 @@ func bootSyncRepo() (err error) {
 
 	if 0 < len(fetchedFiles) {
 		go func() {
-			_, syncErr := syncRepo(false, false)
+			_, syncErr := syncRepoWithDNSRetry(false, false)
 			isBootSyncing.Store(false)
 			if err != nil {
 				logging.LogErrorf("boot background sync repo failed: %s", syncErr)
@@ -1525,7 +1947,7 @@ func syncRepo(exit, byHand bool) (dataChanged bool, err error) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", err)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		util.PushStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
@@ -1656,6 +2078,19 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 				boxID := parts[0]
 
 				absPath := filepath.Join(util.TempDir, "repo", "sync", "conflicts", mergeResult.Time.Format("2006-01-02-150405"), file.Path)
+				// 加密笔记本的冲突 .sy 在临时目录里是密文，loadTree 无法从 temp 路径反推 box 解密
+				if IsEncryptedBox(boxID) {
+					raw, readErr := os.ReadFile(absPath)
+					if readErr == nil {
+						data := decryptRepoDataIfNeeded(raw, file.Path)
+						if writeErr := os.WriteFile(absPath, data, 0644); writeErr != nil {
+							logging.LogErrorf("decrypt conflicted file [%s] failed: %s", absPath, writeErr)
+							continue
+						}
+					}
+					// 解密后的冲突文件在函数返回时清理
+					defer os.Remove(absPath)
+				}
 				tree, loadTreeErr := loadTree(absPath, luteEngine)
 				if nil != loadTreeErr {
 					logging.LogErrorf("load conflicted file [%s] failed: %s", absPath, loadTreeErr)
@@ -1703,6 +2138,7 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	reloadPluginSet := hashset.New()     // 插件代码变更 data/plugins/
 	dataChangePluginSet := hashset.New() // 插件存储数据变更 data/storage/petal/
 	needUnindexBoxes, needIndexBoxes := map[string]bool{}, map[string]bool{}
+	needRestoreNotebookCrypto := false // 加密笔记本备份文件随同步到达，需恢复本机启用状态
 	for _, file := range mergeResult.Upserts {
 		upserts = append(upserts, file.Path)
 		if strings.HasPrefix(file.Path, "/storage/riff/") {
@@ -1718,6 +2154,16 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			boxID := strings.TrimSuffix(strings.TrimPrefix(file.Path, "/"), "/.siyuan/conf.json")
 			needUnindexBoxes[boxID] = true
 			needIndexBoxes[boxID] = true
+		}
+		if strings.HasSuffix(file.Path, "/.siyuan/boxDoc.json") {
+			needReloadFiletree = true
+			boxID := strings.TrimSuffix(strings.TrimPrefix(file.Path, "/"), "/.siyuan/boxDoc.json")
+			needUnindexBoxes[boxID] = true
+			needIndexBoxes[boxID] = true
+		}
+
+		if file.Path == "/.siyuan/notebook-crypto-backup.json" {
+			needRestoreNotebookCrypto = true
 		}
 
 		if strings.HasPrefix(file.Path, "/storage/petal/") {
@@ -1740,7 +2186,7 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			upsertTrees++
 		}
 
-		if !isFileWatcherAvailable() && strings.HasPrefix(file.Path, "/assets/") {
+		if util.IsMobileContainer() && strings.HasPrefix(file.Path, "/assets/") {
 			absPath := filepath.Join(util.DataDir, file.Path)
 			HandleAssetsChangeEvent(absPath)
 		}
@@ -1748,6 +2194,16 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 		if file.Path == "/snippets/conf.json" {
 			needReloadSnippet = true
 		}
+
+		if strings.Contains(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
+			cache.RemoveAVData(strings.TrimSuffix(filepath.Base(file.Path), ".json"))
+		}
+	}
+
+	// 加密笔记本备份文件随同步到达：若本机未启用，自动把配置装回 conf.json（不需主密码），
+	// 让本机进入"已启用"状态，用户输主密码即可解锁。仅本机 Enabled=false 时生效，不覆盖已启用配置。
+	if needRestoreNotebookCrypto {
+		restoreNotebookCryptoConfigFromBackup()
 	}
 
 	removeWidgetDirSet, unloadPluginSet, uninstallPluginSet := hashset.New(), hashset.New(), hashset.New()
@@ -1765,6 +2221,12 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			needReloadFiletree = true
 			boxID := strings.TrimSuffix(strings.TrimPrefix(file.Path, "/"), "/.siyuan/conf.json")
 			needUnindexBoxes[boxID] = true
+		}
+		if strings.HasSuffix(file.Path, "/.siyuan/boxDoc.json") {
+			needReloadFiletree = true
+			boxID := strings.TrimSuffix(strings.TrimPrefix(file.Path, "/"), "/.siyuan/boxDoc.json")
+			needUnindexBoxes[boxID] = true
+			needIndexBoxes[boxID] = true
 		}
 
 		if strings.HasPrefix(file.Path, "/storage/petal/") {
@@ -1790,13 +2252,17 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			}
 		}
 
-		if !isFileWatcherAvailable() && strings.HasPrefix(file.Path, "/assets/") {
+		if util.IsMobileContainer() && strings.HasPrefix(file.Path, "/assets/") {
 			absPath := filepath.Join(util.DataDir, file.Path)
 			HandleAssetsRemoveEvent(absPath)
 		}
 
 		if file.Path == "/snippets/conf.json" {
 			needReloadSnippet = true
+		}
+
+		if strings.Contains(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
+			cache.RemoveAVData(strings.TrimSuffix(filepath.Base(file.Path), ".json"))
 		}
 	}
 
@@ -1850,6 +2316,9 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	}
 	for boxID := range needIndexBoxes {
 		if box := Conf.GetBox(boxID); nil != box {
+			if _, err := EnsureBoxDoc(boxID); nil != err {
+				logging.LogErrorf("ensure box document [%s] after sync failed: %s", boxID, err)
+			}
 			box.Index()
 		}
 	}
@@ -1946,7 +2415,7 @@ func indexRepoBeforeCloudSync(repo *dejavu.Repo) (beforeIndex, afterIndex *entit
 	FlushTxQueue()
 
 	checkChunks := true
-	if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container || util.ContainerHarmony == util.Container {
+	if util.IsMobileContainer() {
 		// 因为移动端私有数据空间不会存在外部操作导致分块损坏的情况，所以不需要检查分块以提升性能 https://github.com/siyuan-note/siyuan/issues/13216
 		checkChunks = false
 	}
@@ -2003,7 +2472,8 @@ func newRepository() (ret *dejavu.Repo, err error) {
 	case conf.ProviderSiYuan:
 		cloudRepo = cloud.NewSiYuan(&cloud.BaseCloud{Conf: cloudConf})
 	case conf.ProviderS3:
-		s3HTTPClient := &http.Client{Transport: httpclient.NewTransport(cloudConf.S3.SkipTlsVerify)}
+		// 显式注入 SiYuan UA，覆盖 aws SDK 默认 UA（含架构、Go 版本、SDK 版本等冗余信息），便于 S3 服务端按 SiYuan/ 前缀识别加白名单
+		s3HTTPClient := httpclient.NewUserAgentClient(httpclient.NewTransport(cloudConf.S3.SkipTlsVerify))
 		s3HTTPClient.Timeout = time.Duration(cloudConf.S3.Timeout) * time.Second
 		cloudRepo = cloud.NewS3(&cloud.BaseCloud{Conf: cloudConf}, s3HTTPClient)
 	case conf.ProviderWebDAV:
@@ -2196,22 +2666,22 @@ func subscribeRepoEvents() {
 		util.ContextPushMsg(context, msg)
 	})
 	eventbus.Subscribe(eventbus.EvtCloudLock, func(context map[string]any) {
-		msg := fmt.Sprintf(Conf.Language(186))
+		msg := Conf.Language(186)
 		util.SetBootDetails(msg)
 		util.ContextPushMsg(context, msg)
 	})
 	eventbus.Subscribe(eventbus.EvtCloudUnlock, func(context map[string]any) {
-		msg := fmt.Sprintf(Conf.Language(187))
+		msg := Conf.Language(187)
 		util.SetBootDetails(msg)
 		util.ContextPushMsg(context, msg)
 	})
 	eventbus.Subscribe(eventbus.EvtCloudBeforeUploadIndexes, func(context map[string]any) {
-		msg := fmt.Sprintf(Conf.Language(208))
+		msg := Conf.Language(208)
 		util.SetBootDetails(msg)
 		util.ContextPushMsg(context, msg)
 	})
 	eventbus.Subscribe(eventbus.EvtCloudBeforeUploadCheckIndex, func(context map[string]any) {
-		msg := fmt.Sprintf(Conf.Language(209))
+		msg := Conf.Language(209)
 		util.SetBootDetails(msg)
 		util.ContextPushMsg(context, msg)
 	})
@@ -2221,7 +2691,7 @@ func subscribeRepoEvents() {
 		util.ContextPushMsg(context, msg)
 	})
 	eventbus.Subscribe(eventbus.EvtCloudAfterFixObjects, func(context map[string]any) {
-		msg := fmt.Sprintf(Conf.Language(211))
+		msg := Conf.Language(211)
 		util.SetBootDetails(msg)
 		util.ContextPushMsg(context, msg)
 	})
@@ -2238,7 +2708,7 @@ func subscribeRepoEvents() {
 		util.ContextPushMsg(context, Conf.language(226))
 	})
 	eventbus.Subscribe(eventbus.EvtCloudPurgeDownloadIndexes, func(context map[string]any) {
-		util.ContextPushMsg(context, fmt.Sprintf(Conf.language(227)))
+		util.ContextPushMsg(context, Conf.language(227))
 	})
 	eventbus.Subscribe(eventbus.EvtCloudPurgeDownloadFiles, func(context map[string]any) {
 		util.ContextPushMsg(context, Conf.language(228))

@@ -3,6 +3,7 @@ import {Constants} from "../../../constants";
 import {showMessage} from "../../../dialog/message";
 import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {fetchSyncPost} from "../../../util/fetch";
+import {setPosition} from "../../../util/setPosition";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
 
@@ -133,7 +134,7 @@ export const getLayoutHTML = (data: IAV) => {
         <span class="fn__space fn__flex-1"></span>
         <input data-type="toggle-entries-wrap" type="checkbox" class="b3-switch b3-switch--menu" ${view.wrapField ? "checked" : ""}>
     </label>`;
-    if (data.viewType === "kanban" && ["select", "mSelect"].includes(data.view.groups[0].groupValue?.type)) {
+    if (data.viewType === "kanban" && ["select", "mSelect"].includes(data.view.groups?.[0]?.groupValue?.type)) {
         html += `<label class="b3-menu__item">
     <span class="fn__flex-center">${window.siyuan.languages.useBackground}</span>
     <span class="fn__space fn__flex-1"></span>
@@ -422,6 +423,9 @@ export const updateLayout = async (options: {
     });
     const menuElement = document.querySelector(".av__panel").lastElementChild as HTMLElement;
     menuElement.innerHTML = getLayoutHTML(response.data);
+    // 切换布局类型后菜单高度变化（如表格→看板），需重新定位避免底部溢出视窗
+    const tabRect = options.nodeElement.querySelector(".av__views").getBoundingClientRect();
+    setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
     bindLayoutEvent({
         protyle: options.protyle,
         data: response.data,

@@ -5,11 +5,13 @@ import {highlightRender} from "./highlightRender";
 import {genBreadcrumb, improveBreadcrumbAppearance} from "../wysiwyg/renderBacklink";
 import {avRender} from "./av/render";
 import {genRenderFrame} from "./util";
+import {isEncryptedBox} from "../../util/pathName";
 
 /**
  * 渲染嵌入块
+ * onEmbedRender 在每个异步查询结果写入 DOM 后调用。
  */
-export const blockRender = (protyle: IProtyle, element: Element, top?: number) => {
+export const blockRender = (protyle: IProtyle, element: Element, top?: number, onEmbedRender?: () => void) => {
     let blockElements: Element[] = [];
     if (element.getAttribute("data-type") === "NodeBlockQueryEmbed" && element.getAttribute("data-render") !== "true") {
         blockElements = [element];
@@ -57,13 +59,13 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number) =
                                 headingMode: ["0", "1", "2"].includes(item.getAttribute("custom-heading-mode")) ? parseInt(item.getAttribute("custom-heading-mode")) : window.siyuan.config.editor.headingEmbedMode,
                                 breadcrumb
                             }, (response) => {
-                                renderEmbed(response.data.blocks || [], protyle, item, top);
+                                renderEmbed(response.data.blocks || [], protyle, item, top, undefined, onEmbedRender);
                             });
                         } else {
                             return;
                         }
                     }).catch((e) => {
-                        renderEmbed([], protyle, item, top, e);
+                        renderEmbed([], protyle, item, top, e, onEmbedRender);
                     });
                 } else if (Array.isArray(includeIDs)) {
                     fetchPost("/api/search/getEmbedBlock", {
@@ -72,13 +74,13 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number) =
                         headingMode: ["0", "1", "2"].includes(item.getAttribute("custom-heading-mode")) ? parseInt(item.getAttribute("custom-heading-mode")) : window.siyuan.config.editor.headingEmbedMode,
                         breadcrumb
                     }, (response) => {
-                        renderEmbed(response.data.blocks || [], protyle, item, top);
+                        renderEmbed(response.data.blocks || [], protyle, item, top, undefined, onEmbedRender);
                     });
                 } else {
                     return;
                 }
             } catch (e) {
-                renderEmbed([], protyle, item, top, e);
+                renderEmbed([], protyle, item, top, e, onEmbedRender);
             }
         } else {
             fetchPost("/api/search/searchEmbedBlock", {
@@ -86,9 +88,10 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number) =
                 stmt: content,
                 headingMode: ["0", "1", "2"].includes(item.getAttribute("custom-heading-mode")) ? parseInt(item.getAttribute("custom-heading-mode")) : window.siyuan.config.editor.headingEmbedMode,
                 excludeIDs: [item.getAttribute("data-node-id"), protyle.block.rootID],
-                breadcrumb
+                breadcrumb,
+                notebook: isEncryptedBox(protyle.notebookId) ? protyle.notebookId : ""
             }, (response) => {
-                renderEmbed(response.data.blocks, protyle, item, top);
+                renderEmbed(response.data.blocks, protyle, item, top, undefined, onEmbedRender);
             });
         }
     });
@@ -96,19 +99,32 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number) =
 
 const renderEmbed = (blocks: {
     block: IBlock,
-    blockPaths: IBreadcrumb[]
-}[], protyle: IProtyle, item: HTMLElement, top?: number, errorTip?: string) => {
+    blockPaths: IBreadcrumb[],
+    allowChildOperation: boolean
+}[], protyle: IProtyle, item: HTMLElement, top?: number, errorTip?: string, onEmbedRender?: () => void) => {
     const rotateElement = item.querySelector(".fn__rotate");
     if (rotateElement) {
         rotateElement.classList.remove("fn__rotate");
     }
     let html = "";
-    blocks.forEach((blocksItem) => {
+    blocks.forEach((blocksItem, index) => {
         let breadcrumbHTML = "";
         if (blocksItem.blockPaths.length !== 0) {
             breadcrumbHTML = genBreadcrumb(blocksItem.blockPaths, true);
         }
-        html += `<div class="protyle-wysiwyg__embed" data-id="${blocksItem.block.id}">${breadcrumbHTML}${blocksItem.block.content}</div>`;
+        let popover = "";
+        if (index !== 0) {
+            popover = `<div class="protyle-icons"><span data-id="${blocksItem.block.id}" data-action="openFloat" aria-label="${window.siyuan.languages.refPopover}" data-position="4north" class="ariaLabel protyle-icon protyle-icon--last protyle-icon--first"><svg><use xlink:href="#iconPictureInPicture"></use></svg></span></div>`;
+        } else {
+            const popoverElement = item.querySelectorAll(".protyle-icon")[2];
+            if (popoverElement) {
+                popoverElement.setAttribute("data-id", blocksItem.block.id);
+            }
+        }
+        const childOperationAttr = blocksItem.allowChildOperation ? " data-allow-child-operation=\"true\"" : "";
+        html += `<div class="protyle-wysiwyg__embed" data-id="${blocksItem.block.id}"${childOperationAttr}>
+${popover}${breadcrumbHTML}${blocksItem.block.content}
+</div>`;
     });
     if (blocks.length > 0) {
         item.firstElementChild.insertAdjacentHTML("afterend", html);
@@ -132,8 +148,9 @@ const renderEmbed = (blocks: {
     }
     if (maxDeep < 4) {
         item.querySelectorAll('[data-type="NodeBlockQueryEmbed"]').forEach(embedElement => {
-            blockRender(protyle, embedElement);
+            blockRender(protyle, embedElement, undefined, onEmbedRender);
         });
     }
     item.style.height = "";
+    onEmbedRender?.();
 };

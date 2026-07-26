@@ -20,12 +20,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"path"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/88250/lute"
 	"github.com/88250/lute/parse"
 	"github.com/siyuan-note/eventbus"
 	"github.com/siyuan-note/logging"
@@ -38,21 +40,44 @@ var (
 	operationQueue []*dbQueueOperation
 	dbQueueLock    = sync.Mutex{}
 	dbQueueCond    = sync.NewCond(&dbQueueLock)
-	txLock         = sync.Mutex{}
 )
 
 type dbQueueOperation struct {
 	inQueueTime                   time.Time
-	action                        string      // upsert/delete/delete_id/rename/move/delete_box/delete_box_refs/index/delete_ids/update_block_content/delete_assets
+	action                        string      // upsert/delete/delete_id/rename/move/delete_box/delete_box_refs/index/delete_ids/update_block_content/delete_assets/index_node
 	indexTree                     *parse.Tree // index/rename/move
 	upsertTree                    *parse.Tree // upsert/update_refs/delete_refs
 	removeTreeBox, removeTreePath string      // delete
 	removeTreeID                  string      // delete_id
 	removeTreeIDs                 []string    // delete_ids
-	box                           string      // delete_box/delete_box_refs/index
+	box                           string      // delete_box/delete_box_refs/index/index_node
 	block                         *Block      // update_block_content
 	id                            string      // index_node
 	removeAssetHashes             []string    // delete_assets
+}
+
+// boxID 从 op 提取目标 boxID，供 beginTxForBox 路由到加密 db 或全局 db。
+// delete_ids/delete_assets 无 box 上下文，返回空串 → 走全局 db。
+func (op *dbQueueOperation) boxID() string {
+	switch op.action {
+	case "index", "rename", "move":
+		if op.indexTree != nil {
+			return op.indexTree.Box
+		}
+	case "upsert", "update_refs", "delete_refs":
+		if op.upsertTree != nil {
+			return op.upsertTree.Box
+		}
+	case "delete", "delete_id":
+		return op.removeTreeBox
+	case "delete_box", "delete_box_refs", "index_node":
+		return op.box
+	case "update_block_content":
+		if op.block != nil {
+			return op.block.Box
+		}
+	}
+	return ""
 }
 
 func FlushTxJob() {
@@ -95,6 +120,7 @@ func ClearQueue() {
 	dbQueueLock.Lock()
 	defer dbQueueLock.Unlock()
 	operationQueue = nil
+	clearIndexQueueEntries()
 }
 
 var flushingTx = atomic.Bool{}
@@ -103,17 +129,16 @@ func FlushQueue() {
 	initDatabaseLock.Lock()
 	defer initDatabaseLock.Unlock()
 
-	ops := getOperations()
+	ops, indexSnapshot := getOperations()
 	total := len(ops)
 	if 1 > total && !flushingTx.Load() {
+		processDiskQueue()
 		return
 	}
 
-	txLock.Lock()
 	flushingTx.Store(true)
 	defer func() {
 		flushingTx.Store(false)
-		txLock.Unlock()
 		// 通知等待的协程队列已刷新完成
 		dbQueueCond.Broadcast()
 	}()
@@ -121,6 +146,30 @@ func FlushQueue() {
 	start := time.Now()
 
 	// logging.LogInfof("flushing database queue, total operations [%d]", total)
+
+	// 如果有重命名树的操作，则统计各路径前缀的块树数量，数量较大的话阻塞整个队列，以便尽可能合并重命名树的操作 RenameTreeQueue(tree)
+	var renameTreeOp *dbQueueOperation
+	for _, op := range ops {
+		if "rename" == op.action {
+			renameTreeOp = op
+			break
+		}
+	}
+	if nil != renameTreeOp {
+		childCount := treenode.CountBlockTreesByPathPrefix(renameTreeOp.indexTree.Box, path.Dir(renameTreeOp.indexTree.Path))
+		if 512 < childCount {
+			scale := math.Log(float64(childCount)/512.0+1.0) / math.Log(2.0)
+			secs := 1.0 * scale
+			if secs < 1.0 {
+				secs = 1.0
+			}
+			if secs > 12.0 {
+				secs = 12.0
+			}
+			logging.LogInfof("rename tree [%s] with large child count [%d], sleep [%.2fs] to wait for more operations", renameTreeOp.indexTree.Path, childCount, secs)
+			time.Sleep(time.Duration(secs * float64(time.Second)))
+		}
+	}
 
 	context := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar}
 	if 512 < len(ops) {
@@ -139,7 +188,7 @@ func FlushQueue() {
 			return
 		}
 
-		tx, err := beginTx()
+		tx, err := beginTxForBox(op.boxID())
 		if err != nil {
 			return
 		}
@@ -157,6 +206,17 @@ func FlushQueue() {
 		if err = commitTx(tx); err != nil {
 			logging.LogErrorf("commit tx failed: %s", err)
 			continue
+		}
+
+		switch op.action {
+		case "index":
+			eventbus.Publish(eventbus.EvtEmbeddingDirty, op.indexTree.ID)
+		case "upsert":
+			eventbus.Publish(eventbus.EvtEmbeddingDirty, op.upsertTree.ID)
+		case "update_block_content":
+			eventbus.Publish(eventbus.EvtEmbeddingDirty, op.block.ID)
+		case "index_node":
+			eventbus.Publish(eventbus.EvtEmbeddingDirty, op.id)
 		}
 
 		if 16 < i && 0 == i%128 {
@@ -177,6 +237,9 @@ func FlushQueue() {
 	util.BroadcastByType("main", "databaseIndexCommit", 0, "", nil)
 
 	eventbus.Publish(eventbus.EvtSQLIndexFlushed)
+
+	clearIndexQueue(indexSnapshot)
+	processDiskQueue()
 }
 
 func execOp(op *dbQueueOperation, tx *sql.Tx, context map[string]any) (err error) {
@@ -187,10 +250,21 @@ func execOp(op *dbQueueOperation, tx *sql.Tx, context map[string]any) (err error
 		err = upsertTree(tx, op.upsertTree, context)
 	case "delete":
 		err = batchDeleteByPathPrefix(tx, op.removeTreeBox, op.removeTreePath)
+		if nil == err {
+			tx.Exec("DELETE FROM block_embeddings WHERE box = ? AND path LIKE ?", op.removeTreeBox, op.removeTreePath+"%")
+		}
 	case "delete_id":
 		err = deleteByRootID(tx, op.removeTreeID, context)
+		if nil == err {
+			tx.Exec("DELETE FROM block_embeddings WHERE root_id = ?", op.removeTreeID)
+		}
 	case "delete_ids":
 		err = batchDeleteByRootIDs(tx, op.removeTreeIDs, context)
+		if nil == err {
+			for _, rootID := range op.removeTreeIDs {
+				tx.Exec("DELETE FROM block_embeddings WHERE root_id = ?", rootID)
+			}
+		}
 	case "rename":
 		err = batchUpdateHPath(tx, op.indexTree, context)
 		if err != nil {
@@ -198,10 +272,23 @@ func execOp(op *dbQueueOperation, tx *sql.Tx, context map[string]any) (err error
 		}
 
 		err = updateRootContent(tx, path.Base(op.indexTree.HPath), op.indexTree.Root.IALAttr("updated"), treenode.IALStr(op.indexTree.Root), op.indexTree.ID)
+		if nil == err {
+			tx.Exec("UPDATE block_embeddings SET box = ?, path = ? WHERE root_id = ?", op.indexTree.Box, op.indexTree.Path, op.indexTree.ID)
+		}
 	case "move":
 		err = batchUpdatePath(tx, op.indexTree, context)
+		if nil == err {
+			tx.Exec("UPDATE block_embeddings SET box = ?, path = ? WHERE root_id = ?", op.indexTree.Box, op.indexTree.Path, op.indexTree.ID)
+		}
 	case "delete_box":
+		// 清理 box 的内容索引。事务由 beginTxForBox(op.boxID()) 按所属库路由：
+		// 普通 box 落到全局 siyuan.db，加密笔记本落到其独立 content db，删除均生效。
+		// 注意加密笔记本关闭时必须清空 content db 数据，否则下次 Mount 的全量 Index
+		// 会用纯 INSERT 在无主键的 blocks 表上叠加重复行，导致搜索结果翻倍。
 		err = deleteByBoxTx(tx, op.box)
+		if nil == err {
+			tx.Exec("DELETE FROM block_embeddings WHERE box = ?", op.box)
+		}
 	case "delete_box_refs":
 		err = deleteRefsByBoxTx(tx, op.box)
 	case "update_refs":
@@ -213,10 +300,10 @@ func execOp(op *dbQueueOperation, tx *sql.Tx, context map[string]any) (err error
 	case "delete_assets":
 		err = deleteAssetsByHashes(tx, op.removeAssetHashes)
 	case "index_node":
-		err = indexNode(tx, op.id)
+		err = indexNode(tx, op.id, op.box)
 	default:
 		msg := fmt.Sprintf("unknown operation [%s]", op.action)
-		logging.LogErrorf(msg)
+		logging.LogErrorf("%s", msg)
 		err = errors.New(msg)
 	}
 	return
@@ -226,7 +313,11 @@ func IndexNodeQueue(id string) {
 	dbQueueLock.Lock()
 	defer dbQueueLock.Unlock()
 
-	newOp := &dbQueueOperation{id: id, inQueueTime: time.Now(), action: "index_node"}
+	boxID := ""
+	if bt := treenode.GetBlockTree(id); bt != nil {
+		boxID = bt.BoxID
+	}
+	newOp := &dbQueueOperation{id: id, box: boxID, inQueueTime: time.Now(), action: "index_node"}
 	for i, op := range operationQueue {
 		if "index_node" == op.action && op.id == id {
 			operationQueue[i] = newOp
@@ -382,11 +473,11 @@ func MoveTreeQueue(tree *parse.Tree) {
 	appendOperation(newOp)
 }
 
-func RemoveTreeQueue(rootID string) {
+func RemoveTreeQueue(boxID, rootID string) {
 	dbQueueLock.Lock()
 	defer dbQueueLock.Unlock()
 
-	newOp := &dbQueueOperation{removeTreeID: rootID, inQueueTime: time.Now(), action: "delete_id"}
+	newOp := &dbQueueOperation{removeTreeBox: boxID, removeTreeID: rootID, inQueueTime: time.Now(), action: "delete_id"}
 	for i, op := range operationQueue {
 		if "delete_id" == op.action && op.removeTreeID == rootID {
 			operationQueue[i] = newOp
@@ -422,16 +513,56 @@ func RemoveTreePathQueue(treeBox, treePathPrefix string) {
 	appendOperation(newOp)
 }
 
-func getOperations() (ops []*dbQueueOperation) {
+func getOperations() (ops []*dbQueueOperation, indexSnapshot int64) {
 	dbQueueLock.Lock()
 	defer dbQueueLock.Unlock()
 
 	ops = operationQueue
 	operationQueue = nil
+	indexSnapshot = indexQueueSize.Load()
 	return
 }
 
 func appendOperation(op *dbQueueOperation) {
 	operationQueue = append(operationQueue, op)
+	appendToIndexQueue(op)
 	eventbus.Publish(eventbus.EvtSQLIndexChanged)
+}
+
+func processDiskQueue() {
+	entries := loadIndexQueue()
+	if 1 > len(entries) {
+		return
+	}
+
+	logging.LogInfof("flushing [%d] disk index queue operations", len(entries))
+
+	luteEngine := lute.New()
+	context := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar}
+	groupOpsCurrent := map[string]int{}
+	for _, e := range entries {
+		op := indexEntryToOp(e, luteEngine, "flush disk queue")
+		if nil == op {
+			continue
+		}
+		tx, err := beginTxForBox(op.boxID())
+		if err != nil {
+			return
+		}
+		groupOpsCurrent[op.action]++
+		context["current"] = groupOpsCurrent[op.action]
+		context["total"] = len(entries)
+		if err = execOp(op, tx, context); err != nil {
+			tx.Rollback()
+			closeTxPreparedStmts(tx)
+			logging.LogErrorf("queue operation [%s] failed: %s", op.action, err)
+			continue
+		}
+		if err = commitTx(tx); err != nil {
+			logging.LogErrorf("commit tx failed: %s", err)
+			continue
+		}
+	}
+
+	clearIndexQueueEntries()
 }

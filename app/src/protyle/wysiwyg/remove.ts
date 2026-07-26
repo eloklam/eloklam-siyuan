@@ -1,36 +1,40 @@
-import {
-    focusBlock,
-    focusByRange,
-    focusByWbr,
-    getSelectionOffset,
-    setLastNodeRange
-} from "../util/selection";
+import {focusBlock, focusByRange, focusByWbr, getSelectionOffset, setLastNodeRange} from "../util/selection";
 import {
     getContenteditableElement,
+    getEmbedChildOperationContext,
+    getEmbedChildOperationParentID,
     getLastBlock,
-    getNextBlock, getParentBlock,
+    getNextBlock,
+    getParentBlock,
     getPreviousBlock,
+    getPreviousBlockSibling,
+    getSbChildBlockCount,
     getTopAloneElement,
     getTopEmptyElement,
     hasNextSibling,
-    hasPreviousSibling
+    hasPreviousSibling,
+    IEmbedChildOperationContext
 } from "./getBlock";
 import {transaction, turnsIntoOneTransaction, turnsIntoTransaction, updateTransaction} from "./transaction";
-import {cancelSB, genEmptyElement} from "../../block/util";
+import {cancelSB, genEmptyElement, rebalanceSbWidth, refreshSbResize} from "../../block/util";
 import {listOutdent, updateListOrder} from "./list";
-import {setFold, zoomOut} from "../../menus/protyle";
+import {zoomOut} from "../../menus/protyle";
 import {preventScroll} from "../scroll/preventScroll";
 import {hideElements} from "../ui/hideElements";
 import {Constants} from "../../constants";
 import {scrollCenter} from "../../util/highlightById";
 import {isMobile} from "../../util/functions";
 import {mathRender} from "../render/mathRender";
-import {hasClosestBlock, hasClosestByClassName} from "../util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName, isInEmbedBlock} from "../util/hasClosest";
+/// #if !MOBILE
 import {getInstanceById} from "../../layout/util";
 import {Tab} from "../../layout/Tab";
 import {Backlink} from "../../layout/dock/Backlink";
+/// #endif
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {onGet} from "../util/onGet";
+import {setFold} from "../util/blockFold";
+import {isEncryptedBox} from "../../util/pathName";
 
 export const removeBlock = async (protyle: IProtyle, blockElement: Element, range: Range, type: "Delete" | "Backspace" | "remove") => {
     protyle.observerLoad?.disconnect();
@@ -38,12 +42,24 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
     preventScroll(protyle);
     const selectElements = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
     if (selectElements?.length > 0) {
+        const embedSelectElements = selectElements.filter(item => isInEmbedBlock(item));
+        if (embedSelectElements.length > 0) {
+            // 嵌入块内暂不支持跨边界或多块删除，避免上溯时删除查询目标。
+            if (embedSelectElements.length !== selectElements.length || embedSelectElements.length !== 1) {
+                return;
+            }
+            const embedContext = getEmbedChildOperationContext(embedSelectElements[0]);
+            const topElement = getTopAloneElement(embedSelectElements[0]);
+            if (!embedContext || !canDeleteEmbedElement(topElement, type, embedContext)) {
+                return;
+            }
+        }
         const deletes: IOperation[] = [];
         const inserts: IOperation[] = [];
         let sideElement: Element | boolean;
         let sideIsNext = false;
         if (type === "Backspace") {
-            sideElement = selectElements[0].previousElementSibling;
+            sideElement = getPreviousBlockSibling(selectElements[0]);
             if (!sideElement) {
                 sideIsNext = true;
                 sideElement = selectElements[selectElements.length - 1].nextElementSibling;
@@ -53,7 +69,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
             sideIsNext = true;
             if (!sideElement) {
                 sideIsNext = false;
-                sideElement = selectElements[0].previousElementSibling;
+                sideElement = getPreviousBlockSibling(selectElements[0]);
             }
         }
         let listElement: Element;
@@ -105,16 +121,17 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                     }
                 });
                 foldTransaction.data.undoOperations.reverse();
-                if (topElement.previousElementSibling &&
-                    topElement.previousElementSibling.getAttribute("data-type") === "NodeHeading" &&
-                    topElement.previousElementSibling.getAttribute("fold") === "1") {
-                    const foldId = topElement.previousElementSibling.getAttribute("data-node-id");
+                const foldPreviousBlockElement = getPreviousBlockSibling(topElement);
+                if (foldPreviousBlockElement &&
+                    foldPreviousBlockElement.getAttribute("data-type") === "NodeHeading" &&
+                    foldPreviousBlockElement.getAttribute("fold") === "1") {
+                    const foldId = foldPreviousBlockElement.getAttribute("data-node-id");
                     if (!unfoldData[foldId]) {
                         const foldTransaction = await fetchSyncPost("/api/block/getHeadingDeleteTransaction", {
                             id: foldId,
                         });
                         unfoldData[foldId] = {
-                            element: topElement.previousElementSibling,
+                            element: foldPreviousBlockElement,
                             previousID: foldTransaction.data.doOperations[foldTransaction.data.doOperations.length - 1].id
                         };
                     }
@@ -128,17 +145,18 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                 if (topElement.classList.contains("render-node") || topElement.querySelector("div.render-node")) {
                     data = protyle.lute.SpinBlockDOM(topElement.outerHTML);  // 防止图表撤销问题
                 }
-                let previousID = topElement.previousElementSibling ? topElement.previousElementSibling.getAttribute("data-node-id") : "";
-                if (topElement.previousElementSibling &&
-                    topElement.previousElementSibling.getAttribute("data-type") === "NodeHeading" &&
-                    topElement.previousElementSibling.getAttribute("fold") === "1") {
-                    const foldId = topElement.previousElementSibling.getAttribute("data-node-id");
+                const previousBlockElement = getPreviousBlockSibling(topElement);
+                let previousID = previousBlockElement ? previousBlockElement.getAttribute("data-node-id") : "";
+                if (previousBlockElement &&
+                    previousBlockElement.getAttribute("data-type") === "NodeHeading" &&
+                    previousBlockElement.getAttribute("fold") === "1") {
+                    const foldId = previousBlockElement.getAttribute("data-node-id");
                     if (!unfoldData[foldId]) {
                         const foldTransaction = await fetchSyncPost("/api/block/getHeadingDeleteTransaction", {
                             id: foldId,
                         });
                         unfoldData[foldId] = {
-                            element: topElement.previousElementSibling,
+                            element: previousBlockElement,
                             previousID: foldTransaction.data.doOperations[foldTransaction.data.doOperations.length - 1].id
                         };
                     }
@@ -149,7 +167,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                     data,
                     id,
                     previousID,
-                    parentID: getParentBlock(topElement)?.getAttribute("data-node-id") || protyle.block.parentID
+                    parentID: getOperationParentID(topElement, protyle.block.parentID)
                 });
                 if (topElement.getAttribute("data-subtype") === "o" && topElement.classList.contains("li")) {
                     listElement = topElement.parentElement;
@@ -164,6 +182,30 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                     };
                 }
                 topElement.remove();
+                // 删除列表项内容块后，若该列表项仅剩子列表而无内容块，需补一个空段落
+                // 避免"列表项下直接挂列表"的非法结构 https://github.com/siyuan-note/siyuan/issues/17892
+                const liChildren = Array.from(topParentElement.children);
+                // 首个子块是列表块时，说明列表项下直接挂列表，需补一个空段落作为内容块
+                // https://github.com/siyuan-note/siyuan/issues/17892
+                const firstBlock = liChildren.find(item => item.hasAttribute("data-node-id") &&
+                    !item.classList.contains("protyle-action") && !item.classList.contains("protyle-attr"));
+                if (topParentElement.classList.contains("li") && firstBlock?.classList.contains("list")) {
+                    const emptyID = Lute.NewNodeID();
+                    const emptyElement = genEmptyElement(false, false, emptyID);
+                    // 空段落插到列表标记之后、首个子块之前，与服务端 doInsert 通过 nextID 定位的位置一致
+                    liChildren.find(item => item.classList.contains("protyle-action"))?.after(emptyElement);
+                    deletes.push({
+                        action: "insert",
+                        id: emptyID,
+                        data: emptyElement.outerHTML,
+                        nextID: firstBlock.getAttribute("data-node-id"),
+                        parentID: topParentElement.getAttribute("data-node-id"),
+                    });
+                    inserts.push({
+                        action: "delete",
+                        id: emptyID,
+                    });
+                }
             }
         }
         Object.keys(unfoldData).forEach(item => {
@@ -211,6 +253,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                         id: listElement.getAttribute("data-node-id"),
                         data: listElement.outerHTML
                     });
+                    listElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
                     updateListOrder(listElement, 1);
                     deletes.push({
                         action: "update",
@@ -221,10 +264,22 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
             }
         }
         if (deletes.length > 0) {
-            if (topParentElement && topParentElement.getAttribute("data-type") === "NodeSuperBlock" && topParentElement.childElementCount === 2) {
+            if (topParentElement && topParentElement.getAttribute("data-type") === "NodeSuperBlock" && getSbChildBlockCount(topParentElement) === 1) {
                 const sbData = await cancelSB(protyle, topParentElement, range);
                 transaction(protyle, deletes.concat(sbData.doOperations), sbData.undoOperations.concat(inserts.reverse()));
             } else {
+                // 超级块删除子块后剩余多个子块时，刷新拖拽手柄（被删块两侧手柄需移除/重建）
+                if (topParentElement && topParentElement.getAttribute("data-type") === "NodeSuperBlock") {
+                    refreshSbResize(topParentElement);
+                    const widthChanges = rebalanceSbWidth(topParentElement);
+                    widthChanges.forEach(change => {
+                        const targetEl = topParentElement.querySelector(`[data-node-id="${change.id}"]`);
+                        if (targetEl) {
+                            deletes.push({action: "update", id: change.id, data: targetEl.outerHTML});
+                            inserts.push({action: "update", id: change.id, data: change.oldHTML});
+                        }
+                    });
+                }
                 transaction(protyle, deletes, inserts.reverse());
             }
         }
@@ -259,11 +314,15 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                 !protyle.scroll.element.classList.contains("fn__none") &&
                 protyle.contentElement.scrollHeight - protyle.contentElement.scrollTop < protyle.contentElement.clientHeight * 2
             ) {
-                fetchPost("/api/filetree/getDoc", {
+                const getDocParam: IObject = {
                     id: protyle.wysiwyg.element.lastElementChild.getAttribute("data-node-id"),
                     mode: 2,
                     size: window.siyuan.config.editor.dynamicLoadBlocks,
-                }, getResponse => {
+                };
+                if (isEncryptedBox(protyle.notebookId)) {
+                    getDocParam.notebook = protyle.notebookId;
+                }
+                fetchPost("/api/filetree/getDoc", getDocParam, getResponse => {
                     onGet({
                         data: getResponse,
                         protyle,
@@ -272,6 +331,11 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                 });
             }
         }, Constants.TIMEOUT_COUNT);// 需等待滚动阻塞、后台处理完成。否则会加载已删除的内容
+        return;
+    }
+    const embedBlockElement = isInEmbedBlock(blockElement);
+    const embedContext = getEmbedChildOperationContext(blockElement);
+    if (embedBlockElement && (!embedContext || embedContext.targetElement === blockElement)) {
         return;
     }
     const blockType = blockElement.getAttribute("data-type");
@@ -293,19 +357,29 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
     const blockParentElement = isCallout ? blockElement.parentElement.parentElement : blockElement.parentElement;
     if (!blockElement.previousElementSibling && (blockElement.parentElement.getAttribute("data-type") === "NodeBlockquote" || isCallout) && (
         (type !== "Delete" && blockType !== "NodeHeading") ||
-        (type === "Delete" && blockParentElement.parentElement.classList.contains("protyle-wysiwyg"))
+        (type === "Delete" && (
+            blockParentElement.parentElement.classList.contains("protyle-wysiwyg") ||
+            blockParentElement.parentElement.classList.contains("li") ||
+            blockParentElement.parentElement.classList.contains("callout-content") ||
+            blockParentElement.parentElement.classList.contains("sb")
+        ))
     )) {
+        if (embedContext && !embedContext.boundaryElement.contains(blockParentElement.parentElement)) {
+            return;
+        }
         if (type !== "Delete") {
             range.insertNode(document.createElement("wbr"));
         }
         blockParentElement.insertAdjacentElement("beforebegin", blockElement);
+        // 跳过 sb__resize 手柄取前一个块，避免超级块内引述块首删除时 previousID 为手柄导致位置错
+        const previousID = getPreviousBlockSibling(blockElement)?.getAttribute("data-node-id");
         if (isCallout ? blockParentElement.querySelector(".callout-content").childElementCount === 0 :
             blockParentElement.childElementCount === 1) {
             transaction(protyle, [{
                 action: "move",
                 id: blockElement.getAttribute("data-node-id"),
-                previousID: blockElement.previousElementSibling?.getAttribute("data-node-id"),
-                parentID: blockParentElement.parentElement.getAttribute("data-node-id") || protyle.block.parentID
+                previousID,
+                parentID: getOperationParentID(blockParentElement, protyle.block.parentID)
             }, {
                 action: "delete",
                 id: blockParentElement.getAttribute("data-node-id")
@@ -313,8 +387,8 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                 action: "insert",
                 id: blockParentElement.getAttribute("data-node-id"),
                 data: blockParentElement.outerHTML,
-                previousID: blockElement.previousElementSibling?.getAttribute("data-node-id"),
-                parentID: blockParentElement.parentElement.getAttribute("data-node-id") || protyle.block.parentID
+                previousID,
+                parentID: getOperationParentID(blockElement, protyle.block.parentID)
             }, {
                 action: "move",
                 id: blockElement.getAttribute("data-node-id"),
@@ -325,13 +399,18 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
             transaction(protyle, [{
                 action: "move",
                 id: blockElement.getAttribute("data-node-id"),
-                previousID: blockElement.previousElementSibling?.getAttribute("data-node-id"),
-                parentID: blockParentElement.parentElement.getAttribute("data-node-id") || protyle.block.parentID
+                previousID,
+                parentID: getOperationParentID(blockParentElement, protyle.block.parentID)
             }], [{
                 action: "move",
                 id: blockElement.getAttribute("data-node-id"),
                 parentID: blockParentElement.getAttribute("data-node-id")
             }]);
+        }
+        // 引述块移出/删除后，若所在容器是超级块则刷新拖拽手柄（清残留）
+        const sbAncestor = getParentBlock(blockElement);
+        if (sbAncestor?.classList.contains("sb")) {
+            refreshSbResize(sbAncestor);
         }
         if (type === "Delete") {
             moveToPrevious(blockElement, range, true);
@@ -343,17 +422,26 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
 
     if (blockElement.parentElement.classList.contains("li") && blockType !== "NodeHeading" &&
         blockElement.previousElementSibling.classList.contains("protyle-action")) {
+        if (embedContext && !canRemoveLiInEmbed(blockElement, embedContext)) {
+            return;
+        }
         removeLi(protyle, blockElement, range, type === "Delete");
         return;
     }
     if (type === "Delete") {
         const liElement = hasClosestByClassName(blockElement, "li");
         if (liElement && getContenteditableElement(liElement) === getContenteditableElement(blockElement)) {
+            if (embedContext && !canRemoveLiInEmbed(liElement.firstElementChild.nextElementSibling, embedContext)) {
+                return;
+            }
             removeLi(protyle, liElement.firstElementChild.nextElementSibling, range, true);
             return;
         }
     }
     const previousElement = getPreviousBlock(blockElement) as HTMLElement;
+    if (embedContext && (!previousElement || !embedContext.boundaryElement.contains(previousElement))) {
+        return;
+    }
     // 设置 bq 和代码块光标
     // 需放在列表处理后 https://github.com/siyuan-note/siyuan/issues/11606
     if (["NodeCodeBlock", "NodeTable", "NodeAttributeView"].includes(blockType)) {
@@ -368,7 +456,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                     action: "insert",
                     data: previousElement.outerHTML,
                     id: previousElement.getAttribute("data-node-id"),
-                    parentID: getParentBlock(previousElement).getAttribute("data-node-id") || protyle.block.parentID,
+                    parentID: getOperationParentID(previousElement, protyle.block.parentID),
                     previousID: (ppElement && (!previousElement.previousElementSibling || !previousElement.previousElementSibling.classList.contains("protyle-action"))) ? ppElement.getAttribute("data-node-id") : undefined
                 }]);
                 previousElement.remove();
@@ -379,10 +467,10 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         return;
     }
     if (blockType === "NodeHeading") {
-        if (blockElement.previousElementSibling &&
-            blockElement.previousElementSibling.getAttribute("data-type") === "NodeHeading" &&
-            blockElement.previousElementSibling.getAttribute("fold") === "1") {
-            setFold(protyle, blockElement.previousElementSibling, true, false, false);
+        const previousBlockElement = getPreviousBlockSibling(blockElement);
+        if (previousBlockElement?.getAttribute("data-type") === "NodeHeading" &&
+            previousBlockElement.getAttribute("fold") === "1") {
+            setFold(protyle, previousBlockElement, true, false, false);
         }
         if (blockType === "NodeHeading" &&
             blockElement.getAttribute("fold") === "1") {
@@ -421,7 +509,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
 
     const parentElement = hasClosestBlock(getParentBlock(blockElement));
     const editableElement = getContenteditableElement(blockElement);
-    const previousLastElement = getLastBlock(previousElement) as HTMLElement;
+    let previousLastElement = getLastBlock(previousElement) as HTMLElement;
     if (range.toString() === "" && isMobile() && previousLastElement && previousLastElement.classList.contains("hr") && getSelectionOffset(editableElement).start === 0) {
         transaction(protyle, [{
             action: "delete",
@@ -430,8 +518,8 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
             action: "insert",
             data: previousLastElement.outerHTML,
             id: previousLastElement.getAttribute("data-node-id"),
-            previousID: previousLastElement.previousElementSibling?.getAttribute("data-node-id"),
-            parentID: getParentBlock(previousLastElement).getAttribute("data-node-id")
+            previousID: getPreviousBlockSibling(previousLastElement)?.getAttribute("data-node-id"),
+            parentID: getOperationParentID(previousLastElement, protyle.block.parentID)
         }]);
         previousLastElement.remove();
         return;
@@ -456,12 +544,12 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                     action: "insert",
                     data: blockElement.outerHTML,
                     id: id,
-                    previousID: blockElement.previousElementSibling?.getAttribute("data-node-id"),
-                    parentID: getParentBlock(blockElement).getAttribute("data-node-id")
+                    previousID: getPreviousBlockSibling(blockElement)?.getAttribute("data-node-id"),
+                    parentID: getOperationParentID(blockElement, protyle.block.parentID)
                 }];
                 blockElement.remove();
                 // 取消超级块
-                if (parentElement && parentElement.getAttribute("data-type") === "NodeSuperBlock" && parentElement.childElementCount === 2) {
+                if (parentElement && parentElement.getAttribute("data-type") === "NodeSuperBlock" && getSbChildBlockCount(parentElement) === 1) {
                     const sbData = await cancelSB(protyle, parentElement);
                     transaction(protyle, doOperations.concat(sbData.doOperations), sbData.undoOperations.concat(undoOperations));
                 } else {
@@ -481,7 +569,12 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         }
     }
 
-    const removeElement = getTopEmptyElement(blockElement);
+    const removeElement = getTopEmptyElement(blockElement, embedContext?.boundaryElement);
+    if (embedContext && (embedContext.targetElement === removeElement ||
+        (parentElement === embedContext.targetElement && parentElement.getAttribute("data-type") === "NodeSuperBlock" &&
+            getSbChildBlockCount(parentElement) <= 2))) {
+        return;
+    }
     const removeId = removeElement.getAttribute("data-node-id");
     range.insertNode(document.createElement("wbr"));
     const undoOperations: IOperation[] = [{
@@ -492,9 +585,8 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         action: "insert",
         data: removeElement.outerHTML,
         id: removeId,
-        // 不能使用 previousLastElement，否则在超级块下的元素前删除撤销错误
-        previousID: blockElement.previousElementSibling?.getAttribute("data-node-id"),
-        parentID: parentElement ? parentElement.getAttribute("data-node-id") : protyle.block.parentID
+        previousID: getPreviousBlockSibling(blockElement)?.getAttribute("data-node-id"),
+        parentID: getOperationParentID(removeElement, protyle.block.parentID)
     }];
     const doOperations: IOperation[] = [{
         action: "delete",
@@ -557,7 +649,9 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
             }
         }
         // 图片前删除到上一个文字块时，图片前有 zwsp
-        previousLastElement.outerHTML = protyle.lute.SpinBlockDOM(previousLastElement.outerHTML);
+        previousLastElement.insertAdjacentHTML("afterend",  protyle.lute.SpinBlockDOM(previousLastElement.outerHTML));
+        previousLastElement = previousLastElement.nextElementSibling as HTMLElement;
+        previousLastElement.previousElementSibling.remove();
         mathRender(getPreviousBlock(removeElement) as HTMLElement);
         const removeParentElement = removeElement.parentElement;
         // https://github.com/siyuan-note/siyuan/issues/12327
@@ -571,19 +665,70 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         // extractContents 内容过多时需要进行滚动条重置，否则位置会错位
         protyle.contentElement.scrollTop = scroll;
         protyle.scroll.lastScrollTop = scroll - 1;
+        previousLastElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
         doOperations.push({
             action: "update",
             data: previousLastElement.outerHTML,
             id: previousId,
         });
     }
-    if (parentElement && parentElement.getAttribute("data-type") === "NodeSuperBlock" && parentElement.childElementCount === 2) {
+    if (parentElement && parentElement.getAttribute("data-type") === "NodeSuperBlock" && getSbChildBlockCount(parentElement) === 1) {
         const sbData = await cancelSB(protyle, parentElement);
         transaction(protyle, doOperations.concat(sbData.doOperations), sbData.undoOperations.concat(undoOperations));
     } else {
+        if (parentElement && parentElement.getAttribute("data-type") === "NodeSuperBlock") {
+            refreshSbResize(parentElement);
+            // 删除子块后重新分配剩余块宽度并持久化
+            const widthChanges = rebalanceSbWidth(parentElement);
+            widthChanges.forEach(change => {
+                const targetEl = parentElement.querySelector(`[data-node-id="${change.id}"]`);
+                if (targetEl) {
+                    doOperations.push({action: "update", id: change.id, data: targetEl.outerHTML});
+                    undoOperations.push({action: "update", id: change.id, data: change.oldHTML});
+                }
+            });
+        }
         transaction(protyle, doOperations, undoOperations);
     }
     focusByWbr(protyle.wysiwyg.element, range);
+};
+
+const canDeleteEmbedElement = (element: Element, type: "Delete" | "Backspace" | "remove",
+                               embedContext: IEmbedChildOperationContext) => {
+    if (embedContext.targetElement === element || !embedContext.boundaryElement.contains(element)) {
+        return false;
+    }
+
+    const parentElement = getParentBlock(element);
+    if (parentElement === embedContext.targetElement && parentElement.getAttribute("data-type") === "NodeSuperBlock" &&
+        getSbChildBlockCount(parentElement) <= 2) {
+        return false;
+    }
+
+    let sideElement: Element | false;
+    if (type === "Backspace") {
+        sideElement = getPreviousBlock(element) || getNextBlock(element);
+    } else {
+        sideElement = getNextBlock(element) || getPreviousBlock(element);
+    }
+    return !!sideElement && embedContext.boundaryElement.contains(sideElement);
+};
+
+const getOperationParentID = (element: Element, fallbackID: string) => {
+    return getEmbedChildOperationParentID(element) || getParentBlock(element)?.getAttribute("data-node-id") || fallbackID;
+};
+
+const canRemoveLiInEmbed = (blockElement: Element, embedContext: IEmbedChildOperationContext) => {
+    const listItemElement = blockElement.parentElement;
+    const listElement = listItemElement.parentElement;
+    const previousListItemElement = listItemElement.previousElementSibling;
+    if (previousListItemElement?.getAttribute("data-node-id")) {
+        return embedContext.boundaryElement.contains(previousListItemElement);
+    }
+    if (listElement.parentElement === embedContext.resultElement) {
+        return false;
+    }
+    return embedContext.boundaryElement.contains(listElement.parentElement);
 };
 
 export const moveToPrevious = (blockElement: Element, range: Range, isDelete: boolean) => {
@@ -615,7 +760,7 @@ export const removeImage = (imgSelectElement: Element, nodeElement: HTMLElement,
     }
     imgSelectElement.insertAdjacentHTML("afterend", "<wbr>");
     imgSelectElement.remove();
-    updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+    updateTransaction(protyle, nodeElement, oldHTML);
     focusByWbr(nodeElement, range);
     // 不太清楚为什么删除图片后无法上下键定位，但重绘后就好了 https://ld246.com/article/1714314625702
     const editElement = getContenteditableElement(nodeElement);
@@ -624,7 +769,7 @@ export const removeImage = (imgSelectElement: Element, nodeElement: HTMLElement,
     }
 };
 
-const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDelete = false) => {
+const removeLi = async (protyle: IProtyle, blockElement: Element, range: Range, isDelete = false) => {
     if (!blockElement.parentElement.previousElementSibling && blockElement.parentElement.nextElementSibling && blockElement.parentElement.nextElementSibling.classList.contains("protyle-attr")) {
         listOutdent(protyle, [blockElement.parentElement], range, isDelete, blockElement);
         return;
@@ -643,6 +788,8 @@ const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDele
         if (listElement.getAttribute("data-subtype") === "o") {
             updateListOrder(listElement);
         }
+        listElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
+        previousLastElement.parentElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
         transaction(protyle, [{
             action: "update",
             id: listElement.getAttribute("data-node-id"),
@@ -683,8 +830,8 @@ const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDele
                 action: "insert",
                 id: item.getAttribute("data-node-id"),
                 data: item.outerHTML,
-                previousID: index === 0 ? listElement.previousElementSibling?.getAttribute("data-node-id") : doOperations[index - 1].id,
-                parentID: getParentBlock(listElement).getAttribute("data-node-id") || protyle.block.parentID
+                previousID: index === 0 ? getPreviousBlockSibling(listElement)?.getAttribute("data-node-id") : doOperations[index - 1].id,
+                parentID: getOperationParentID(listElement, protyle.block.parentID)
             });
             undoOperations.push({
                 action: "delete",
@@ -696,6 +843,7 @@ const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDele
         if (listElement.getAttribute("data-subtype") === "o") {
             updateListOrder(listElement, parseInt(listElement.firstElementChild.getAttribute("data-marker")) - 1);
         }
+        listElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
         doOperations.splice(0, 0, {
             action: "update",
             id: listElement.getAttribute("data-node-id"),
@@ -706,7 +854,6 @@ const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDele
             data: listHTML,
             id: listElement.getAttribute("data-node-id"),
         });
-        transaction(protyle, doOperations, undoOperations);
         if (listElement.parentElement.classList.contains("sb") &&
             listElement.parentElement.getAttribute("data-sb-layout") === "col") {
             const selectsElement: Element[] = [];
@@ -718,14 +865,19 @@ const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDele
                 }
                 previousElement = previousElement.previousElementSibling;
             }
-            turnsIntoOneTransaction({
+            // 合并到同一个 transaction，避免新超级块 id 在第二个 transaction 中找不到
+            const mergeOperations = await turnsIntoOneTransaction({
                 protyle,
                 selectsElement: selectsElement.reverse(),
                 type: "BlocksMergeSuperBlock",
                 level: "row",
                 unfocus: true,
+                getOperations: true,
             });
+            doOperations.push(...mergeOperations.doOperations);
+            undoOperations.splice(0, 0, ...mergeOperations.undoOperations);
         }
+        transaction(protyle, doOperations, undoOperations);
         focusByWbr(protyle.wysiwyg.element, range);
         return;
     }
@@ -826,6 +978,7 @@ const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDele
                     id: nextId,
                     data: nextElement.outerHTML
                 });
+                nextElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
                 nextElement = nextElement.nextElementSibling;
             }
         }
@@ -836,7 +989,7 @@ const removeLi = (protyle: IProtyle, blockElement: Element, range: Range, isDele
         if (listElement.getAttribute("data-subtype") === "o") {
             updateListOrder(listElement);
         }
-        updateTransaction(protyle, listElement.getAttribute("data-node-id"), listElement.outerHTML, html);
+        updateTransaction(protyle, listElement, html);
     }
     focusByWbr(previousLastElement.parentElement, range);
 };

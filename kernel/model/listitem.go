@@ -27,7 +27,8 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
-func ListItem2Doc(srcListItemID, targetBoxID, targetPath, previousPath string) (srcRootBlockID, newTargetPath string, err error) {
+func ListItem2Doc(srcListItemID, targetBoxID, targetPath, previousPath string, toTop bool) (srcRootBlockID, newTargetPath string, err error) {
+	targetPath = normalizeBoxDocTarget(targetBoxID, targetPath)
 	FlushTxQueue()
 
 	srcTree, _ := LoadTreeByBlockID(srcListItemID)
@@ -122,7 +123,7 @@ func ListItem2Doc(srcListItemID, targetBoxID, targetPath, previousPath string) (
 	if nil == srcTree.Root.FirstChild {
 		srcTree.Root.AppendChild(treenode.NewParagraph(""))
 	}
-	treenode.RemoveBlockTreesByRootID(srcTree.ID)
+	treenode.RemoveBlockTreesByRootID(srcTree.Box, srcTree.ID)
 	if err = indexWriteTreeUpsertQueue(srcTree); err != nil {
 		return "", "", err
 	}
@@ -132,6 +133,8 @@ func ListItem2Doc(srcListItemID, targetBoxID, targetPath, previousPath string) (
 	newTree.Root.Spec = treenode.CurrentSpec
 	if "" != previousPath {
 		box.addSort(previousPath, newTree.ID)
+	} else if toTop {
+		box.addMinSort(path.Dir(newTargetPath), newTree.ID)
 	} else {
 		box.setSortByConf(path.Dir(newTargetPath), newTree.ID)
 	}

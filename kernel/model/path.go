@@ -33,7 +33,7 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
-func createDocsByHPath(boxID, hPath, content, parentID, id string) (retID string, err error) {
+func createDocsByHPath(boxID, hPath, content, parentID, id string, titleEmpty bool) (retID string, err error) {
 	if "" == id {
 		id = ast.NewNodeID()
 	}
@@ -42,6 +42,14 @@ func createDocsByHPath(boxID, hPath, content, parentID, id string) (retID string
 	hPath = strings.TrimSuffix(hPath, ".sy")
 	hPath = util.TrimSpaceInPath(hPath)
 	if "" != parentID {
+		if IsBoxDoc(boxID, parentID) {
+			name := path.Base(hPath)
+			p := "/" + id + ".sy"
+			if _, err = createDoc(boxID, p, name, content, titleEmpty); err != nil {
+				logging.LogErrorf("create doc [%s] failed: %s", p, err)
+			}
+			return
+		}
 		// The save path is incorrect when creating a sub-doc by ref in a doc with the same name https://github.com/siyuan-note/siyuan/issues/8138
 		// 在指定了父文档 ID 的情况下优先查找父文档
 		parentHPath, name := path.Split(hPath)
@@ -50,17 +58,11 @@ func createDocsByHPath(boxID, hPath, content, parentID, id string) (retID string
 		if nil != preferredParent && preferredParent.RootID == parentID {
 			// 如果父文档存在且 ID 一致，则直接在父文档下创建
 			p := strings.TrimSuffix(preferredParent.Path, ".sy") + "/" + id + ".sy"
-			if _, err = createDoc(boxID, p, name, content); err != nil {
+			if _, err = createDoc(boxID, p, name, content, titleEmpty); err != nil {
 				logging.LogErrorf("create doc [%s] failed: %s", p, err)
 			}
 			return
 		}
-	}
-
-	root := treenode.GetBlockTreeRootByPath(boxID, hPath)
-	if nil != root {
-		retID = root.ID
-		return
 	}
 
 	hPathBuilder := bytes.Buffer{}
@@ -76,7 +78,7 @@ func createDocsByHPath(boxID, hPath, content, parentID, id string) (retID string
 		hPathBuilder.WriteString("/")
 		hPathBuilder.WriteString(part)
 		hp := hPathBuilder.String()
-		root = treenode.GetBlockTreeRootByHPath(boxID, hp)
+		root := treenode.GetBlockTreeRootByHPath(boxID, hp)
 		if nil == root {
 			break
 		}
@@ -91,7 +93,7 @@ func createDocsByHPath(boxID, hPath, content, parentID, id string) (retID string
 	for i, part := range parts {
 		hPathBuilder.WriteString(part)
 		hp := hPathBuilder.String()
-		root = hpathBtMap[hp]
+		root := hpathBtMap[hp]
 		isNotLast := i < len(parts)-1
 		if nil == root {
 			rootID := ast.NewNodeID()
@@ -102,11 +104,11 @@ func createDocsByHPath(boxID, hPath, content, parentID, id string) (retID string
 			pathBuilder.WriteString(rootID)
 			docP := pathBuilder.String() + ".sy"
 			if isNotLast {
-				if _, err = createDoc(boxID, docP, part, ""); err != nil {
+				if _, err = createDoc(boxID, docP, part, "", false); err != nil {
 					return
 				}
 			} else {
-				if _, err = createDoc(boxID, docP, part, content); err != nil {
+				if _, err = createDoc(boxID, docP, part, content, titleEmpty); err != nil {
 					return
 				}
 			}
@@ -186,6 +188,11 @@ func toFlatTree(blocks []*Block, baseDepth int, typ string, tree *parse.Tree) (r
 }
 
 func toSubTree(blocks []*Block, keyword string) (ret []*Path) {
+	return toSubTreeInBox(blocks, keyword, "")
+}
+
+// toSubTreeInBox 与 toSubTree 一致，但按 boxID 路由到加密 db 或全局 db。
+func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
 	keyword = strings.TrimSpace(keyword)
 	var blockRoots []*Block
 	for _, block := range blocks {
@@ -212,7 +219,7 @@ func toSubTree(blocks []*Block, keyword string) (ret []*Path) {
 		}
 		for _, c := range root.Children {
 			if "NodeListItem" == c.Type {
-				tree, _ := LoadTreeByBlockID(c.RootID)
+				tree, _ := loadTreeByBlockIDInBox(c.RootID, boxID)
 				li := treenode.GetNodeInTree(tree, c.ID)
 				if nil == li || nil == li.FirstChild {
 					// 反链面板拖拽到文档以后可能会出现这种情况 https://github.com/siyuan-note/siyuan/issues/5363
@@ -221,9 +228,9 @@ func toSubTree(blocks []*Block, keyword string) (ret []*Path) {
 
 				var first *sql.Block
 				if 3 != li.ListData.Typ {
-					first = sql.GetBlock(li.FirstChild.ID)
+					first = sql.GetBlockInBox(li.FirstChild.ID, boxID)
 				} else {
-					first = sql.GetBlock(li.FirstChild.Next.ID)
+					first = sql.GetBlockInBox(li.FirstChild.Next.ID, boxID)
 				}
 				name := first.Content
 				parentPos := 0

@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -152,7 +153,7 @@ func removeWorkspaceDir(c *gin.Context) {
 		return
 	}
 
-	workspacePaths = gulu.Str.RemoveElem(workspacePaths, path)
+	workspacePaths = util.RemoveWorkspacePath(workspacePaths, path)
 
 	if err = util.WriteWorkspacePaths(workspacePaths); err != nil {
 		ret.Code = -1
@@ -171,13 +172,41 @@ func removeWorkspaceDirPhysically(c *gin.Context) {
 	}
 
 	path := arg["path"].(string)
-	if gulu.File.IsDir(path) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			ret.Code = -1
-			ret.Msg = err.Error()
-			return
-		}
+
+	// 硬边界：只允许删除已登记的工作空间目录，禁止删除当前工作空间和任意路径
+	cleanPath, absErr := filepath.Abs(path)
+	if absErr != nil {
+		ret.Code = -1
+		ret.Msg = absErr.Error()
+		return
+	}
+	if cleanPath == util.WorkspaceDir {
+		ret.Code = -1
+		ret.Msg = "cannot remove current workspace"
+		return
+	}
+	if !util.IsWorkspaceDir(cleanPath) {
+		ret.Code = -1
+		ret.Msg = "path is not a workspace directory"
+		return
+	}
+	knownPaths, err := util.ReadWorkspacePaths()
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	isKnown := slices.Contains(knownPaths, cleanPath)
+	if !isKnown {
+		ret.Code = -1
+		ret.Msg = "path is not a registered workspace"
+		return
+	}
+
+	if err := os.RemoveAll(cleanPath); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
 	}
 
 	logging.LogInfof("removed workspace [%s] physically", path)
@@ -195,7 +224,7 @@ func getMobileWorkspaces(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
 
-	if util.ContainerIOS != util.Container && util.ContainerAndroid != util.Container && util.ContainerHarmony != util.Container {
+	if !util.IsMobileContainer() {
 		return
 	}
 
@@ -318,8 +347,8 @@ func setWorkspaceDir(c *gin.Context) {
 	}
 
 	workspacePaths = append(workspacePaths, path)
-	workspacePaths = gulu.Str.RemoveDuplicatedElem(workspacePaths)
-	workspacePaths = gulu.Str.RemoveElem(workspacePaths, path)
+	workspacePaths = util.DeduplicateWorkspacePaths(workspacePaths)
+	workspacePaths = util.RemoveWorkspacePath(workspacePaths, path)
 	workspacePaths = append(workspacePaths, path) // 切换的工作空间固定放在最后一个
 
 	if err = util.WriteWorkspacePaths(workspacePaths); err != nil {
@@ -328,7 +357,7 @@ func setWorkspaceDir(c *gin.Context) {
 		return
 	}
 
-	if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container || util.ContainerHarmony == util.Container {
+	if util.IsMobileContainer() {
 		util.PushMsg(model.Conf.Language(42), 1000*15)
 		time.Sleep(2 * time.Second)
 	}

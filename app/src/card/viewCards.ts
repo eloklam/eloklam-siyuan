@@ -21,6 +21,7 @@ export const viewCards = (app: App, deckID: string, title: string, deckType: "Tr
         page: pageIndex
     }, (response) => {
         const dialog = new Dialog({
+            hideCloseIcon: true,
             positionId: Constants.DIALOG_VIEWCARDS,
             content: `<div class="fn__flex-column" style="height: 100%">
     <div class="block__icons" style="border-bottom: 1px solid var(--b3-border-color)">
@@ -49,7 +50,7 @@ export const viewCards = (app: App, deckID: string, title: string, deckType: "Tr
     </div>
 </div>`,
             width: isMobile() ? "100vw" : "80vw",
-            height: isMobile() ? "100vh" : "70vh",
+            height: isMobile() ? "100dvh" : "70vh",
             destroyCallback() {
                 if (edit) {
                     edit.destroy();

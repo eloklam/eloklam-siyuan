@@ -28,6 +28,7 @@ electron/dist
 # IDE
 .idea/
 .vscode/
+.zcode/
 
 # Log
 logs
@@ -36,6 +37,9 @@ logs
 # NPM Package
 package-lock.json
 yarn.lock
+
+# musl toolchain
+muslbin/
 
 # Workflows
 **/__pycache__

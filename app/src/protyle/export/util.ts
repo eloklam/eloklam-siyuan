@@ -10,8 +10,10 @@ import {isMobile} from "../../util/functions";
 import {Constants} from "../../constants";
 import {highlightRender, lineNumberRender} from "../render/highlightRender";
 import {processRender} from "../util/processCode";
-import {isIPhone, isSafari, openByMobile, setStorageVal} from "../util/compatibility";
+import {isIPhone, isSafari, saveExportFile, setStorageVal} from "../util/compatibility";
 import {useShell} from "../../util/pathName";
+
+const IMAGE_PLACEHOLDER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 export const afterExport = (exportPath: string, msgId: string) => {
     /// #if !BROWSER
@@ -90,21 +92,26 @@ export const exportImage = (id: string) => {
             item.textContent = (index + 1).toString();
         });
         setTimeout(() => {
-            addScript("/stage/protyle/js/html-to-image.min.js?v=1.11.13", "protyleHtml2image").then(async () => {
-                let blob = await window.htmlToImage.toBlob(exportDialog.element.querySelector(".b3-dialog__content"));
+            addScript(`${Constants.PROTYLE_CDN}/js/html-to-image.min.js?v=1.11.13`, "protyleHtml2image").then(async () => {
+                const options = {
+                    imagePlaceholder: IMAGE_PLACEHOLDER,
+                    onImageErrorHandler: (event: Event) => {
+                        (event.target as HTMLImageElement).src = IMAGE_PLACEHOLDER;
+                    }
+                };
+                let blob = await window.htmlToImage.toBlob(exportDialog.element.querySelector(".b3-dialog__content"), options);
                 if (isIPhone() || isSafari()) {
-                    await window.htmlToImage.toBlob(contentElement);
-                    await window.htmlToImage.toBlob(contentElement);
-                    await window.htmlToImage.toBlob(contentElement);
-                    blob = await window.htmlToImage.toBlob(contentElement);
+                    await window.htmlToImage.toBlob(contentElement, options);
+                    await window.htmlToImage.toBlob(contentElement, options);
+                    await window.htmlToImage.toBlob(contentElement, options);
+                    blob = await window.htmlToImage.toBlob(contentElement, options);
                 }
                 const formData = new FormData();
                 formData.append("file", blob, btnsElement[1].getAttribute("data-title"));
                 formData.append("type", "image/png");
                 fetchPost("/api/export/exportAsFile", formData, (response) => {
-                    openByMobile(response.data.file);
+                    saveExportFile(response.data.file, msgId);
                 });
-                hideMessage(msgId);
                 exportDialog.destroy();
             });
         }, Constants.TIMEOUT_LOAD);
@@ -139,7 +146,7 @@ export const exportImage = (id: string) => {
                 if (window.siyuan.config.export.imageWatermarkStr.startsWith("http")) {
                     watermarkPreviewElement.setAttribute("style", `background-image: url(${window.siyuan.config.export.imageWatermarkStr});background-repeat: repeat;position: absolute;top: 0;left: 0;width: 100%;height: 100%;border-radius: var(--b3-border-radius-b);`);
                 } else {
-                    addScript("/stage/protyle/js/html-to-image.min.js?v=1.11.13", "protyleHtml2image").then(() => {
+                    addScript(`${Constants.PROTYLE_CDN}/js/html-to-image.min.js?v=1.11.13`, "protyleHtml2image").then(() => {
                         const width = Math.max(exportDialog.element.querySelector(".export-img").clientWidth / 3, 150);
                         watermarkPreviewElement.setAttribute("style", `width: ${width}px;height: ${width}px;display: flex;justify-content: center;align-items: center;color: var(--b3-border-color);font-size: 14px;`);
                         watermarkPreviewElement.innerHTML = `<div style="transform: rotate(-45deg)">${window.siyuan.config.export.imageWatermarkStr}</div>`;

@@ -1,102 +1,18 @@
-import {getIdFromSYProtocol, isLocalPath, isSYProtocol, pathPosix} from "../util/pathName";
+import {isLocalPath, pathPosix} from "../util/pathName";
 /// #if !BROWSER
-import {shell, ipcRenderer} from "electron";
+import {shell} from "electron";
 /// #endif
 import {getSearch} from "../util/functions";
 import {Constants} from "../constants";
+import {processSiYuanUri} from "../util/uri";
 /// #if !MOBILE
-import {openAsset, openBy, openFile, openFileById} from "./util";
+import {openAsset, openBy} from "./util";
 /// #endif
 import {showMessage} from "../dialog/message";
-import {openByMobile} from "../protyle/util/compatibility";
-import {App} from "../index";
-import {fetchPost} from "../util/fetch";
-import {checkFold} from "../util/noRelyPCFunction";
-import {openMobileFileById} from "../mobile/editor";
+import {isInIOS, isInAndroid, isInHarmony} from "../protyle/util/compatibility";
+import type {App} from "../index";
 
-export const processSYLink = (app: App, url: string) => {
-    let urlObj: URL;
-    try {
-        urlObj = new URL(url);
-        if (urlObj.protocol !== "siyuan:") {
-            return false;
-        }
-    } catch (error) {
-        return false;
-    }
-    if (urlObj && urlObj.hostname === "plugins") {
-        const pluginNameType = urlObj.pathname.split("/")[1];
-        if (!pluginNameType) {
-            return false;
-        }
-        app.plugins.find(plugin => {
-            if (pluginNameType.startsWith(plugin.name)) {
-                // siyuan://plugins/plugin-name/foo?bar=baz
-                plugin.eventBus.emit("open-siyuan-url-plugin", {url});
-
-                /// #if !MOBILE
-                // https://github.com/siyuan-note/siyuan/pull/9256
-                if (pluginNameType.split("/")[0] !== plugin.name) {
-                    // siyuan://plugins/plugin-samplecustom_tab?title=自定义页签&icon=iconFace&data={"text": "This is the custom plugin tab I opened via protocol."}
-                    let data = urlObj.searchParams.get("data");
-                    try {
-                        data = JSON.parse(data || "{}");
-                    } catch (e) {
-                        console.log("Error open plugin tab with protocol:", e);
-                    }
-                    openFile({
-                        app,
-                        custom: {
-                            title: urlObj.searchParams.get("title"),
-                            icon: urlObj.searchParams.get("icon"),
-                            data,
-                            id: pluginNameType
-                        },
-                    });
-                }
-                /// #endif
-                return true;
-            }
-        });
-        return true;
-    }
-    if (urlObj && isSYProtocol(url)) {
-        const id = getIdFromSYProtocol(url);
-        const focus = urlObj.searchParams.get("focus") === "1";
-        window.siyuan.editorIsFullscreen = urlObj.searchParams.get("fullscreen") === "1";
-        fetchPost("/api/block/checkBlockExist", {id}, existResponse => {
-            if (existResponse.data) {
-                checkFold(id, (zoomIn) => {
-                    /// #if !MOBILE
-                    openFileById({
-                        app,
-                        id,
-                        action: (zoomIn || focus) ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
-                        zoomIn: zoomIn || focus
-                    });
-                    /// #else
-                    openMobileFileById(app, id, (zoomIn || focus) ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
-                    /// #endif
-                });
-                /// #if !BROWSER
-                ipcRenderer.send(Constants.SIYUAN_CMD, "show");
-                /// #endif
-            }
-            app.plugins.forEach(plugin => {
-                plugin.eventBus.emit("open-siyuan-url-block", {
-                    url,
-                    id,
-                    focus,
-                    exist: existResponse.data,
-                });
-            });
-        });
-        return true;
-    }
-    return false;
-};
-
-export const openLink = (protyle: IProtyle, aLink: string, event?: MouseEvent, ctrlIsPressed = false) => {
+export const openLink = (app: App, aLink: string, event?: MouseEvent, ctrlIsPressed = false) => {
     let linkAddress = Lute.UnEscapeHTMLStr(aLink);
     let pdfParams;
     if (isLocalPath(linkAddress) && !linkAddress.startsWith("file://") && linkAddress.indexOf(".pdf") > -1) {
@@ -108,6 +24,9 @@ export const openLink = (protyle: IProtyle, aLink: string, event?: MouseEvent, c
             pdfParams = parseInt(getSearch("page", linkAddress));
             linkAddress = linkAddress.split("?page")[0];
         }
+    }
+    if (processSiYuanUri(app, linkAddress)) {
+        return;
     }
     /// #if MOBILE
     openByMobile(linkAddress);
@@ -121,7 +40,7 @@ export const openLink = (protyle: IProtyle, aLink: string, event?: MouseEvent, c
             )
         ) {
             if (event && event.altKey) {
-                openAsset(protyle.app, linkAddress, pdfParams);
+                openAsset(app, linkAddress, pdfParams);
             } else if (event && event.shiftKey) {
                 /// #if !BROWSER
                 openBy(linkAddress, "app");
@@ -135,7 +54,7 @@ export const openLink = (protyle: IProtyle, aLink: string, event?: MouseEvent, c
                 openByMobile(linkAddress);
                 /// #endif
             } else {
-                openAsset(protyle.app, linkAddress, pdfParams, !window.siyuan.config.fileTree.noSplitScreenWhenOpenTab ? "right" : null);
+                openAsset(app, linkAddress, pdfParams, !window.siyuan.config.fileTree.noSplitScreenWhenOpenTab ? "right" : null);
             }
         } else {
             /// #if !BROWSER
@@ -163,4 +82,44 @@ export const openLink = (protyle: IProtyle, aLink: string, event?: MouseEvent, c
         /// #endif
     }
     /// #endif
+};
+
+export const openByMobile = (uri: string) => {
+    if (!uri) {
+        return;
+    }
+    if (processSiYuanUri(window.siyuan.ws.app, uri)) {
+        return;
+    }
+    if (isInIOS()) {
+        if (uri.startsWith("assets/")) {
+            // iOS 16.7 之前的版本，uri 需要 encodeURIComponent
+            // 保留 query 参数（如 ?box=<id>），只编码 path 部分
+            const pathAndQuery = uri.replace("assets/", "");
+            const queryIdx = pathAndQuery.indexOf("?");
+            let encodedPath = pathAndQuery;
+            let query = "";
+            if (queryIdx >= 0) {
+                encodedPath = pathAndQuery.substring(0, queryIdx);
+                query = pathAndQuery.substring(queryIdx);
+            }
+            window.webkit.messageHandlers.openLink.postMessage(location.origin + "/assets/" + encodeURIComponent(encodedPath) + query);
+        } else if (uri.startsWith("/")) {
+            // 导出 zip 返回的是已经 encode 过的，因此不能再 encode
+            window.webkit.messageHandlers.openLink.postMessage(location.origin + uri);
+        } else {
+            try {
+                new URL(uri);
+                window.webkit.messageHandlers.openLink.postMessage(uri);
+            } catch (e) {
+                window.webkit.messageHandlers.openLink.postMessage("https://" + uri);
+            }
+        }
+    } else if (isInAndroid()) {
+        window.JSAndroid.openExternal(uri);
+    } else if (isInHarmony()) {
+        window.JSHarmony.openExternal(uri);
+    } else {
+        window.open(uri);
+    }
 };

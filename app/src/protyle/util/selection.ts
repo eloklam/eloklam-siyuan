@@ -6,7 +6,7 @@ import {
     isContainerBlock,
     isNotEditBlock
 } from "../wysiwyg/getBlock";
-import {hasClosestBlock, hasClosestByAttribute, hasClosestByTag} from "./hasClosest";
+import {hasClosestBlock, hasClosestByAttribute, hasClosestByTag, isInEmbedBlock} from "./hasClosest";
 import {countBlockWord, countSelectWord} from "../../layout/status";
 import {hideElements} from "../ui/hideElements";
 import {genRenderFrame} from "../render/util";
@@ -115,7 +115,7 @@ export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range)
         return true;
     }
     hideElements(["select"], protyle);
-    const ids: string [] = [];
+    const ids: string[] = [];
     Array.from(protyle.wysiwyg.element.children).forEach(item => {
         const nodeId = item.getAttribute("data-node-id");
         if (nodeId) {
@@ -254,6 +254,9 @@ export const getSelectionPosition = (nodeElement: Element, range?: Range, useDir
                     let firstNode = range.startContainer.childNodes[range.startOffset] || range.startContainer.firstChild;
                     while (firstNode) {
                         if (firstNode.textContent === "" && firstNode.nodeType === 3) {
+                            if (!firstNode.previousSibling) {
+                                break;
+                            }
                             firstNode = firstNode.previousSibling;
                         } else {
                             break;
@@ -265,6 +268,9 @@ export const getSelectionPosition = (nodeElement: Element, range?: Range, useDir
                     let lastNode = range.startContainer.childNodes[range.startOffset] || range.startContainer.lastChild;
                     while (lastNode) {
                         if (lastNode.textContent === "" && lastNode.nodeType === 3) {
+                            if (!lastNode.previousSibling) {
+                                break;
+                            }
                             lastNode = lastNode.previousSibling;
                         } else {
                             break;
@@ -298,7 +304,9 @@ export const getSelectionPosition = (nodeElement: Element, range?: Range, useDir
         const rects = range.getClientRects(); // 由于长度过长折行，光标在行首时有多个 rects https://github.com/siyuan-note/siyuan/issues/6156
         if (range.toString()) {
             if (useDirect) {
-                const selection = window.getSelection();
+                const selection = window.getSelection() as Selection & {
+                    direction: "forward" | "backward" | "none"
+                };
                 // 判断选择方向
                 const isBackward = (selection && "direction" in selection && selection.direction !== "none") ?
                     selection.direction === "backward"
@@ -355,17 +363,65 @@ export const getSelectionOffset = (selectElement: Node, editorElement?: Element,
     }
     preSelectionRange.setEnd(range.startContainer, range.startOffset);
     // 需加上表格内软换行 br 的长度
-    position.start = preSelectionRange.toString().length + preSelectionRange.cloneContents().querySelectorAll("br").length;
-    position.end = position.start + range.toString().length + range.cloneContents().querySelectorAll("br").length;
+    position.start = preSelectionRange.toString().length + preSelectionRange.cloneContents().querySelectorAll("br, .emoji").length;
+    position.end = position.start + range.toString().length + range.cloneContents().querySelectorAll("br, .emoji").length;
     return position;
 };
 
-function searchNode(
+// 记录插入块前的焦点位置，供撤销回放完成后恢复。
+export const getUndoFocusContext = (editorElement: Element, range?: Range): Record<string, string> | undefined => {
+    if (!range || !editorElement.contains(range.startContainer) || !editorElement.contains(range.endContainer)) {
+        return undefined;
+    }
+    const blockElement = hasClosestBlock(range.startContainer);
+    if (!blockElement || !blockElement.contains(range.endContainer)) {
+        return undefined;
+    }
+    const editableElement = getContenteditableElement(blockElement) || blockElement;
+    if (!editableElement.contains(range.startContainer) || !editableElement.contains(range.endContainer)) {
+        return undefined;
+    }
+    const blockElements = Array.from(editorElement.querySelectorAll(
+        `[data-node-id="${blockElement.getAttribute("data-node-id")}"]`
+    ));
+    const position = getSelectionOffset(editableElement, undefined, range);
+    return {
+        undoFocusId: blockElement.getAttribute("data-node-id"),
+        undoFocusIndex: blockElements.indexOf(blockElement).toString(),
+        undoFocusStart: position.start.toString(),
+        undoFocusEnd: position.end.toString(),
+    };
+};
+
+// 在撤销操作全部应用后，根据插入前保存的焦点位置重建选区。
+export const restoreUndoFocus = (protyle: IProtyle, operations: IOperation[]) => {
+    const operation = operations.find(item => item.context?.undoFocusId);
+    if (!operation) {
+        return false;
+    }
+    const start = Number(operation.context.undoFocusStart);
+    const end = Number(operation.context.undoFocusEnd);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < 0) {
+        return false;
+    }
+    const blockElements = Array.from(protyle.wysiwyg.element.querySelectorAll(
+        `[data-node-id="${operation.context.undoFocusId}"]`
+    ));
+    const index = Number(operation.context.undoFocusIndex);
+    const indexedElement = Number.isInteger(index) && index >= 0 ? blockElements[index] : undefined;
+    const blockElement = indexedElement || blockElements.find(item => !isInEmbedBlock(item, false)) || blockElements[0];
+    if (!blockElement) {
+        return false;
+    }
+    return !!focusByOffset(blockElement, start, end);
+};
+
+const searchNode = (
     container: Node,
     startNode: Node,
     predicate: (node: Node) => boolean,
     excludeSibling?: boolean,
-): boolean {
+) => {
     if (!startNode) {
         return false;
     }
@@ -395,7 +451,7 @@ function searchNode(
     }
 
     return false;
-}
+};
 
 export const setLastNodeRange = (editElement: Element, range: Range, setStart = true) => {
     if (!editElement) {
@@ -465,6 +521,7 @@ export const focusByOffset = (container: Element, start: number, end: number, is
     } else if (isFocus && (isNotEditBlock(container) || container.classList.contains("av"))) {
         return focusBlock(container);
     }
+    const isSame = start === end;
     let startNode: Node;
     searchNode(container, container.firstChild, node => {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -476,7 +533,8 @@ export const focusByOffset = (container: Element, start: number, end: number, is
             start -= dataLength;
             end -= dataLength;
             return false;
-        } else if (node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName === "BR") {
+        } else if (node.nodeType === Node.ELEMENT_NODE &&
+            ((node as Element).tagName === "BR" || (node as Element).classList.contains("emoji"))) {
             if (start <= 1) {
                 startNode = node;
                 return true;
@@ -489,17 +547,29 @@ export const focusByOffset = (container: Element, start: number, end: number, is
 
     let endNode;
     if (startNode) {
-        searchNode(container, startNode, node => {
-            if (node.nodeType === Node.TEXT_NODE) {
-                const dataLength = (node as Text).data.length;
-                if (end <= dataLength) {
-                    endNode = node;
-                    return true;
+        if (isSame) {
+            endNode = startNode;
+        } else {
+            searchNode(container, startNode, node => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    const dataLength = (node as Text).data.length;
+                    if (end <= dataLength) {
+                        endNode = node;
+                        return true;
+                    }
+                    end -= dataLength;
+                    return false;
+                } else if (node.nodeType === Node.ELEMENT_NODE &&
+                    ((node as Element).tagName === "BR" || (node as Element).classList.contains("emoji"))) {
+                    if (end <= 1) {
+                        endNode = node;
+                        return true;
+                    }
+                    end -= 1;
+                    return false;
                 }
-                end -= dataLength;
-                return false;
-            }
-        });
+            });
+        }
     }
 
     const range = document.createRange();
@@ -516,18 +586,21 @@ export const focusByOffset = (container: Element, start: number, end: number, is
             setLastNodeRange(getContenteditableElement(container as Element), range);
         }
     }
-
-    if (endNode) {
-        if (end <= (endNode as Text).data.length) {
-            range.setEnd(endNode, end);
-        } else {
-            range.setEndAfter(endNode);
-        }
+    if (isSame) {
+        range.collapse(true);
     } else {
-        if (end === 0) {
-            range.setEnd(container, 0);
+        if (endNode) {
+            if (endNode.nodeType === Node.TEXT_NODE && end <= (endNode as Text).data.length) {
+                range.setEnd(endNode, end);
+            } else {
+                range.setEndAfter(endNode);
+            }
         } else {
-            setLastNodeRange(getContenteditableElement(container as Element), range, false);
+            if (end === 0) {
+                range.setEnd(container, 0);
+            } else {
+                setLastNodeRange(getContenteditableElement(container as Element), range, false);
+            }
         }
     }
     if (isFocus) {
@@ -545,15 +618,15 @@ export const setInsertWbrHTML = (nodeElement: HTMLElement, range: Range, protyle
         const cellElement = hasClosestByTag(range.startContainer, "TH") || hasClosestByTag(range.startContainer, "TD");
         if (cellElement) {
             const offset = getSelectionOffset(cellElement, nodeElement, range);
-            cellElement.classList.add("range");
             const cloneNode = nodeElement.cloneNode(true) as HTMLElement;
-            cellElement.removeAttribute("class");
-            const cloneCellElement = cloneNode.querySelector(".range");
+            // 通过单元格在行内的索引在克隆树中定位对应单元格，避免在原 DOM 上增删 class 残留 class="" https://github.com/siyuan-note/siyuan/issues/18084
+            const cellIndex = Array.from(cellElement.parentElement.children).indexOf(cellElement);
+            const rowIndex = Array.from(nodeElement.querySelector("table").rows).indexOf(cellElement.parentElement as HTMLTableRowElement);
+            const cloneCellElement = cloneNode.querySelector("table").rows[rowIndex].cells[cellIndex];
             const cloneRange = focusByOffset(cloneCellElement, offset.end, offset.end, false);
             if (cloneRange) {
                 cloneRange.insertNode(document.createElement("wbr"));
             }
-            cloneCellElement.removeAttribute("class");
             protyle.wysiwyg.lastHTMLs[nodeElement.getAttribute("data-node-id")] = cloneNode.outerHTML;
         }
     } else {
@@ -802,4 +875,3 @@ export const focusSideBlock = (updateElement: Element) => {
     }
     focusByRange(range);
 };
-

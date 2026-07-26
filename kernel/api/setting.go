@@ -19,14 +19,18 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
+	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/conf"
+	mcpclient "github.com/siyuan-note/siyuan/kernel/mcp/client"
 	"github.com/siyuan-note/siyuan/kernel/model"
 	"github.com/siyuan-note/siyuan/kernel/server/proxy"
 	"github.com/siyuan-note/siyuan/kernel/sql"
+	"github.com/siyuan-note/siyuan/kernel/task"
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
@@ -156,8 +160,19 @@ func setBazaar(c *gin.Context) {
 		return
 	}
 
+	petalsEnabled := model.IsPetalsEnabled()
 	model.Conf.Bazaar = bazaar
 	model.Conf.Save()
+	newPetalsEnabled := model.IsPetalsEnabled()
+	if petalsEnabled != newPetalsEnabled {
+		if newPetalsEnabled {
+			if model.OnKernelPluginsStart != nil {
+				model.OnKernelPluginsStart()
+			}
+		} else if model.OnKernelPluginsStop != nil {
+			model.OnKernelPluginsStop()
+		}
+	}
 
 	ret.Data = bazaar
 }
@@ -185,29 +200,119 @@ func setAI(c *gin.Context) {
 		return
 	}
 
-	if 5 > ai.OpenAI.APITimeout {
-		ai.OpenAI.APITimeout = 5
+	var oldServers []conf.MCPServer
+	if model.Conf.AI != nil && model.Conf.AI.MCP != nil {
+		oldServers = append(oldServers, model.Conf.AI.MCP.Servers...)
 	}
-	if 600 < ai.OpenAI.APITimeout {
-		ai.OpenAI.APITimeout = 600
+	if ai.MCP != nil {
+		preserveMCPServerIDs(oldServers, ai.MCP.Servers)
+	}
+	ai.Normalize()
+	model.Conf.SetAI(ai)
+
+	// MCP 配置可能变更（开关切换、编辑、增删 server），异步重连让连接立即跟上。
+	if model.Conf.AI.MCP != nil {
+		newServers := model.Conf.AI.MCP.Servers
+		oldByID := make(map[string]conf.MCPServer, len(oldServers))
+		newByID := make(map[string]conf.MCPServer, len(newServers))
+		for _, server := range oldServers {
+			oldByID[server.ID] = server
+		}
+		for _, server := range newServers {
+			newByID[server.ID] = server
+		}
+
+		var interactiveServerIDs []string
+		for _, server := range newServers {
+			old, existed := oldByID[server.ID]
+			if server.Enabled && server.Type == "http" && (!existed || !reflect.DeepEqual(old, server)) {
+				interactiveServerIDs = append(interactiveServerIDs, server.ID)
+			}
+		}
+		for _, server := range oldServers {
+			updated, exists := newByID[server.ID]
+			if !exists || (server.Type == "http" && (updated.Type != "http" || updated.URL != server.URL)) {
+				if revokeErr := mcpclient.DisconnectMCPOAuth(server.ID); revokeErr != nil {
+					logging.LogWarnf("mcp oauth: disconnect server [%s] failed: %s", server.Name, revokeErr)
+				}
+			}
+		}
+		if !reflect.DeepEqual(oldServers, newServers) {
+			mcpclient.ReconnectMCPAsync(newServers, nil, interactiveServerIDs)
+		}
 	}
 
-	if 0 > ai.OpenAI.APIMaxTokens {
-		ai.OpenAI.APIMaxTokens = 0
+	ret.Data = model.Conf.AI
+}
+
+func preserveMCPServerIDs(oldServers, newServers []conf.MCPServer) {
+	oldIDsByName := make(map[string]string, len(oldServers))
+	for _, server := range oldServers {
+		oldIDsByName[server.Name] = server.ID
+	}
+	for i := range newServers {
+		if newServers[i].ID == "" {
+			newServers[i].ID = oldIDsByName[newServers[i].Name]
+		}
+	}
+}
+
+func setSecrets(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
 	}
 
-	if 0 >= ai.OpenAI.APITemperature || 2 < ai.OpenAI.APITemperature {
-		ai.OpenAI.APITemperature = 1.0
+	param, err := gulu.JSON.MarshalJSON(arg)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
 	}
 
-	if 1 > ai.OpenAI.APIMaxContexts || 64 < ai.OpenAI.APIMaxContexts {
-		ai.OpenAI.APIMaxContexts = 7
+	secrets := &conf.Secrets{}
+	if err = gulu.JSON.UnmarshalJSON(param, secrets); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
 	}
 
-	model.Conf.AI = ai
+	model.Conf.Secrets = secrets
 	model.Conf.Save()
 
-	ret.Data = ai
+	ret.Data = model.Conf.Secrets
+}
+
+func setVariables(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	param, err := gulu.JSON.MarshalJSON(arg)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	variables := &conf.Variables{}
+	if err = gulu.JSON.UnmarshalJSON(param, variables); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	model.Conf.Variables = variables
+	model.Conf.Save()
+
+	ret.Data = model.Conf.Variables
 }
 
 func setFlashcard(c *gin.Context) {
@@ -376,6 +481,14 @@ func setExport(c *gin.Context) {
 		return
 	}
 
+	// 重置为空字符串表示恢复内置 Pandoc：先落盘清空自定义路径，再重新初始化并写回默认路径
+	if "" == export.PandocBin {
+		model.Conf.Export = export
+		model.Conf.Save()
+		util.InitPandoc()
+		export.PandocBin = util.PandocBinPath
+	}
+
 	if "" != export.PandocBin {
 		if !util.IsValidPandocBin(export.PandocBin) {
 			util.PushErrMsg(fmt.Sprintf(model.Conf.Language(117), export.PandocBin), 5000)
@@ -408,20 +521,31 @@ func setFiletree(c *gin.Context) {
 	}
 
 	fileTree := conf.NewFileTree()
+	fileTree.BoxDocEnabled = nil
 	if err = gulu.JSON.UnmarshalJSON(param, fileTree); err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
 	}
-
-	fileTree.RefCreateSavePath = util.TrimSpaceInPath(fileTree.RefCreateSavePath)
-	if "" != fileTree.RefCreateSavePath {
-		if !strings.HasSuffix(fileTree.RefCreateSavePath, "/") {
-			fileTree.RefCreateSavePath += "/"
+	if nil == fileTree.BoxDocEnabled {
+		if nil != model.Conf.FileTree && nil != model.Conf.FileTree.BoxDocEnabled {
+			fileTree.BoxDocEnabled = model.Conf.FileTree.BoxDocEnabled
+		} else {
+			fileTree.BoxDocEnabled = func() *bool { b := false; return &b }()
 		}
 	}
+	oldBoxDocEnabled := model.IsBoxDocEnabled()
 
 	fileTree.DocCreateSavePath = util.TrimSpaceInPath(fileTree.DocCreateSavePath)
+
+	fileTree.RefCreateSavePath = util.TrimSpaceInPath(fileTree.RefCreateSavePath)
+
+	fileTree.ShorthandSavePath = util.TrimSpaceInPath(fileTree.ShorthandSavePath)
+	if "" != fileTree.ShorthandSavePath {
+		if !strings.HasPrefix(fileTree.ShorthandSavePath, "/") {
+			fileTree.ShorthandSavePath = "/" + fileTree.ShorthandSavePath
+		}
+	}
 
 	if 1 > fileTree.MaxOpenTabCount {
 		fileTree.MaxOpenTabCount = 8
@@ -439,6 +563,9 @@ func setFiletree(c *gin.Context) {
 
 	model.Conf.FileTree = fileTree
 	model.Conf.Save()
+	if oldBoxDocEnabled != model.IsBoxDocEnabled() {
+		model.RefreshBoxDocFeature()
+	}
 
 	util.UseSingleLineSave = model.Conf.FileTree.UseSingleLineSave
 	util.LargeFileWarningSize = model.Conf.FileTree.LargeFileWarningSize
@@ -469,11 +596,17 @@ func setSearch(c *gin.Context) {
 		return
 	}
 
+	if s.HanSensitive == nil {
+		// 兼容未携带该字段的旧版前端/第三方调用：保持当前值，避免被零值意外关闭并触发重建索引
+		s.HanSensitive = model.Conf.Search.HanSensitive
+	}
+
 	if 32 > s.Limit {
 		s.Limit = 32
 	}
 
 	oldCaseSensitive := model.Conf.Search.CaseSensitive
+	oldHanSensitive := model.Conf.Search.HanSensitiveVal()
 	oldIndexAssetPath := model.Conf.Search.IndexAssetPath
 
 	oldVirtualRefName := model.Conf.Search.VirtualRefName
@@ -485,9 +618,13 @@ func setSearch(c *gin.Context) {
 	model.Conf.Save()
 
 	sql.SetCaseSensitive(s.CaseSensitive)
+	sql.SetHanSensitive(s.HanSensitiveVal())
 	sql.SetIndexAssetPath(s.IndexAssetPath)
 
-	if needFullReindex := s.CaseSensitive != oldCaseSensitive || s.IndexAssetPath != oldIndexAssetPath; needFullReindex {
+	ftsChanged := s.CaseSensitive != oldCaseSensitive || s.HanSensitiveVal() != oldHanSensitive
+	if ftsChanged && s.IndexAssetPath == oldIndexAssetPath {
+		task.AppendTask(task.DatabaseIndexFTS, model.ReindexFTS)
+	} else if ftsChanged || s.IndexAssetPath != oldIndexAssetPath {
 		model.FullReindex(false)
 	}
 
@@ -552,7 +689,15 @@ func setAppearance(c *gin.Context) {
 
 	model.Conf.Appearance = appearance
 	util.StatusBarCfg = model.Conf.Appearance.StatusBar
-	model.Conf.Lang = appearance.Lang
+	if nil == util.StatusBarCfg {
+		util.StatusBarCfg = &util.StatusBar{}
+	}
+	if nil == model.Conf.Appearance.Notifications {
+		// 旧配置未迁移，按默认全部启用处理
+		model.Conf.Appearance.Notifications = util.NewNotifications()
+	}
+	util.NotificationsCfg = model.Conf.Appearance.Notifications
+	model.Conf.Lang = util.LangToBCP47(appearance.Lang) // 兼容历史下划线值，如 zh_CN → zh-CN
 	util.Lang = model.Conf.Lang
 	model.Conf.Save()
 	model.InitAppearance()

@@ -59,10 +59,13 @@ declare namespace Config {
          * Log level
          */
         logLevel: TLogLevel;
-        /**
-         * Whether to open the user guide after startup
-         */
-        openHelp: boolean;
+        onboarding: {
+            state: "pending" | "notebook-created" | "completed";
+            newUser: boolean;
+            dismissed: boolean;
+            notebookID: string;
+            documentID: string;
+        };
         /**
          * Publish service
          * 发布服务
@@ -73,7 +76,17 @@ declare namespace Config {
          * 全局只读
          */
         readonly: boolean;
+        /**
+         * Encrypted notebook global settings
+         * 加密笔记本全局设置
+         */
+        notebookCrypto: INotebookCrypto;
         repo: IRepo;
+        /**
+         * Global secrets store, referenced via {{secrets.NAME}} placeholders.
+         * 全局密钥库，通过 {{secrets.NAME}} 占位符引用
+         */
+        secrets: ISecrets;
         search: ISearch;
         /**
          * Whether to display the changelog for this release version
@@ -89,6 +102,11 @@ declare namespace Config {
          * Community user data (Encrypted)
          */
         userData: string;
+        /**
+         * Global variables store, referenced via {{vars.NAME}} placeholders.
+         * 全局变量库，通过 {{vars.NAME}} 占位符引用
+         */
+        variables: IVariables;
     }
 
     /**
@@ -114,69 +132,126 @@ declare namespace Config {
      * Artificial Intelligence (AI) related configuration
      */
     export interface IAI {
-        openAI: IOpenAI;
+        providers: IProvider[];
+        editing: IEditing;
+        agent: IAgent;
+        vision: IVision;
+        imageGeneration: IImageGeneration;
+        mcp: IMCP;
+        embedding: IEmbedding;
+        rerank: IRerank;
     }
 
     /**
-     * Open AI related configuration
+     * AI agent global settings
      */
-    export interface IOpenAI {
-        /**
-         * API base URL
-         */
-        apiBaseURL: string;
-        /**
-         * API key
-         */
+    export interface IAgent {
+        modelId: string;
+        sessionTimeout: number;
+        streamIdleTimeout: number;
+        confirmTimeout: number;
+        maxRetries: number;
+        temperature: number;
+        maxCompletionTokens: number;
+        maxToolCallRounds: number;
+    }
+
+    /**
+     * AI in-editor chat scenario behavior settings (mirrors IAgent)
+     */
+    export interface IEditing {
+        modelId: string;
+        maxHistoryMessages: number;
+        temperature: number;
+        maxCompletionTokens: number;
+    }
+
+    export interface IVision {
+        modelId: string;
+        requestTimeout: number;
+        maxImageBytes: number;
+        maxPixels: number;
+        maxEdge: number;
+    }
+
+    export interface IImageGeneration {
+        modelId: string;
+        requestTimeout: number;
+        size: string;
+        quality: string;
+        outputFormat: "png" | "jpeg" | "webp";
+    }
+
+    /**
+     * Embedding model configuration
+     */
+    export interface IEmbedding {
+        id: string;
+        enabled: boolean;
+        baseURL: string;
         apiKey: string;
-        /**
-         * The maximum number of contexts passed when requesting the API
-         */
-        apiMaxContexts: number;
-        /**
-         * Maximum number of tokens (0 means no limit)
-         */
-        apiMaxTokens: number;
-        /**
-         * The model name called by the API
-         */
-        apiModel: TOpenAIAPIModel;
-        /**
-         * API Provider
-         * OpenAI, Azure
-         */
-        apiProvider: TOpenAAPIProvider;
-        /**
-         * API request proxy address
-         */
-        apiProxy: string;
-        /**
-         * Parameter `temperature` that controls the randomness of the generated text
-         */
-        apiTemperature: number;
-        /**
-         * API request timeout (unit: seconds)
-         */
-        apiTimeout: number;
-        /**
-         * API request additional user agent field
-         */
-        apiUserAgent: string;
-        /**
-         * API version number
-         */
-        apiVersion: string;
+        name: string;
+        timeout: number;
+        dimensions: number;
     }
 
     /**
-     * The model name called by the API
+     * Rerank model configuration (semantic search result re-ranking)
      */
-    export type TOpenAIAPIModel = "gpt-4" | "gpt-4-32k" | "gpt-3.5-turbo" | "gpt-3.5-turbo-16k";
+    export interface IRerank {
+        id: string;
+        enabled: boolean;
+        endpoint: string;
+        apiKey: string;
+        name: string;
+        timeout: number;
+        candidateCount: number;
+    }
 
     /**
-     * API Provider
+     * AI provider configuration
      */
-    export type TOpenAAPIProvider = "OpenAI" | "Azure";
+    export interface IProvider {
+        id: string;
+        enabled: boolean;
+        displayName?: string;
+        baseURL: string;
+        protocol?: string;
+        apiKey: string;
+        requestTimeout: number;
+        models: IModel[];
+    }
+
+    /**
+     * AI model configuration. Behavior params (maxTokens/temperature/maxContexts)
+     * live on IEditing; Model holds only identity fields.
+     */
+    export interface IModel {
+        id: string;
+        enabled: boolean;
+        name: string;
+        displayName?: string;
+    }
+
+    /**
+     * MCP (Model Context Protocol) configuration
+     */
+    export interface IMCP {
+        servers: IMCPServer[];
+    }
+
+    export interface IMCPServer {
+        id: string;
+        enabled: boolean;
+        name: string;
+        url: string;
+        type: string;
+        command: string;
+        args?: string[];
+        headers?: Record<string, string>;
+        timeout: number;
+        trustToolAnnotations: boolean;
+    }
 
     /**
      * SiYuan API related configuration
@@ -207,9 +282,9 @@ declare namespace Config {
          */
         codeBlockThemeLight: string;
         /**
-         * List of installed dark themes
+         * Whether to hide toolbar
          */
-        darkThemes: string[];
+        hideToolbar: boolean;
         /**
          * Whether to hide status bar
          */
@@ -221,7 +296,7 @@ declare namespace Config {
         /**
          * List of installed icon names
          */
-        icons: string[];
+        icons: { label: string; name: string }[];
         /**
          * The version number of the icon currently in use
          */
@@ -233,7 +308,11 @@ declare namespace Config {
         /**
          * List of installed light themes
          */
-        lightThemes: string[];
+        lightThemes: { label: string; name: string }[];
+        /**
+         * List of installed dark themes
+         */
+        darkThemes: { label: string; name: string }[];
         /**
          * The current theme mode
          * - `0`: Light theme
@@ -261,6 +340,7 @@ declare namespace Config {
          */
         themeVer: string;
         statusBar: IAppearanceStatusBar;
+        notifications: IAppearanceNotifications;
     }
 
     export interface IAppearanceStatusBar {
@@ -271,28 +351,43 @@ declare namespace Config {
     }
 
     /**
+     * 外观通知开关配置。Appearance.Notifications 为 undefined 时表示旧配置尚未迁移，整体按默认启用处理。
+     */
+    export interface IAppearanceNotifications {
+        docTreeMaxList: boolean;
+        tagMaxList: boolean;
+        workspaceNotSSD: boolean;
+        browserCompatibility: boolean;
+    }
+
+    /**
      * The language used by the current user
      *
      * User interface language
      * Same as {@link IAppearance.lang}
      */
     export type TLang =
-        "en_US"
-        | "ar_SA"
-        | "de_DE"
-        | "es_ES"
-        | "fr_FR"
-        | "he_IL"
-        | "it_IT"
-        | "ja_JP"
-        | "ko_KR"
-        | "pl_PL"
-        | "pt_BR"
-        | "ru_RU"
-        | "sk_SK"
-        | "tr_TR"
-        | "zh_CN"
-        | "zh_CHT";
+        "en"
+        | "ar"
+        | "de"
+        | "es"
+        | "fr"
+        | "he"
+        | "hi"
+        | "id"
+        | "it"
+        | "ja"
+        | "ko"
+        | "pl"
+        | "pt-BR"
+        | "ru"
+        | "sk"
+        | "tr"
+        | "uk"
+        | "th"
+        | "nl"
+        | "zh-CN"
+        | "zh-TW";
 
     /**
      * SiYuan bazaar related configuration
@@ -357,7 +452,7 @@ declare namespace Config {
         allowSVGScript: boolean;
 
         /**
-         * Whether to allow to execute javascript in the HTML block
+         * 是否允许在 HTML 内容中执行 JavaScript
          */
         allowHTMLBLockScript: boolean;
 
@@ -416,6 +511,12 @@ declare namespace Config {
          */
         displayNetImgMark: boolean;
         /**
+         * Default state of database attributes
+         * - `0`: Expanded
+         * - `1`: Collapsed
+         */
+        databaseAttrViewMode: number;
+        /**
          * The number of blocks loaded each time they are dynamically loaded
          */
         dynamicLoadBlocks: number;
@@ -450,6 +551,14 @@ declare namespace Config {
          * The font used in the editor
          */
         fontFamily: string;
+        /**
+         * The font weight used in the editor, 0 means not set
+         */
+        fontWeight: number;
+        /**
+         * Label shown in Settings for the selected editor font (e.g. PostScript name + subfamily). May be empty; falls back to fontFamily in UI when empty.
+         */
+        fontFamilyDisplay: string;
         /**
          * The font size used in the editor
          */
@@ -648,6 +757,18 @@ declare namespace Config {
          */
         alwaysSelectOpenedFile: boolean;
         /**
+         * Whether clicking a document icon expands or collapses its child documents
+         */
+        docIconClickExpand: boolean;
+        /**
+         * Whether clicking a parent document title expands or collapses its child documents
+         */
+        parentDocClickExpand: boolean;
+        /**
+         * Whether to enable top-level notebook documents
+         */
+        boxDocEnabled: boolean;
+        /**
          * Whether to close all tabs when starting
          */
         closeTabsOnStart: boolean;
@@ -672,6 +793,14 @@ declare namespace Config {
          */
         refCreateSavePath: string;
         refCreateSaveBox: string;
+        /**
+         * Shorthand save notebook
+         */
+        shorthandSaveBox: string;
+        /**
+         * Shorthand save path
+         */
+        shorthandSavePath: string;
         docCreateSaveBox: string;
         /**
          * Close the secondary confirmation when deleting a document
@@ -929,6 +1058,7 @@ declare namespace Config {
         attr: IKey;
         backlinks: IKey;
         collapse: IKey;
+        foldRecursive: IKey;
         copyBlockEmbed: IKey;
         copyBlockRef: IKey;
         copyHPath: IKey;
@@ -1110,6 +1240,9 @@ declare namespace Config {
         recentClosed: IKey;
         move: IKey;
         selectOpen1: IKey;
+        switchLeftDock: IKey;
+        switchRightDock: IKey;
+        switchBottomDock: IKey;
         toggleDock: IKey;
         splitLR: IKey;
         splitMoveR: IKey;
@@ -1286,6 +1419,10 @@ declare namespace Config {
          */
         embedBlock: boolean;
         /**
+         * Whether to distinguish between Simplified and Traditional Chinese characters when searching
+         */
+        hanSensitive: boolean;
+        /**
          * Whether to search heading blocks
          */
         heading: boolean;
@@ -1382,6 +1519,55 @@ declare namespace Config {
     }
 
     /**
+     * A named secret. The value is AES-encrypted at rest on the kernel side.
+     */
+    export interface ISecret {
+        name: string;
+        value: string;
+    }
+
+    /**
+     * Global secrets store. Referenced via {{secrets.NAME}} placeholders by the
+     * agent http_request tool and MCP server headers.
+     */
+    export interface ISecrets {
+        items: ISecret[];
+    }
+
+    /**
+     * A named variable. The value is stored in plain text (non-sensitive data).
+     */
+    export interface IVariable {
+        name: string;
+        value: string;
+    }
+
+    /**
+     * Global variables store. Referenced via {{vars.NAME}} placeholders by the
+     * agent http_request tool and MCP server headers.
+     */
+    /**
+     * Encrypted notebook global settings
+     * 加密笔记本全局设置
+     */
+    export interface INotebookCrypto {
+        /**
+         * Whether encrypted notebook feature is enabled
+         * 加密笔记本功能是否已启用
+         */
+        enabled: boolean;
+        /**
+         * Auto-lock after idle minutes, 0 = disabled
+         * 自动锁定闲置分钟数，0 表示禁用
+         */
+        autoLockMinutes: number;
+    }
+
+    export interface IVariables {
+        items: IVariable[];
+    }
+
+    /**
      * SiYuan workspace content statistics
      */
     export interface IStat {
@@ -1458,7 +1644,7 @@ declare namespace Config {
          * - `3`: Network storage service using WebDAV protocol
          * - `4`: Local file system
          */
-        provider: number;
+        provider: 0 | 2 | 3 | 4;
         s3: ISyncS3;
         /**
          * The prompt information of the last synchronization
@@ -1655,6 +1841,10 @@ declare namespace Config {
          * Operating system platform name
          */
         osPlatform: string;
+        /**
+         * Whether the current boot is in safe mode (disables code snippets, plugins, custom theme and icon)
+         */
+        safeMode: boolean;
         /**
          * The absolute path of the workspace directory
          */
@@ -2024,6 +2214,10 @@ declare namespace Config {
          */
         blockId: string;
         /**
+         * 数据库行预览块 ID
+         */
+        databaseRowId?: string;
+        /**
          * Object name
          */
         instance: "Editor";
@@ -2174,6 +2368,7 @@ declare namespace Config {
          * - `1`: Query syntax
          * - `2`: SQL
          * - `3`: Regular expression
+         * - `4`: Fuzzy search
          * @default 0
          */
         method?: number;
@@ -2209,6 +2404,26 @@ declare namespace Config {
          */
         sort?: number;
         types?: IUILayoutTabSearchConfigTypes;
+        subTypes?: IUILayoutTabSearchConfigSubTypes;
+    }
+
+    /**
+     * Search subtype filtering. When all flags within a category (heading or
+     * list) are false, that category is not subtype-filtered (parent type
+     * filter applies as before). When at least one flag is true, only blocks
+     * matching the selected subtypes are returned for that category.
+     */
+    export interface IUILayoutTabSearchConfigSubTypes {
+        h1: boolean;
+        h2: boolean;
+        h3: boolean;
+        h4: boolean;
+        h5: boolean;
+        h6: boolean;
+        // List subtypes — apply to both list and listItem
+        o: boolean;
+        u: boolean;
+        t: boolean;
     }
 
     /**

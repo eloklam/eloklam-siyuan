@@ -1,13 +1,14 @@
 import {Constants} from "../../constants";
 import {closeModel, closePanel} from "./closePanel";
-import {openMobileFileById} from "../editor";
+import {getCurrentEditor, openMobileFileById} from "../editor";
+import {openMobileOnboarding} from "../../onboarding";
 import {validateName} from "../../editor/rename";
 import {getEventName} from "../../protyle/util/compatibility";
 import {fetchPost} from "../../util/fetch";
 import {setInlineStyle} from "../../util/assets";
 import {renderSnippet} from "../../config/util/snippets";
 import {setEmpty} from "./setEmpty";
-import {getIdZoomInByPath, getOpenNotebookCount} from "../../util/pathName";
+import {getOpenNotebookCount, parseUriInfo} from "../../util/pathName";
 import {popMenu} from "../menu";
 import {MobileFiles} from "../dock/MobileFiles";
 import {MobileOutline} from "../dock/MobileOutline";
@@ -19,11 +20,12 @@ import {activeBlur, initKeyboardToolbar} from "./keyboardToolbar";
 import {syncGuide} from "../../sync/syncGuide";
 import {Inbox} from "../../layout/dock/Inbox";
 import {App} from "../../index";
-import {setTitle} from "../../dialog/processSystem";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {MobileCustom} from "../dock/MobileCustom";
 import {Menu} from "../../plugin/Menu";
 import {showMessage} from "../../dialog/message";
+import {setTitle} from "../../util/processTitle";
+import {activateQueuedAVLocate, queueAVLocateRequest} from "../../protyle/render/av/locate";
 
 let custom: MobileCustom;
 const openDockMenu = (app: App) => {
@@ -102,12 +104,7 @@ export const initFramework = (app: App, isStart: boolean) => {
                             isPreview: window.siyuan.mobile.editor ? !window.siyuan.mobile.editor.protyle.preview.element.classList.contains("fn__none") : false
                         });
                     } else {
-                        fetchPost("/api/outline/getDocOutline", {
-                            id: window.siyuan.mobile.editor.protyle.block.rootID,
-                            preview: window.siyuan.mobile.editor.protyle.preview.element.classList.contains("fn__none")
-                        }, response => {
-                            window.siyuan.mobile.docks.outline.update(response);
-                        });
+                        window.siyuan.mobile.docks.outline.reload();
                     }
                 } else if (type === "sidebar-backlink-tab") {
                     if (!window.siyuan.mobile.docks.backlink) {
@@ -147,16 +144,14 @@ export const initFramework = (app: App, isStart: boolean) => {
     });
     window.siyuan.mobile.docks.file = new MobileFiles(app);
     document.getElementById("toolbarFile").addEventListener("click", () => {
+        if (getCurrentEditor()?.protyle.toolbar.isMultiSelectMode()) {
+            return;
+        }
         activeBlur();
         sidebarElement.style.transform = "translateX(0px)";
         const type = sidebarElement.querySelector(".toolbar--border .toolbar__icon--active").getAttribute("data-type");
         if (type === "sidebar-outline-tab") {
-            fetchPost("/api/outline/getDocOutline", {
-                id: window.siyuan.mobile.editor.protyle.block.rootID,
-                preview: window.siyuan.mobile.editor.protyle.preview.element.classList.contains("fn__none")
-            }, response => {
-                window.siyuan.mobile.docks.outline.update(response);
-            });
+            window.siyuan.mobile.docks.outline.reload();
         } else if (type === "sidebar-backlink-tab") {
             window.siyuan.mobile.docks.backlink.update();
         } else if (type === "sidebar-bookmark-tab") {
@@ -180,10 +175,21 @@ export const initFramework = (app: App, isStart: boolean) => {
         if (window.JSAndroid && window.openFileByURL(window.JSAndroid.getBlockURL())) {
             return;
         }
-        const idZoomIn = getIdZoomInByPath();
-        if (idZoomIn.id) {
-            openMobileFileById(app, idZoomIn.id,
-                idZoomIn.isZoomIn ? [Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
+        const info = parseUriInfo();
+        if (info.id) {
+            if (info.avItemID) {
+                queueAVLocateRequest(info.id, {
+                    itemID: info.avItemID,
+                    viewID: info.avViewID,
+                    groupID: info.avGroupID,
+                });
+            }
+            openMobileFileById(app, info.id, info.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
+                (info.focus ? [Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
+            undefined, undefined, info.avItemID ? (protyle) => activateQueuedAVLocate(protyle, info.id) : undefined);
+            return;
+        }
+        if (openMobileOnboarding(app)) {
             return;
         }
         if (window.siyuan.config.fileTree.closeTabsOnStart && isStart) {

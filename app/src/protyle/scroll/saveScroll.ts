@@ -5,9 +5,12 @@ import {onGet} from "../util/onGet";
 import {Constants} from "../../constants";
 import {setStorageVal} from "../util/compatibility";
 import {isSupportCSSHL} from "../render/searchMarkRender";
+import {isEncryptedBox} from "../../util/pathName";
+import {getContenteditableElement} from "../wysiwyg/getBlock";
 
 export const saveScroll = (protyle: IProtyle, getObject = false) => {
-    if (!protyle.wysiwyg.element.firstElementChild || window.siyuan.config.readonly) {
+    if (!protyle.wysiwyg.element.firstElementChild || window.siyuan.config.readonly ||
+        (protyle.element.dataset.databaseRowId && !getObject)) {
         // 报错或者空白页面
         return undefined;
     }
@@ -21,16 +24,24 @@ export const saveScroll = (protyle: IProtyle, getObject = false) => {
     if (getSelection().rangeCount > 0) {
         range = getSelection().getRangeAt(0);
     }
-    if (!range || !protyle.wysiwyg.element.contains(range.startContainer)) {
-        range = protyle.toolbar.range;
-    }
-    if (range && protyle.wysiwyg.element.contains(range.startContainer)) {
-        const blockElement = hasClosestBlock(range.startContainer);
-        if (blockElement) {
-            const position = getSelectionOffset(blockElement, undefined, range);
-            attr.focusId = blockElement.getAttribute("data-node-id");
-            attr.focusStart = position.start;
-            attr.focusEnd = position.end;
+    // 光标位于文档标题时用文档 id 作为焦点标识 https://github.com/siyuan-note/siyuan/issues/17456
+    if (range && protyle.title?.editElement?.contains(range.startContainer)) {
+        const position = getSelectionOffset(protyle.title.editElement, undefined, range);
+        attr.focusId = protyle.block.rootID;
+        attr.focusStart = position.start;
+        attr.focusEnd = position.end;
+    } else {
+        if (!range || !protyle.wysiwyg.element.contains(range.startContainer)) {
+            range = protyle.toolbar.range;
+        }
+        if (range && protyle.wysiwyg.element.contains(range.startContainer)) {
+            const blockElement = hasClosestBlock(range.startContainer);
+            if (blockElement) {
+                const position = getSelectionOffset(getContenteditableElement(blockElement) || blockElement, undefined, range);
+                attr.focusId = blockElement.getAttribute("data-node-id");
+                attr.focusStart = position.start;
+                attr.focusEnd = position.end;
+            }
         }
     }
 
@@ -68,22 +79,32 @@ export const getDocByScroll = (options: {
         }
     }
     if (options.scrollAttr?.zoomInId && options.scrollAttr?.rootId && options.scrollAttr.zoomInId !== options.scrollAttr.rootId) {
-        fetchPost("/api/filetree/getDoc", {
+        const getDocParam: Record<string, any> = {
             id: options.scrollAttr.zoomInId,
             size: Constants.SIZE_GET_MAX,
             query: options.protyle.query?.key,
             queryMethod: options.protyle.query?.method,
             queryTypes: options.protyle.query?.types,
+            querySubTypes: options.protyle.query?.subTypes,
             highlight: !isSupportCSSHL(),
-        }, response => {
+        };
+        if (isEncryptedBox(options.protyle.notebookId)) {
+            getDocParam.notebook = options.protyle.notebookId;
+        }
+        fetchPost("/api/filetree/getDoc", getDocParam, response => {
             if (response.code === 1) {
-                fetchPost("/api/filetree/getDoc", {
+                const getDocParam: Record<string, any> = {
                     id: options.scrollAttr.rootId || options.mergedOptions?.blockId || options.protyle.block?.rootID || options.scrollAttr.startId,
                     query: options.protyle.query?.key,
                     queryMethod: options.protyle.query?.method,
                     queryTypes: options.protyle.query?.types,
+                    querySubTypes: options.protyle.query?.subTypes,
                     highlight: !isSupportCSSHL(),
-                }, response => {
+                };
+                if (isEncryptedBox(options.protyle.notebookId)) {
+                    getDocParam.notebook = options.protyle.notebookId;
+                }
+                fetchPost("/api/filetree/getDoc", getDocParam, response => {
                     onGet({
                         scrollPosition: options.mergedOptions?.scrollPosition,
                         data: response,
@@ -113,15 +134,20 @@ export const getDocByScroll = (options: {
         });
         return;
     }
-    fetchPost("/api/filetree/getDoc", {
+    const getDocParam: Record<string, any> = {
         id: options.scrollAttr?.rootId || options.mergedOptions?.blockId || options.protyle.block?.rootID || options.scrollAttr?.startId,
         startID: options.scrollAttr?.startId,
         endID: options.scrollAttr?.endId,
         query: options.protyle.query?.key,
         queryMethod: options.protyle.query?.method,
         queryTypes: options.protyle.query?.types,
+        querySubTypes: options.protyle.query?.subTypes,
         highlight: !isSupportCSSHL(),
-    }, response => {
+    };
+    if (isEncryptedBox(options.protyle.notebookId)) {
+        getDocParam.notebook = options.protyle.notebookId;
+    }
+    fetchPost("/api/filetree/getDoc", getDocParam, response => {
         onGet({
             scrollPosition: options.mergedOptions?.scrollPosition,
             data: response,

@@ -18,6 +18,7 @@ package api
 
 import (
 	"fmt"
+	"html"
 	"math"
 	"net/http"
 	"regexp"
@@ -125,7 +126,8 @@ func getDynamicIcon(c *gin.Context) {
 	if "" == lang {
 		lang = util.Lang
 	}
-	weekdayType := c.Query("weekdayType") // 设置星期几的格式，zh_CH {1：周日，2：周天， 3：星期日，4：星期天，}, en_US {1: Mon, 2: MON，3: Monday, 4. MONDAY,}
+	lang = util.LangToBCP47(lang)
+	weekdayType := c.Query("weekdayType") // 设置星期几的格式，zh-CN {1：周日，2：周天， 3：星期日，4：星期天，}, en {1: Mon, 2: MON，3: Monday, 4. MONDAY,}
 	if "" == weekdayType {
 		weekdayType = "1"
 	}
@@ -165,10 +167,17 @@ func getDynamicIcon(c *gin.Context) {
 	}
 
 	if !model.Conf.Editor.AllowSVGScript {
-		svg = util.SanitizeSVG(svg)
+		var err error
+		svg, err = util.SanitizeSVG(svg)
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
 	}
 
 	c.Header("Content-Type", "image/svg+xml")
+	c.Header("Content-Security-Policy", "script-src 'none'; object-src 'none'; base-uri 'none'")
+	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Pragma", "no-cache")
 	c.String(http.StatusOK, svg)
@@ -194,7 +203,7 @@ func getDateInfo(dateStr string, lang string, weekdayType string) map[string]any
 	var weekdays []string
 
 	switch lang {
-	case "zh_CN":
+	case "zh-CN":
 		month = date.Format("1月")
 		switch weekdayType {
 		case "1":
@@ -209,7 +218,7 @@ func getDateInfo(dateStr string, lang string, weekdayType string) map[string]any
 			weekdays = []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
 		}
 		weekdayStr = weekdays[date.Weekday()]
-	case "zh_CHT":
+	case "zh-TW":
 		month = date.Format("1月")
 		switch weekdayType {
 		case "1":
@@ -247,9 +256,9 @@ func getDateInfo(dateStr string, lang string, weekdayType string) map[string]any
 	weekNumStr := fmt.Sprintf("%dW", weekNum)
 
 	switch lang {
-	case "zh_CN":
+	case "zh-CN":
 		weekNumStr = fmt.Sprintf("%d周", weekNum)
-	case "zh_CHT":
+	case "zh-TW":
 		weekNumStr = fmt.Sprintf("%d週", weekNum)
 	}
 	// 判断是否是周末
@@ -427,7 +436,7 @@ func generateTypeSixSVG(color string, lang string, weekdayType string, dateInfo 
 	// 动态变化字体大小
 	var fontSize float64
 	switch lang {
-	case "zh_CN", "zh_CHT":
+	case "zh-CN", "zh-TW":
 		fontSize = 460 / float64(len([]rune(weekday)))
 	default:
 		switch weekdayType {
@@ -472,7 +481,7 @@ func generateTypeSevenSVG(color string, lang string, dateInfo map[string]any) st
 	switch {
 	case diffDays == 0:
 		switch lang {
-		case "zh_CN", "zh_CHT":
+		case "zh-CN", "zh-TW":
 			tipText = "今天"
 		default:
 			tipText = "Today"
@@ -480,9 +489,9 @@ func generateTypeSevenSVG(color string, lang string, dateInfo map[string]any) st
 		diffDaysText = "--"
 	case diffDays > 0:
 		switch lang {
-		case "zh_CN":
+		case "zh-CN":
 			tipText = "还有"
-		case "zh_CHT":
+		case "zh-TW":
 			tipText = "還有"
 		default:
 			tipText = "Left"
@@ -490,9 +499,9 @@ func generateTypeSevenSVG(color string, lang string, dateInfo map[string]any) st
 		diffDaysText = fmt.Sprintf("%d", diffDays)
 	default:
 		switch lang {
-		case "zh_CN":
+		case "zh-CN":
 			tipText = "已过"
-		case "zh_CHT":
+		case "zh-TW":
 			tipText = "已過"
 		default:
 			tipText = "Past"
@@ -503,7 +512,7 @@ func generateTypeSevenSVG(color string, lang string, dateInfo map[string]any) st
 
 	var dayStr string
 	switch lang {
-	case "zh_CN", "zh_CHT":
+	case "zh-CN", "zh-TW":
 		dayStr = "天"
 	default:
 		dayStr = "days"
@@ -576,10 +585,11 @@ func generateTypeEightSVG(color, content, id string) string {
 		}
 	}
 
+	escapedContent := html.EscapeString(content)
 	return fmt.Sprintf(`
     <svg id="dynamic_icon_type8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
         <path d="M39,0h434c20.97,0,38,17.03,38,38v412c0,33.11-26.89,60-60,60H60c-32.56,0-59-26.44-59-59V38C1,17.03,18.03,0,39,0Z" style="fill: %s;"/>
         <text x="50%%" y="55%%" dy="%s" style="font-size: %.2fpx; fill: #fff; text-anchor: middle; dominant-baseline:middle;font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans', 'Noto Sans CJK SC', 'Microsoft YaHei'; ">%s</text>
 	</svg>
-    `, colorScheme.Primary, dy, fontSize, content)
+    `, colorScheme.Primary, dy, fontSize, escapedContent)
 }

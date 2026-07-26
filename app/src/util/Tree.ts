@@ -11,6 +11,9 @@ export class Tree {
     private data: IBlockTree[];
     private blockExtHTML: string;
     private topExtHTML: string;
+    private blockDraggable: boolean;
+    private dragStart: (element: HTMLElement, event: DragEvent) => boolean;
+    private dragEnd: (element: HTMLElement, event: DragEvent) => boolean;
 
     public click: (element: Element, event?: MouseEvent) => void;
     private ctrlClick: (element: HTMLElement, event: MouseEvent) => void;
@@ -24,12 +27,15 @@ export class Tree {
         data: IBlockTree[],
         blockExtHTML?: string,
         topExtHTML?: string,
+        blockDraggable?: boolean,
         click?(element: HTMLElement, event: MouseEvent): void
         ctrlClick?(element: HTMLElement, event: MouseEvent): void
         altClick?(element: HTMLElement, event: MouseEvent): void
         shiftClick?(element: HTMLElement): void
         toggleClick?(element: HTMLElement): void
         rightClick?(element: HTMLElement, event: MouseEvent): void
+        dragStart?(element: HTMLElement, event: DragEvent): boolean
+        dragEnd?(element: HTMLElement, event: DragEvent): boolean
     }) {
         this.click = options.click;
         this.ctrlClick = options.ctrlClick;
@@ -40,6 +46,9 @@ export class Tree {
         this.element = options.element;
         this.blockExtHTML = options.blockExtHTML;
         this.topExtHTML = options.topExtHTML;
+        this.blockDraggable = options.blockDraggable;
+        this.dragStart = options.dragStart;
+        this.dragEnd = options.dragEnd;
         this.updateData(options.data);
         this.bindEvent();
     }
@@ -55,6 +64,7 @@ export class Tree {
     }
 
     private genHTML(data: (IBlockTree & { folded?: boolean })[]) {
+        const isM = isMobile();
         let html = `<ul${data[0].depth === 0 ? " class='b3-list b3-list--background'" : ""}>`;
         data.forEach((item) => {
             let titleTip = "";
@@ -62,13 +72,13 @@ export class Tree {
             if (item.type === "bookmark") {
                 iconHTML = '<svg class="b3-list-item__graphic"><use xlink:href="#iconBookmark"></use></svg>';
             } else if (item.type === "tag") {
-                iconHTML = '<svg class="b3-list-item__graphic"><use xlink:href="#iconTags"></use></svg>';
+                iconHTML = '<svg class="b3-list-item__graphic"><use xlink:href="#iconTag"></use></svg>';
             } else if (item.type === "backlink") {
                 titleTip = ` aria-label="${escapeAriaLabel(item.hPath)}"`;
                 iconHTML = `<svg class="b3-list-item__graphic popover__block" data-id="${item.id}"><use xlink:href="#${getIconByType(item.nodeType, item.subType)}"></use></svg>`;
             } else if (item.type === "outline") {
                 titleTip = ` aria-label="${escapeAriaLabel(Lute.BlockDOM2Content(item.name))}"`;
-                iconHTML = `<svg class="b3-list-item__graphic popover__block" data-id="${item.id}" style="height: 22px;width: 10px;"><use xlink:href="#${getIconByType(item.nodeType, item.subType)}"></use></svg>`;
+                iconHTML = `<svg class="b3-list-item__graphic popover__block" data-id="${item.id}" style="height: 22px;width: ${isM ? 20 : 16}px;"><use xlink:href="#${getIconByType(item.nodeType, item.subType)}"></use></svg>`;
             }
             let countHTML = "";
             if (item.count) {
@@ -76,16 +86,16 @@ export class Tree {
             }
             const hasChild = (item.children && item.children.length > 0) || (item.blocks && item.blocks.length > 0);
             let style = "";
-            if (isMobile()) {
+            if (isM) {
                 if (item.depth > 0) {
                     style = `padding-left: ${(item.depth - 1) * 20 + 24}px`;
                 }
             } else {
                 style = `padding-left: ${(item.depth * 18) || 4}px;margin-right: 2px`;
             }
-            const showArrow = hasChild || (item.type === "backlink" && !isMobile());
+            const showArrow = hasChild || (item.type === "backlink" && !isM);
             // data-id 需要添加 item.id，否则大纲更新时 name 不一致导致 https://github.com/siyuan-note/siyuan/issues/11843
-            html += `<li class="b3-list-item${isMobile() ? "" : " b3-list-item--hide-action"}" 
+            html += `<li class="b3-list-item${isM ? "" : " b3-list-item--hide-action"}" 
 ${item.id ? 'data-node-id="' + item.id + '"' : ""} 
 ${item.box ? 'data-notebook-id="' + item.box + '"' : ""} 
 style="--file-toggle-width:${item.depth === 0 ? 22 : ((item.depth + 1) * 18)}px" 
@@ -112,6 +122,7 @@ ${item.label !== undefined && item.label !== null ? `data-label='${item.label}'`
     }
 
     private genBlockHTML(data: IBlock[], show = false, type: string) {
+        const isM = isMobile();
         let html = `<ul class="${!show ? "fn__none" : ""}">`;
         data.forEach((item: IBlock & {
             subType: string;
@@ -127,7 +138,7 @@ ${item.label !== undefined && item.label !== null ? `data-label='${item.label}'`
             }
             let iconHTML;
             if (type === "outline") {
-                iconHTML = `<svg data-showref="true" class="b3-list-item__graphic popover__block" data-id="${item.id}" style="height: 22px;width: 10px;"><use xlink:href="#${getIconByType(item.type, item.subType)}"></use></svg>`;
+                iconHTML = `<svg data-showref="true" class="b3-list-item__graphic popover__block" data-id="${item.id}" style="height: 22px;width: ${isM?20:16}px;"><use xlink:href="#${getIconByType(item.type, item.subType)}"></use></svg>`;
             } else {
                 if (item.type === "NodeDocument") {
                     iconHTML = `<span data-showref="true" class="b3-list-item__graphic popover__block" data-id="${item.id}">${unicode2Emoji(item.ial.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file)}</span>`;
@@ -136,14 +147,14 @@ ${item.label !== undefined && item.label !== null ? `data-label='${item.label}'`
                 }
             }
             let style = "";
-            if (isMobile()) {
+            if (isM) {
                 if (item.depth > 0) {
                     style = `padding-left: ${(item.depth - 1) * 20 + 24}px`;
                 }
             } else {
                 style = `padding-left: ${item.depth * 18 || 4}px;margin-right: 2px`;
             }
-            html += `<li class="b3-list-item${isMobile() ? "" : " b3-list-item--hide-action"}"  
+            html += `<li class="b3-list-item${isM ? "" : " b3-list-item--hide-action"}" ${this.blockDraggable ? 'draggable="true"' : ""}
 style="--file-toggle-width:${item.depth === 0 ? 22 : ((item.depth + 1) * 18)}px" 
 data-node-id="${item.id}" 
 data-ref-text="${encodeURIComponent(item.refText)}" 
@@ -258,6 +269,9 @@ data-def-path="${item.defPath}">
         this.element.addEventListener("dragstart", (event: DragEvent & { target: HTMLElement }) => {
             const liElement = hasClosestByTag(event.target, "LI");
             if (liElement) {
+                if (this.dragStart?.(liElement, event)) {
+                    return;
+                }
                 event.dataTransfer.setData("text/html", liElement.outerHTML);
                 // 设置了的话 drop 就无法监听 alt event.dataTransfer.dropEffect = "move";
                 liElement.style.opacity = "0.38";
@@ -267,6 +281,9 @@ data-def-path="${item.defPath}">
         this.element.addEventListener("dragend", (event: DragEvent & { target: HTMLElement }) => {
             const liElement = hasClosestByTag(event.target, "LI");
             if (liElement) {
+                if (this.dragEnd?.(liElement, event)) {
+                    return;
+                }
                 liElement.style.opacity = "1";
             }
             window.siyuan.dragElement = undefined;

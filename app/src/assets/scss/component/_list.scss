@@ -138,14 +138,28 @@
       display: flex;
       align-items: center;
       height: 22px;
-      padding: 0 4px;
+      padding: 0 2px;
       color: var(--b3-theme-on-surface-light);
       transition: var(--b3-transition);
       border-radius: var(--b3-border-radius);
 
-      &--hl:hover {
-        color: var(--b3-theme-on-background);
-        background-color: var(--b3-list-icon-hover);
+      &--hl {
+        position: relative;
+
+        // 扩展点击命中范围到 li 的左侧和上下边缘，视觉 hover 高亮区域保持不变
+        &::before {
+          content: "";
+          position: absolute;
+          top: -3px;
+          bottom: -3px;
+          left: -4px;
+          right: 0;
+        }
+
+        &:hover {
+          color: var(--b3-theme-on-background);
+          background-color: var(--b3-list-icon-hover);
+        }
       }
     }
 
@@ -202,25 +216,25 @@
 
     &__graphic {
       margin-right: 4px;
-      padding: 0 2px;
       flex-shrink: 0;
-      height: 14px;
-      width: 14px;
-      line-height: 14px;
+      padding: 0 1px;
+      height: 16px;
+      width: 16px;
+      line-height: 16px;
       font-size: 12px;
       font-family: var(--b3-font-family-emoji);
 
       // doc icon in the bookmark panel
       svg {
-        width: 12px;
-        height: 14px;
+        width: 16px;
+        height: 16px;
       }
     }
 
     &__arrow {
       flex-shrink: 0;
-      height: 10px;
-      width: 10px;
+      height: 14px;
+      width: 14px;
       transition: transform .15s cubic-bezier(0, 0, .2, 1), opacity 1s cubic-bezier(0, 0, .2, 1);
 
       &--open {
@@ -271,15 +285,15 @@
       align-items: center;
       color: var(--b3-theme-on-surface-light);
       height: 22px;
-      padding: 0 4px;
+      padding: 0 3px;
       margin-left: 4px;
       display: flex;
       translate: var(--b3-transition);
       border-radius: var(--b3-border-radius);
 
       svg {
-        height: 14px;
-        width: 14px;
+        height: 16px;
+        width: 16px;
       }
 
       &:hover {

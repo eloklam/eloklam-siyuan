@@ -1,5 +1,6 @@
 productName: "SiYuan"
 appId: "org.b3log.siyuan"
+publish: null
 asar: false
 compression: "normal"
 copyright: "© 2020-present Yunnan Liandi Technology Co., Ltd."
@@ -16,7 +17,7 @@ extraFiles:
     to: "LICENSE"
 
 linux:
-  icon: "src/assets/icon.icns"
+  icon: "src/assets/icon/"
   category: "Utility"
   executableName: "siyuan"
   desktop: {
@@ -37,6 +38,8 @@ linux:
       arch: "arm64"
     - target: "deb"
       arch: "arm64"
+    - target: "rpm"
+      arch: "arm64"
 
 extraResources:
   - from: "changelogs"
@@ -48,6 +51,9 @@ extraResources:
     filter: "!**/{.DS_Store,.git,.gitignore,.idea}"
   - from: "appearance/boot"
     to: "appearance/boot"
+    filter: "!**/{.DS_Store}"
+  - from: "appearance/covers"
+    to: "appearance/covers"
     filter: "!**/{.DS_Store}"
   - from: "appearance/icons"
     to: "appearance/icons"

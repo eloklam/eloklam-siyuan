@@ -4,8 +4,14 @@ import { ipcRenderer } from "electron";
 
 export const closeWindow = async (app: App) => {
     for (let i = 0; i < app.plugins.length; i++) {
+        const plugin = app.plugins[i];
         try {
-            await app.plugins[i].onunload();
+            await plugin.onunload();
+        } catch (e) {
+            console.error(e);
+        }
+        try {
+            await plugin.kernel?.destroy();
         } catch (e) {
             console.error(e);
         }

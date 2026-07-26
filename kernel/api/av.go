@@ -17,11 +17,13 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
+	goccyJSON "github.com/goccy/go-json"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/av"
 	"github.com/siyuan-note/siyuan/kernel/model"
@@ -216,13 +218,61 @@ func setAttrViewGroup(c *gin.Context) {
 		return
 	}
 
-	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false)
+	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false, false, "", "")
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
 		retDataMap["view"] = model.FilterViewByPublishAccess(c, publishAccess, retDataMap["view"].(av.Viewable))
 	}
 
+	c.JSON(http.StatusOK, ret)
+}
+
+func setAttrViewFilters(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	avID := arg["avID"].(string)
+	blockID := arg["blockID"].(string)
+	data := arg["data"].([]any)
+
+	err := model.SetAttrViewFilters(avID, blockID, data)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	model.ReloadAttrView(avID)
+	c.JSON(http.StatusOK, ret)
+}
+
+func setAttrViewSorts(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	avID := arg["avID"].(string)
+	blockID := arg["blockID"].(string)
+	data := arg["data"].([]any)
+
+	err := model.SetAttrViewSorts(avID, blockID, data)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	model.ReloadAttrView(avID)
 	c.JSON(http.StatusOK, ret)
 }
 
@@ -245,7 +295,7 @@ func changeAttrViewLayout(c *gin.Context) {
 		return
 	}
 
-	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false)
+	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false, false, "", "")
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
@@ -632,24 +682,6 @@ func getAttributeViewFilterSort(c *gin.Context) {
 	}
 }
 
-func searchAttributeViewNonRelationKey(c *gin.Context) {
-	ret := gulu.Ret.NewResult()
-	defer c.JSON(http.StatusOK, ret)
-
-	arg, _ := util.JsonArg(c, ret)
-	if nil == arg {
-		return
-	}
-
-	avID := arg["avID"].(string)
-	keyword := arg["keyword"].(string)
-
-	nonRelationKeys := model.SearchAttributeViewNonRelationKey(avID, keyword)
-	ret.Data = map[string]any{
-		"keys": nonRelationKeys,
-	}
-}
-
 func searchAttributeViewRollupDestKeys(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -701,6 +733,44 @@ func getAttributeView(c *gin.Context) {
 	}
 }
 
+func createAttributeViewItem(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	var avID, blockID, viewID, templateID, previousID, groupID, app, session string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("avID", &avID, true, false),
+		util.BindJsonArg("blockID", &blockID, true, false),
+		util.BindJsonArg("viewID", &viewID, false, false),
+		util.BindJsonArg("templateID", &templateID, false, false),
+		util.BindJsonArg("previousID", &previousID, false, false),
+		util.BindJsonArg("groupID", &groupID, false, false),
+		util.BindJsonArg("app", &app, false, false),
+		util.BindJsonArg("session", &session, false, false),
+	) {
+		return
+	}
+	result, err := model.CreateAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID)
+	if nil != err {
+		if errors.Is(err, model.ErrBoxNotFound) {
+			ret.Code = 1
+			ret.Data = map[string]any{"unavailableNotebook": true}
+			return
+		}
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = result
+	if nil != result.Transaction {
+		pushTransactions(app, session, []*model.Transaction{result.Transaction})
+	}
+}
+
 func searchAttributeView(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -711,13 +781,21 @@ func searchAttributeView(c *gin.Context) {
 	}
 
 	keyword := arg["keyword"].(string)
+	currentAvID := ""
+	if nil != arg["avID"] {
+		currentAvID = arg["avID"].(string)
+	}
+	currentBlockID := ""
+	if nil != arg["blockID"] {
+		currentBlockID = arg["blockID"].(string)
+	}
 	var excludes []string
 	if nil != arg["excludes"] {
 		for _, e := range arg["excludes"].([]any) {
 			excludes = append(excludes, e.(string))
 		}
 	}
-	results := model.SearchAttributeView(keyword, excludes)
+	results := model.SearchAttributeView(keyword, excludes, currentAvID, currentBlockID)
 	ret.Data = map[string]any{
 		"results": results,
 	}
@@ -755,13 +833,15 @@ func renderSnapshotAttributeView(c *gin.Context) {
 	}
 
 	ret.Data = map[string]any{
-		"name":     attrView.Name,
-		"id":       attrView.ID,
-		"viewType": view.GetType(),
-		"viewID":   view.GetID(),
-		"views":    views,
-		"view":     view,
-		"isMirror": av.IsMirror(attrView.ID),
+		"name":              attrView.Name,
+		"id":                attrView.ID,
+		"viewType":          view.GetType(),
+		"viewID":            view.GetID(),
+		"views":             views,
+		"view":              view,
+		"isMirror":          av.IsMirror(attrView.ID),
+		"newItemTemplates":  attrView.NewItemTemplates,
+		"defaultTemplateID": attrView.DefaultTemplateID,
 	}
 }
 
@@ -831,13 +911,15 @@ func renderHistoryAttributeView(c *gin.Context) {
 	}
 
 	ret.Data = map[string]any{
-		"name":     attrView.Name,
-		"id":       attrView.ID,
-		"viewType": view.GetType(),
-		"viewID":   view.GetID(),
-		"views":    views,
-		"view":     view,
-		"isMirror": av.IsMirror(attrView.ID),
+		"name":              attrView.Name,
+		"id":                attrView.ID,
+		"viewType":          view.GetType(),
+		"viewID":            view.GetID(),
+		"views":             views,
+		"view":              view,
+		"isMirror":          av.IsMirror(attrView.ID),
+		"newItemTemplates":  attrView.NewItemTemplates,
+		"defaultTemplateID": attrView.DefaultTemplateID,
 	}
 }
 
@@ -890,22 +972,46 @@ func renderAttributeView(c *gin.Context) {
 		createIfNotExist = createIfNotExistArg.(bool)
 	}
 
-	ret = renderAttrView(blockID, id, viewID, query, page, pageSize, groupPaging, createIfNotExist)
+	ignoreRows := false
+	ignoreRowsArg := arg["ignoreRows"]
+	if nil != ignoreRowsArg {
+		ignoreRows = ignoreRowsArg.(bool)
+	}
+	targetItemID := ""
+	if targetItemIDArg := arg["targetItemID"]; nil != targetItemIDArg {
+		targetItemID = targetItemIDArg.(string)
+	}
+	targetGroupID := ""
+	if targetGroupIDArg := arg["targetGroupID"]; nil != targetGroupIDArg {
+		targetGroupID = targetGroupIDArg.(string)
+	}
+
+	ret = renderAttrView(blockID, id, viewID, query, page, pageSize, groupPaging, createIfNotExist, ignoreRows, targetItemID, targetGroupID)
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
 		retDataMap["view"] = model.FilterViewByPublishAccess(c, publishAccess, retDataMap["view"].(av.Viewable))
 	}
 
-	c.JSON(http.StatusOK, ret)
+	// 大体量响应（如全量数据库视图）用 goccy 序列化后直接写字节，跳过 gin 内部基于标准库的二次序列化
+	marshalBytes, marshalErr := goccyJSON.Marshal(ret)
+	if nil != marshalErr || 0 == len(marshalBytes) {
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", marshalBytes)
 }
 
-func renderAttrView(blockID, avID, viewID, query string, page, pageSize int, groupPaging map[string]any, createIfNotExist bool) (ret *gulu.Result) {
+func renderAttrView(blockID, avID, viewID, query string, page, pageSize int, groupPaging map[string]any, createIfNotExist, ignoreRows bool, targetItemID, targetGroupID string) (ret *gulu.Result) {
 	ret = gulu.Ret.NewResult()
-	view, attrView, err := model.RenderAttributeView(blockID, avID, viewID, query, page, pageSize, groupPaging, createIfNotExist)
+	view, attrView, target, err := model.RenderAttributeViewWithTarget(blockID, avID, viewID, query, page, pageSize, groupPaging, createIfNotExist, ignoreRows, targetItemID, targetGroupID)
 	if err != nil {
 		ret.Code = -1
-		ret.Msg = err.Error()
+		if errors.Is(err, av.ErrSpecTooNew) {
+			ret.Msg = model.Conf.Language(215)
+		} else {
+			ret.Msg = err.Error()
+		}
 		return
 	}
 
@@ -922,15 +1028,21 @@ func renderAttrView(blockID, avID, viewID, query string, page, pageSize int, gro
 		})
 	}
 
-	ret.Data = map[string]any{
-		"name":     attrView.Name,
-		"id":       attrView.ID,
-		"viewType": view.GetType(),
-		"viewID":   view.GetID(),
-		"views":    views,
-		"view":     view,
-		"isMirror": av.IsMirror(attrView.ID),
+	retData := map[string]any{
+		"name":              attrView.Name,
+		"id":                attrView.ID,
+		"viewType":          view.GetType(),
+		"viewID":            view.GetID(),
+		"views":             views,
+		"view":              view,
+		"isMirror":          av.IsMirror(attrView.ID),
+		"newItemTemplates":  attrView.NewItemTemplates,
+		"defaultTemplateID": attrView.DefaultTemplateID,
 	}
+	if nil != target {
+		retData["target"] = target
+	}
+	ret.Data = retData
 	return
 }
 
@@ -974,13 +1086,42 @@ func getAttributeViewKeys(c *gin.Context) {
 		return
 	}
 
-	id := arg["id"].(string)
-	blockAttributeViewKeys := model.GetBlockAttributeViewKeys(id)
+	id, _ := arg["id"].(string)
+	avID, _ := arg["avID"].(string)
+	itemID, _ := arg["itemID"].(string)
+	valueID, _ := arg["valueID"].(string)
+	var blockAttributeViewKeys []*model.BlockAttributeViewKeys
+	if "" != avID && ("" != itemID || "" != valueID) {
+		blockAttributeViewKeys = model.GetAttributeViewItemKeys(avID, itemID, valueID)
+	} else {
+		blockAttributeViewKeys = model.GetBlockAttributeViewKeys(id)
+	}
 	if model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		blockAttributeViewKeys = model.FilterBlockAttributeViewKeysByPublishAccess(c, publishAccess, blockAttributeViewKeys)
 	}
 	ret.Data = blockAttributeViewKeys
+}
+
+func getAttributeViewBacklinks(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	id, _ := arg["id"].(string)
+	avID, _ := arg["avID"].(string)
+	itemID, _ := arg["itemID"].(string)
+	valueID, _ := arg["valueID"].(string)
+	backlinks := model.GetAttributeViewBacklinks(id, avID, itemID, valueID)
+	if model.IsReadOnlyRoleContext(c) {
+		publishAccess := model.GetPublishAccess()
+		backlinks = model.FilterAttributeViewBacklinksByPublishAccess(c, publishAccess, backlinks)
+	}
+	ret.Data = backlinks
 }
 
 func setAttributeViewBlockAttr(c *gin.Context) {
@@ -998,10 +1139,13 @@ func setAttributeViewBlockAttr(c *gin.Context) {
 	if _, ok := arg["itemID"]; ok {
 		itemID = arg["itemID"].(string)
 	} else if _, ok := arg["rowID"]; ok {
-		// TODO 计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/15708#issuecomment-3239694546
-		itemID = arg["rowID"].(string)
-		logging.LogWarnf("[%s] parameter [%s] is deprecated, it will be removed at [%s], visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
-			c.Request.RequestURI, "rowID", "2026-06-30")
+		// TODO 该参数将于 2026 年 12 月 1 日后删除
+		msg := fmt.Sprintf("[%s] parameter [%s] is deprecated, visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
+			c.Request.RequestURI, "rowID")
+		logging.LogWarn(msg)
+		ret.Code = -1
+		ret.Msg = msg
+		return
 	}
 	value := arg["value"].(any)
 	updatedVal, err := model.UpdateAttributeViewCell(nil, avID, keyID, itemID, value)

@@ -30,7 +30,7 @@ import (
 )
 
 func HandleSignal() {
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	s := <-c
 	logging.LogInfof("received os signal [%s], exit kernel process now", s)
@@ -42,7 +42,7 @@ var (
 )
 
 func HookDesktopUIProcJob() {
-	if util.ContainerStd != util.Container || "dev" == util.Mode {
+	if !util.AttachUI || util.ContainerStd != util.Container || "dev" == util.Mode {
 		return
 	}
 

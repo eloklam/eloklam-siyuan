@@ -16,6 +16,7 @@ import {assetMenu} from "../../menus/protyle";
 import {previewImages} from "../preview/image";
 import {Menu} from "../../plugin/Menu";
 import {escapeHtml} from "../../util/escape";
+import {fetchCoverData, getCategoryLabel} from "./coverData";
 
 const bgs = [
     "background:radial-gradient(black 3px, transparent 4px),radial-gradient(black 3px, transparent 4px),linear-gradient(#fff 4px, transparent 0),linear-gradient(45deg, transparent 74px, transparent 75px, #a4a4a4 75px, #a4a4a4 76px, transparent 77px, transparent 109px),linear-gradient(-45deg, transparent 75px, transparent 76px, #a4a4a4 76px, #a4a4a4 77px, transparent 78px, transparent 109px),#fff;background-size: 109px 109px, 109px 109px,100% 6px, 109px 109px, 109px 109px;background-position: 54px 55px, 0px 0px, 0px 0px, 0px 0px, 0px 0px;",
@@ -96,12 +97,13 @@ const bgs = [
 
 export class Background {
     public element: HTMLElement;
-    public ial: IObject;
+    public ial: Record<string, string>;
     private imgElement: HTMLImageElement;
     private iconElement: HTMLElement;
     private actionElements: NodeListOf<Element>;
     private tagsElement: HTMLElement;
     private transparentData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    private dragOccurred = false;
 
     constructor(protyle: IProtyle) {
         this.element = document.createElement("div");
@@ -205,6 +207,10 @@ export class Background {
             });
         });
         this.element.addEventListener("click", (event) => {
+            if (this.dragOccurred) {
+                this.dragOccurred = false;
+                return;
+            }
             let target = event.target as HTMLElement;
             hideElements(["gutter"], protyle);
 
@@ -260,38 +266,135 @@ export class Background {
                     event.stopPropagation();
                     break;
                 } else if (type === "show-random" && !protyle.disabled) {
-                    let html = "";
-                    bgs.forEach((item: string, index: number) => {
-                        html += `<div data-index="${index}" style="height: 128px;${item}" class="b3-card"></div>`;
-                    });
+                    // 内置题头图对话框：优先展示封面图片，加载失败时回退到 CSS 图案
                     const dialog = new Dialog({
                         title: window.siyuan.languages.builtIn,
-                        content: `<div class="b3-cards" style="padding: 16px">${html}</div>`,
+                        content: `<div class="b3-cards" style="padding:16px;justify-content:center;align-items:center;min-height:200px">
+            <img src="/stage/loading-pure.svg" style="width:64px;height:64px">
+        </div>`,
                         width: isMobile() ? "92vw" : "912px",
                         height: isMobile() ? "80vh" : "70vh",
                     });
                     dialog.element.setAttribute("data-key", Constants.DIALOG_BACKGROUNDRANDOM);
-                    dialog.element.addEventListener("click", (event) => {
-                        const target = event.target as HTMLElement;
-                        if (target.classList.contains("b3-card")) {
-                            this.ial["title-img"] = bgs[parseInt(target.getAttribute("data-index"))];
+
+                    const renderCSSPatterns = (d: Dialog) => {
+                        let html = "";
+                        bgs.forEach((item: string, index: number) => {
+                            html += `<div data-index="${index}" style="height: 128px;${item}" class="b3-card"></div>`;
+                        });
+                        const bodyEl = d.element.querySelector(".b3-dialog__body");
+                        if (bodyEl) {
+                            bodyEl.innerHTML = `<div class="b3-cards" style="padding: 16px">${html}</div>`;
+                        }
+                        d.element.addEventListener("click", (event) => {
+                            const target = event.target as HTMLElement;
+                            if (target.classList.contains("b3-card")) {
+                                this.ial["title-img"] = bgs[parseInt(target.getAttribute("data-index"))];
+                                this.render(this.ial, protyle.block.rootID);
+                                fetchPost("/api/attr/setBlockAttrs", {
+                                    id: protyle.block.rootID,
+                                    attrs: {"title-img": this.ial["title-img"]}
+                                });
+                                d.destroy();
+                            }
+                        });
+                    };
+
+                    fetchCoverData().then((coverData) => {
+                        if (!coverData) {
+                            renderCSSPatterns(dialog);
+                            return;
+                        }
+                        const { categories, coversByCategory, allCovers } = coverData;
+
+                        const buildCards = (category: string): string => {
+                            const covers = category === "all" ? allCovers : (coversByCategory.get(category) || []);
+                            return covers.map(c => {
+                                const url = `/appearance/covers/${c.file}`;
+                                return `<div class="b3-card b3-cover__card" data-name="${c.file}"><img src="${url}" loading="lazy"></div>`;
+                            }).join("");
+                        };
+
+                        const buildTabs = (activeCategory: string): string => {
+                            let tabs = `<span class="b3-chip b3-chip--hover${activeCategory === "all" ? " b3-chip--current" : ""}" data-category="all">${window.siyuan.languages.coverAll}</span>`;
+                            for (const cat of categories) {
+                                tabs += `<span class="b3-chip b3-chip--hover${activeCategory === cat ? " b3-chip--current" : ""}" data-category="${cat}">${getCategoryLabel(cat)}</span>`;
+                            }
+                            return `<div class="b3-cover__tabs">${tabs}</div>`;
+                        };
+
+                        let activeCategory = "all";
+
+                        const renderContent = (): void => {
+                            const bodyEl = dialog.element.querySelector(".b3-dialog__body");
+                            if (bodyEl) {
+                                bodyEl.innerHTML = `${buildTabs(activeCategory)}
+        <div class="b3-cards b3-cover__cards" style="padding:16px">${buildCards(activeCategory)}</div>`;
+                            }
+                        };
+
+                        renderContent();
+
+                        // 点击事件委托
+                        dialog.element.querySelector(".b3-dialog__body")!.addEventListener("click", (event) => {
+                            const target = event.target as HTMLElement;
+                            const chip = target.closest(".b3-chip") as HTMLElement;
+                            if (chip && chip.hasAttribute("data-category")) {
+                                activeCategory = chip.getAttribute("data-category") || "all";
+                                renderContent();
+                                dialog.element.querySelector(".b3-dialog__body")!.scrollTop = 0;
+                            } else if (target.closest(".b3-cover__card")) {
+                                const card = target.closest(".b3-cover__card") as HTMLElement;
+                                const name = card.getAttribute("data-name");
+                                fetchPost("/api/asset/insertCover", {
+                                    id: protyle.block.rootID,
+                                    name
+                                }, (response) => {
+                                    const succMap = response.data.succMap;
+                                    const url = succMap[Object.keys(succMap)[0]];
+                                    this.ial["title-img"] = `background-image:url("${url}")`;
+                                    this.render(this.ial, protyle.block.rootID);
+                                    fetchPost("/api/attr/setBlockAttrs", {
+                                        id: protyle.block.rootID,
+                                        attrs: {"title-img": this.ial["title-img"]}
+                                    });
+                                });
+                                dialog.destroy();
+                            }
+                        });
+                    }).catch(() => {
+                        renderCSSPatterns(dialog);
+                    });
+
+                    event.preventDefault();
+                    event.stopPropagation();
+                    break;
+                } else if (type === "random" && !protyle.disabled) {
+                    // 随机题头图：优先使用图片封面，加载失败时回退到 CSS 图案
+                    fetchCoverData().then((coverData) => {
+                        if (coverData && coverData.allCovers.length > 0) {
+                            const randomCover = coverData.allCovers[getRandom(0, coverData.allCovers.length - 1)];
+                            fetchPost("/api/asset/insertCover", {
+                                id: protyle.block.rootID,
+                                name: randomCover.file
+                            }, (response) => {
+                                const succMap = response.data.succMap;
+                                const url = succMap[Object.keys(succMap)[0]];
+                                this.ial["title-img"] = `background-image:url("${url}")`;
+                                this.render(this.ial, protyle.block.rootID);
+                                fetchPost("/api/attr/setBlockAttrs", {
+                                    id: protyle.block.rootID,
+                                    attrs: {"title-img": this.ial["title-img"]}
+                                });
+                            });
+                        } else {
+                            this.ial["title-img"] = bgs[getRandom(0, bgs.length - 1)];
                             this.render(this.ial, protyle.block.rootID);
                             fetchPost("/api/attr/setBlockAttrs", {
                                 id: protyle.block.rootID,
                                 attrs: {"title-img": this.ial["title-img"]}
                             });
-                            dialog.destroy();
                         }
-                    });
-                    event.preventDefault();
-                    event.stopPropagation();
-                    break;
-                } else if (type === "random" && !protyle.disabled) {
-                    this.ial["title-img"] = bgs[getRandom(0, bgs.length - 1)];
-                    this.render(this.ial, protyle.block.rootID);
-                    fetchPost("/api/attr/setBlockAttrs", {
-                        id: protyle.block.rootID,
-                        attrs: {"title-img": this.ial["title-img"]}
                     });
                     event.preventDefault();
                     event.stopPropagation();
@@ -413,6 +516,136 @@ export class Background {
                 target = target.parentElement;
             }
         });
+
+        this.element.addEventListener("mousedown", (event: MouseEvent) => {
+            this.dragOccurred = false;
+            if (protyle.disabled) return;
+
+            const target = event.target as HTMLElement;
+            const isCloseBtn = !!target.closest(".b3-chip__close");
+            let chipElement = target.closest(".b3-chip") as HTMLElement;
+
+            // 自动定位最近的标签逻辑
+            if (!chipElement && target.closest(".b3-chips__doctag")) {
+                const rects = Array.from(this.element.querySelectorAll(".b3-chip")).map(el => ({
+                    el: el as HTMLElement,
+                    rect: el.getBoundingClientRect()
+                }));
+                if (rects.length > 0) {
+                    chipElement = rects.reduce((prev, curr) => {
+                        return Math.abs(curr.rect.left + curr.rect.width / 2 - event.clientX) <
+                        Math.abs(prev.rect.left + prev.rect.width / 2 - event.clientX) ? curr : prev;
+                    }).el;
+                }
+            }
+
+            if (!chipElement) return;
+
+            event.preventDefault();
+
+            // --- 核心变量初始化 ---
+            const startX = event.clientX;
+            const startY = event.clientY;
+            const initialRect = chipElement.getBoundingClientRect();
+
+            // 计算鼠标点击位置相对于元素左上角的偏移，这是“跟手”的关键
+            const offsetX = startX - initialRect.left;
+            const offsetY = startY - initialRect.top;
+
+            let isDragging = false;
+            let dragClone: HTMLElement | null = null;
+
+            const onMouseMove = (moveEvent: MouseEvent) => {
+                const deltaX = moveEvent.clientX - startX;
+                const deltaY = moveEvent.clientY - startY;
+
+                // 阈值判断：移动超过 5 像素才视为拖拽，防止手抖误操作
+                if (!isDragging) {
+                    if (Math.abs(deltaX) < Constants.SIZE_DRAG_THRESHOLD &&
+                        Math.abs(deltaY) < Constants.SIZE_DRAG_THRESHOLD) return;
+                    isDragging = true;
+
+                    // 创建克隆体
+                    dragClone = chipElement.cloneNode(true) as HTMLElement;
+                    dragClone.classList.add("b3-chip--dragclone");
+
+                    // 初始样式设置
+                    Object.assign(dragClone.style, {
+                        position: "fixed",
+                        left: `${moveEvent.clientX - offsetX}px`,
+                        top: `${moveEvent.clientY - offsetY}px`,
+                        width: `${initialRect.width}px`,
+                        height: `${initialRect.height}px`,
+                        margin: "0",
+                        zIndex: "9999",
+                        pointerEvents: "none",
+                        transition: "none",
+                        opacity: "0.8",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
+                    });
+
+                    document.body.appendChild(dragClone);
+                    chipElement.classList.add("b3-chip--dragging"); // 占位符设为透明/灰色
+                    document.body.style.cursor = "grabbing";
+                    event.preventDefault();
+                }
+
+                if (isDragging && dragClone) {
+                    dragClone.style.left = `${moveEvent.clientX - offsetX}px`;
+                    dragClone.style.top = `${moveEvent.clientY - offsetY}px`;
+
+                    // 排序碰撞检测
+                    const pointTarget = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+                    const targetChip = pointTarget?.closest(".b3-chip") as HTMLElement;
+
+                    if (targetChip && targetChip !== chipElement && this.tagsElement.contains(targetChip)) {
+                        const rect = targetChip.getBoundingClientRect();
+                        // 根据鼠标位置决定插入在目标的前面还是后面
+                        if (moveEvent.clientX > rect.left + rect.width / 2) {
+                            targetChip.after(chipElement);
+                        } else {
+                            targetChip.before(chipElement);
+                        }
+                    }
+                }
+            };
+
+            const onMouseUp = (upEvent: MouseEvent) => {
+                document.onmousemove = null;
+                document.onmouseup = null;
+                document.body.style.cursor = "";
+
+                if (isDragging) {
+                    this.dragOccurred = true;
+                    // 阻止拖拽结束后可能触发的点击事件（搜索或打开链接）
+                    upEvent.preventDefault();
+                    upEvent.stopPropagation();
+
+                    if (dragClone) {
+                        dragClone.remove();
+                        dragClone = null;
+                    }
+                    chipElement.classList.remove("b3-chip--dragging");
+
+                    // 持久化排序结果
+                    const tags = this.getTags();
+                    const tagsString = tags.toString();
+                    if (tagsString !== this.ial.tags) {
+                        this.ial.tags = tagsString;
+                        fetchPost("/api/attr/setBlockAttrs", {
+                            id: protyle.block.rootID,
+                            attrs: {"tags": tagsString}
+                        });
+                    }
+                } else if (isCloseBtn) {
+                    // 如果没拖拽且点在关闭按钮上
+                    target.closest(".b3-chip__close").dispatchEvent(new MouseEvent("click", {bubbles: true}));
+                }
+            };
+
+            document.onmousemove = (e) => onMouseMove(e as MouseEvent);
+            document.onmouseup = (e) => onMouseUp(e as MouseEvent);
+        });
     }
 
     private removeTag(protyle: IProtyle, cb?: () => void) {
@@ -433,7 +666,7 @@ export class Background {
         this.render(this.ial, protyle.block.rootID);
     }
 
-    public render(ial: IObject, rootId: string) {
+    public render(ial: Record<string, string>, rootId: string) {
         const img = ial["title-img"];
         const icon = ial.icon;
         const tags = ial.tags;
@@ -442,12 +675,11 @@ export class Background {
         this.element.setAttribute("data-node-id", rootId);
         if (tags) {
             let html = "";
-            const colors = ["secondary", "primary", "info", "success", "warning", "error", "pink"];
-            Array.from(new Set(tags.split(",").map(item => item.trim()))).forEach((item, index) => {
+            Array.from(new Set(tags.split(",").map(item => item.trim()))).forEach((item) => {
                 if (!item.replace(/ /g, "")) {
                     return;
                 }
-                html += `<div class="b3-chip b3-chip--middle b3-chip--pointer b3-chip--${colors[index % 7]}" data-type="open-search">${escapeHtml(item)}<svg class="b3-chip__close" data-type="remove-tag"><use xlink:href="#iconCloseRound"></use></svg></div>`;
+                html += `<div class="b3-chip b3-chip--middle b3-chip--pointer" data-type="open-search">${escapeHtml(item)}<svg class="b3-chip__close" data-type="remove-tag"><use xlink:href="#iconClose"></use></svg></div>`;
             });
             this.tagsElement.innerHTML = `${html}
 <div class="protyle-background__action fn__flex-center">
@@ -456,6 +688,7 @@ export class Background {
             this.tagsElement.classList.remove("fn__none");
             this.actionElements[0].classList.add("fn__none");
         } else {
+            this.tagsElement.innerHTML = "";
             this.tagsElement.classList.add("fn__none");
             this.actionElements[0].classList.remove("fn__none");
         }

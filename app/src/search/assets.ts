@@ -20,7 +20,9 @@ export const openSearchAsset = (element: HTMLElement, isStick: boolean) => {
         return;
     }
     const localSearch = window.siyuan.storage[Constants.LOCAL_SEARCHASSET] as ISearchAssetOption;
-    element.parentElement.querySelector(".fn__loading--top").classList.remove("fn__none");
+    const loadingElement = element.parentElement.querySelector(".fn__loading") as HTMLElement;
+    loadingElement.classList.remove("fn__none");
+    loadingElement.style.top = "84px";
     let enterTip = "";
     /// #if !BROWSER
     enterTip = `<kbd>${window.siyuan.languages.enterKey}/${window.siyuan.languages.doubleClick}</kbd> ${window.siyuan.languages.showInFolder}`;
@@ -161,8 +163,9 @@ export const openSearchAsset = (element: HTMLElement, isStick: boolean) => {
 
 let inputTimeout: number;
 export const assetInputEvent = (element: Element, localSearch?: ISearchAssetOption, page = 1) => {
-    const loadingElement = element.parentElement.querySelector(".fn__loading--top");
+    const loadingElement = element.parentElement.querySelector(".fn__loading") as HTMLElement;
     loadingElement.classList.remove("fn__none");
+    loadingElement.style.top = "84px";
     clearTimeout(inputTimeout);
     inputTimeout = window.setTimeout(() => {
         if (!localSearch) {
@@ -435,9 +438,11 @@ export const assetMoreMenu = (target: Element, element: Element, cb: () => void)
     /// #endif
     window.siyuan.menus.menu.append(new MenuItem({
         iconHTML: "",
-        label: window.siyuan.languages.rebuildIndex,
+        label: window.siyuan.languages.rebuildAssetContentIndex,
         click() {
-            element.parentElement.querySelector(".fn__loading--top").classList.remove("fn__none");
+            const loadingElement = element.parentElement.querySelector(".fn__loading") as HTMLElement;
+            loadingElement.classList.remove("fn__none");
+            loadingElement.style.top = "84px";
             fetchPost("/api/asset/fullReindexAssetContent", {}, () => {
                 assetInputEvent(element, localData);
             });

@@ -1,17 +1,14 @@
 name: Release Docker Image
 
 on:
-  workflow_dispatch:
-    inputs:
-      image_tag:
-        description: '镜像标签，留空则使用 package.json 中的版本号。务必注意：请确认选择了正确的分支。完整输入示例：3.0.11-rc0 '
-        required: true
-        default: ''
   push:
-    branches:
-      - master
+    tags:
+      - 'v*'
+      - '!*alpha*'
+      - '!*beta*'
+      - '!*rc*'
+  workflow_dispatch:
 
-# ref https://docs.github.com/zh/actions/learn-github-actions/variables
 env:
   package_json: "app/package.json"
   docker_hub_owner: "b3log"
@@ -34,10 +31,21 @@ jobs:
           submodules: recursive
 
       - name: Extract version from package.json
-        uses: sergeysova/jq-action@v2
         id: version
-        with:
-          cmd: "jq .version ${{ env.package_json }} -r"
+        run: |
+          echo "value=$(jq .version ${{ env.package_json }} -r)" >> $GITHUB_OUTPUT
+
+      - name: Verify tag matches package.json version
+        # 去掉 tag 前导 v 后与 package.json 中的版本号比对，
+        # 不一致说明开发者推 tag 前忘记同步版本号，直接终止整个流程。
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="${{ steps.version.outputs.value }}"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Tag (v$TAG) does not match version in package.json ($VERSION), stopping"
+            exit 1
+          fi
+          echo "Tag matches version: $TAG"
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
@@ -67,11 +75,7 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_PWD }}
 
-      - name: Build the Docker image use Workflow Dispatch inputs' version
-        if: ${{ github.event_name == 'workflow_dispatch' && !github.event.inputs.image_tag == '' }}
-        run: |
-          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:latest -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:v${{ github.event.inputs.image_tag }} .
-      - name: Build the Docker image use package_json version
-        if: ${{ github.event_name == 'push' || github.event.inputs.image_tag == '' }}
+      - name: Build and push Docker image
+        # 走到这里的一定是 stable 版本，直接同时打 :latest 和具体版本号标签
         run: |
           docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:latest -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:v${{ steps.version.outputs.value }} .

@@ -20,16 +20,19 @@ import "github.com/siyuan-note/siyuan/kernel/util"
 
 type Editor struct {
 	AllowSVGScript                  bool           `json:"allowSVGScript"`                  // 允许执行 SVG 内脚本
-	AllowHTMLBLockScript            bool           `json:"allowHTMLBLockScript"`            // 允许执行 HTML 块内脚本
+	AllowHTMLBLockScript            bool           `json:"allowHTMLBLockScript"`            // 允许执行 HTML 内容中的脚本
 	FontSize                        int            `json:"fontSize"`                        // 字体大小
 	FontSizeScrollZoom              bool           `json:"fontSizeScrollZoom"`              // 字体大小是否支持滚轮缩放
 	FontFamily                      string         `json:"fontFamily"`                      // 字体
+	FontWeight                      int            `json:"fontWeight"`                      // 字重
+	FontFamilyDisplay               string         `json:"fontFamilyDisplay"`               // 设置面板中展示的字体名称（与 FontFamily/FontWeight 对应，可选）
 	CodeSyntaxHighlightLineNum      bool           `json:"codeSyntaxHighlightLineNum"`      // 代码块是否显示行号
 	CodeTabSpaces                   int            `json:"codeTabSpaces"`                   // 代码块中 Tab 转换空格数，配置为 0 则表示不转换
 	CodeLineWrap                    bool           `json:"codeLineWrap"`                    // 代码块是否自动折行
 	CodeLigatures                   bool           `json:"codeLigatures"`                   // 代码块是否连字
 	DisplayBookmarkIcon             bool           `json:"displayBookmarkIcon"`             // 是否显示内容块角标
 	DisplayNetImgMark               bool           `json:"displayNetImgMark"`               // 是否显示网络图片角标
+	DatabaseAttrViewMode            int            `json:"databaseAttrViewMode"`            // 数据库属性默认展开状态，0：展开，1：折叠
 	GenerateHistoryInterval         int            `json:"generateHistoryInterval"`         // 生成历史时间间隔，单位：分钟
 	HistoryRetentionDays            int            `json:"historyRetentionDays"`            // 历史保留天数
 	Emoji                           []string       `json:"emoji"`                           // 常用表情
@@ -46,7 +49,7 @@ type Editor struct {
 	ListItemDotNumberClickFocus     bool           `json:"listItemDotNumberClickFocus"`     // 单击列表项标记聚焦
 	FloatWindowMode                 int            `json:"floatWindowMode"`                 // 浮窗触发模式，0：光标悬停，1：按住 Ctrl 悬停，2：不触发浮窗
 	FloatWindowDelay                *int           `json:"floatWindowDelay"`                // 浮窗悬停触发延迟，单位：毫秒，默认 620，nil 表示未设置
-	DynamicLoadBlocks               int            `json:"dynamicLoadBlocks"`               // 块动态数，可配置区间 [48, 1024]
+	DynamicLoadBlocks               int            `json:"dynamicLoadBlocks"`               // 块动态数，下限 48
 	Justify                         bool           `json:"justify"`                         // 是否两端对齐
 	RTL                             bool           `json:"rtl"`                             // 是否从右到左显示
 	Spellcheck                      bool           `json:"spellcheck"`                      // 是否启用拼写检查
@@ -76,6 +79,7 @@ func NewEditor() *Editor {
 		CodeLigatures:                   false,
 		DisplayBookmarkIcon:             true,
 		DisplayNetImgMark:               true,
+		DatabaseAttrViewMode:            0,
 		GenerateHistoryInterval:         10,
 		HistoryRetentionDays:            30,
 		Emoji:                           []string{},

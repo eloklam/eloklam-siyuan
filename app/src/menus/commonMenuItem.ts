@@ -3,10 +3,20 @@ import {shell} from "electron";
 /// #endif
 import {confirmDialog} from "../dialog/confirmDialog";
 import {getSearch, isMobile, isValidCustomAttrName} from "../util/functions";
-import {isLocalPath, movePathTo, moveToPath, pathPosix} from "../util/pathName";
+import {isEncryptedBox, isLocalPath, movePathTo, moveToPath, pathPosix} from "../util/pathName";
 import {MenuItem} from "./Menu";
 import {onExport, saveExport} from "../protyle/export";
-import {isInAndroid, isInHarmony, isInIOS, isInMobileApp, openByMobile, writeText} from "../protyle/util/compatibility";
+import {exportMarkdownZip} from "../protyle/export/exportMd";
+import {
+    isInAndroid,
+    isInHarmony,
+    isInIOS,
+    isInMobileApp,
+    saveExportFile,
+    writeText
+} from "../protyle/util/compatibility";
+import {openByMobile} from "../editor/openLink";
+import {processSiYuanUri} from "../util/uri";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {hideMessage, showMessage} from "../dialog/message";
 import {Dialog} from "../dialog";
@@ -102,9 +112,13 @@ export const openWechatNotify = (nodeElement: Element) => {
 };
 
 export const openFileWechatNotify = (protyle: IProtyle) => {
-    fetchPost("/api/block/getDocInfo", {
+    const docInfoParam: IObject = {
         id: protyle.block.rootID
-    }, (response) => {
+    };
+    if (isEncryptedBox(protyle.notebookId)) {
+        docInfoParam.notebook = protyle.notebookId;
+    }
+    fetchPost("/api/block/getDocInfo", docInfoParam, (response) => {
         const reminder = response.data.ial[Constants.CUSTOM_REMINDER_WECHAT];
         let reminderFormat = "";
         if (reminder) {
@@ -157,7 +171,7 @@ export const openFileWechatNotify = (protyle: IProtyle) => {
     });
 };
 
-export const openFileAttr = (attrs: IObject, focusName = "bookmark", protyle?: IProtyle) => {
+export const openFileAttr = (attrs: Record<string, string>, focusName = "bookmark", protyle?: IProtyle) => {
     let customHTML = "";
     let notifyHTML = "";
     let hasAV = false;
@@ -200,11 +214,11 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark", protyle?: I
         }
     });
     const dialog = new Dialog({
-        width: isMobile() ? "92vw" : "50vw",
+        width: isMobile() ? "100vw" : "50vw",
         containerClassName: "b3-dialog__container--theme",
-        height: "80vh",
+        height: isMobile() ? "100vh" : "80vh",
         content: `<div class="fn__flex-column">
-    <div class="layout-tab-bar fn__flex" style="flex-shrink:0;border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
+    <div class="layout-tab-bar fn__flex" style="${isMobile() ? "padding-right: 38px;" : ""}flex-shrink:0;border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
         <div class="item item--full item--focus" data-type="attr">
             <span class="fn__flex-1"></span>
             <span class="item__text">${window.siyuan.languages.builtIn}</span>
@@ -613,8 +627,7 @@ export const exportMd = (id: string) => {
                 fetchPost("/api/export/exportSY", {
                     id,
                 }, response => {
-                    hideMessage(msgId);
-                    openByMobile(response.data.zip);
+                    saveExportFile(response.data.zip, msgId);
                 });
             }
         }, {
@@ -622,13 +635,7 @@ export const exportMd = (id: string) => {
             label: "Markdown .zip",
             icon: "iconMarkdown",
             click: () => {
-                const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost("/api/export/exportMd", {
-                    id,
-                }, response => {
-                    hideMessage(msgId);
-                    openByMobile(response.data.zip);
-                });
+                exportMarkdownZip({id});
             }
         }, {
             id: "exportImage",
@@ -664,7 +671,7 @@ export const exportMd = (id: string) => {
             }, {
                 id: "exportWord",
                 label: "Word .docx",
-                icon: "iconExact",
+                icon: "iconDocx",
                 click: () => {
                     saveExport({type: "word", id});
                 }
@@ -676,113 +683,112 @@ export const exportMd = (id: string) => {
                 submenu: [{
                     id: "exportReStructuredText",
                     label: "reStructuredText",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportReStructuredText", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportAsciiDoc",
                     label: "AsciiDoc",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportAsciiDoc", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportTextile",
                     label: "Textile",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportTextile", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportOPML",
                     label: "OPML",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportOPML", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportOrgMode",
                     label: "Org-Mode",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportOrgMode", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportMediaWiki",
                     label: "MediaWiki",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportMediaWiki", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportODT",
                     label: "ODT",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportODT", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportRTF",
                     label: "RTF",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportRTF", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
                 }, {
                     id: "exportEPUB",
                     label: "EPUB",
+                    iconHTML: "",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportEPUB", {
                             id,
                         }, response => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.zip);
+                            saveExportFile(response.data.zip, msgId);
                         });
                     }
-                },
-                ]
+                }]
             },
             /// #else
             {
@@ -938,6 +944,9 @@ export const openMenu = (app: App, src: string, onlyMenu: boolean, showAccelerat
             label: window.siyuan.languages.useDefault,
             accelerator: showAccelerator ? window.siyuan.languages.click : "",
             click: () => {
+                if (processSiYuanUri(app, src)) {
+                    return;
+                }
                 shell.openExternal(src).catch((e) => {
                     showMessage(e);
                 });
@@ -980,9 +989,13 @@ export const renameMenu = (options: {
         label: window.siyuan.languages.rename,
         click: () => {
             if (options.type === "file" && options.docId) {
-                fetchPost("/api/block/getDocInfo", {
+                const docInfoParam: IObject = {
                     id: options.docId
-                }, (response) => {
+                };
+                if (isEncryptedBox(options.notebookId)) {
+                    docInfoParam.notebook = options.notebookId;
+                }
+                fetchPost("/api/block/getDocInfo", docInfoParam, (response) => {
                     rename({
                         ...options,
                         name: response.data.ial.title,

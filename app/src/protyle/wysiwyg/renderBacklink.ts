@@ -8,6 +8,7 @@ import {blockRender} from "../render/blockRender";
 import {disabledForeverProtyle, disabledProtyle} from "../util/onGet";
 import {avRender} from "../render/av/render";
 import {hasClosestByAttribute} from "../util/hasClosest";
+import {isEncryptedBox} from "../../util/pathName";
 
 export const renderBacklink = (protyle: IProtyle, backlinkData: {
     blockPaths: IBreadcrumb[],
@@ -63,10 +64,14 @@ const setBacklinkFold = (html: string, expand: boolean) => {
 };
 
 export const loadBreadcrumb = (protyle: IProtyle, element: HTMLElement) => {
-    fetchPost("/api/filetree/getDoc", {
+    const getDocParam: IObject = {
         id: element.getAttribute("data-id"),
         size: Constants.SIZE_GET_MAX,
-    }, getResponse => {
+    };
+    if (isEncryptedBox(protyle.notebookId)) {
+        getDocParam.notebook = protyle.notebookId;
+    }
+    fetchPost("/api/filetree/getDoc", getDocParam, getResponse => {
         element.parentElement.querySelector(".protyle-breadcrumb__item--active").classList.remove("protyle-breadcrumb__item--active");
         element.classList.add("protyle-breadcrumb__item--active");
         let nextElement = element.parentElement.nextElementSibling;
@@ -83,11 +88,6 @@ export const loadBreadcrumb = (protyle: IProtyle, element: HTMLElement) => {
             disabledForeverProtyle(protyle);
         } else if (window.siyuan.config.readonly || window.siyuan.config.editor.readOnly) {
             disabledProtyle(protyle);
-        } else if (element.parentElement.parentElement.classList.contains("protyle-wysiwyg__embed")) {
-            // 嵌入块
-            element.parentElement.parentElement.querySelectorAll('[contenteditable="true"][spellcheck]').forEach(item => {
-                item.setAttribute("contenteditable", "false");
-            });
         }
     });
 };

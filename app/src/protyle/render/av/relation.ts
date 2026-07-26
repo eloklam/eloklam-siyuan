@@ -2,7 +2,7 @@ import {Menu} from "../../../plugin/Menu";
 import {hasClosestByClassName, hasTopClosestByClassName} from "../../util/hasClosest";
 import {UDLRHint, upDownHint} from "../../../util/upDownHint";
 import {fetchPost} from "../../../util/fetch";
-import {escapeGreat, escapeHtml} from "../../../util/escape";
+import {escapeHtml, escapeLessThans} from "../../../util/escape";
 import {transaction} from "../../wysiwyg/transaction";
 import {updateCellsValue} from "./cell";
 import {updateAttrViewCellAnimation} from "./action";
@@ -26,9 +26,11 @@ interface IAVItem {
     viewLayout: string;
 }
 
-const genSearchList = (element: Element, keyword: string, avId?: string, excludes = true, cb?: () => void) => {
+const genSearchList = (element: Element, keyword: string, avId?: string, excludes = true, blockID?: string, cb?: () => void) => {
     fetchPost("/api/av/searchAttributeView", {
         keyword,
+        avID: avId,
+        blockID,
         excludes: (excludes && avId) ? [avId] : undefined
     }, (response) => {
         let html = "";
@@ -43,7 +45,7 @@ const genSearchList = (element: Element, keyword: string, avId?: string, exclude
         <div class="b3-list-item__first">
             <span class="b3-list-item__text">${escapeHtml(item.avName || window.siyuan.languages._kernel[267])}</span>
         </div>
-        <div class="b3-list-item__meta b3-list-item__showall">${escapeGreat(item.hPath)}</div>
+        <div class="b3-list-item__meta b3-list-item__showall">${escapeLessThans(item.hPath)}</div>
     </div>
     <svg aria-label="${window.siyuan.languages.thisDatabase}" style="margin: 0 0 0 4px" class="b3-list-item__hinticon ariaLabel${item.avID === avId ? "" : " fn__none"}"><use xlink:href="#iconInfo"></use></svg>
 </div>`;
@@ -76,7 +78,7 @@ const setDatabase = (avId: string, element: HTMLElement, item: HTMLElement) => {
     }
 };
 
-export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: HTMLElement) => void, excludes = true) => {
+export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: HTMLElement) => void, excludes = true, blockID?: string) => {
     window.siyuan.menus.menu.remove();
     const menu = new Menu();
     menu.addItem({
@@ -114,10 +116,10 @@ export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: H
                 if (event.isComposing) {
                     return;
                 }
-                genSearchList(listElement, inputElement.value, avId, excludes);
+                genSearchList(listElement, inputElement.value, avId, excludes, blockID);
             });
             inputElement.addEventListener("compositionend", () => {
-                genSearchList(listElement, inputElement.value, avId, excludes);
+                genSearchList(listElement, inputElement.value, avId, excludes, blockID);
             });
             element.lastElementChild.addEventListener("click", (event) => {
                 let clickTarget = event.target as HTMLElement;
@@ -147,7 +149,7 @@ export const openSearchAV = (avId: string, target: HTMLElement, cb?: (element: H
                     clickTarget = clickTarget.parentElement;
                 }
             });
-            genSearchList(listElement, "", avId, excludes, () => {
+            genSearchList(listElement, "", avId, excludes, blockID, () => {
                 const rect = target.getBoundingClientRect();
                 menu.open({
                     x: rect.left,
@@ -380,7 +382,7 @@ draggable="true">${genSelectItemHTML({
 <button class="b3-menu__separator"></button>
 ${html || genSelectItemHTML({type: "empty"})}`;
         const cellRect = options.cellElements[options.cellElements.length - 1].getBoundingClientRect();
-        setPosition(options.menuElement, cellRect.left, cellRect.bottom, cellRect.height);
+        setPosition(options.menuElement, cellRect.left, cellRect.bottom, cellRect.height, 0, true);
         options.menuElement.querySelector(".b3-menu__items .b3-menu__item:not(.fn__none)").classList.add("b3-menu__item--current");
         const inputElement = options.menuElement.querySelector("input");
         inputElement.focus();

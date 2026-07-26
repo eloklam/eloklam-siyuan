@@ -12,7 +12,7 @@ import {openMobileFileById} from "../../mobile/editor";
 import {Constants} from "../../constants";
 import {openCardByData} from "../../card/openCard";
 import {viewCards} from "../../card/viewCards";
-import {getDisplayName, getNotebookName, pathPosix, useShell} from "../../util/pathName";
+import {getDisplayName, getNotebookName, isEncryptedBox, pathPosix, useShell} from "../../util/pathName";
 import {makeCard, quickMakeCard} from "../../card/makeCard";
 import {emitOpenMenu} from "../../plugin/EventBus";
 import * as dayjs from "dayjs";
@@ -35,11 +35,16 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
         window.siyuan.menus.menu.remove();
         return;
     }
-    fetchPost("/api/block/getDocInfo", {
+    const docInfoParam: IObject = {
         id: protyle.block.rootID
-    }, (response) => {
+    };
+    if (isEncryptedBox(protyle.notebookId)) {
+        docInfoParam.notebook = protyle.notebookId;
+    }
+    fetchPost("/api/block/getDocInfo", docInfoParam, (response) => {
         window.siyuan.menus.menu.remove();
         window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_TITLE);
+        const isBoxDoc = protyle.notebookId === protyle.block.rootID;
         const popoverElement = hasTopClosestByClassName(protyle.element, "block__popover", true);
         window.siyuan.menus.menu.element.setAttribute("data-from", popoverElement ? popoverElement.dataset.level + "popover-" + from : "app-" + from);
         const submenu = copySubMenu([protyle.block.rootID], true, undefined, protyle.block.showAll ? protyle.block.id : protyle.block.rootID);
@@ -49,7 +54,10 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
             accelerator: undefined,
             click: async () => {
                 const [responseHTML, responseText] = await Promise.all([
-                    fetchSyncPost("/api/block/getBlockDOM", {id: protyle.block.rootID}),
+                    fetchSyncPost("/api/block/getBlockDOM", {
+                        id: protyle.block.rootID,
+                        notebook: protyle.notebookId,
+                    }),
                     fetchSyncPost("/api/export/exportMdContent", {
                         id: protyle.block.rootID,
                         refMode: 3,
@@ -79,7 +87,9 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
             submenu,
         }).element);
         if (!protyle.disabled) {
-            window.siyuan.menus.menu.append(movePathToMenu([protyle.path]));
+            if (!isBoxDoc) {
+                window.siyuan.menus.menu.append(movePathToMenu([protyle.path]));
+            }
             const range = getSelection().rangeCount > 0 ? getSelection().getRangeAt(0) : undefined;
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "addToDatabase",
@@ -90,20 +100,22 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
                     addEditorToDatabase(protyle, range, "title");
                 }
             }).element);
-            window.siyuan.menus.menu.append(new MenuItem({
-                id: "delete",
-                icon: "iconTrashcan",
-                label: window.siyuan.languages.delete,
-                click: () => {
-                    deleteFile(protyle.notebookId, protyle.path);
-                }
-            }).element);
+            if (!isBoxDoc) {
+                window.siyuan.menus.menu.append(new MenuItem({
+                    id: "delete",
+                    icon: "iconTrashcan",
+                    label: window.siyuan.languages.delete,
+                    click: () => {
+                        deleteFile(protyle.notebookId, protyle.path);
+                    }
+                }).element);
+            }
         }
         /// #if !MOBILE
         window.siyuan.menus.menu.append(new MenuItem({id: "separator_1", type: "separator"}).element);
         window.siyuan.menus.menu.append(new MenuItem({
             id: "outline",
-            icon: "iconAlignCenter",
+            icon: "iconOutline",
             label: window.siyuan.languages.outline,
             accelerator: window.siyuan.config.keymap.editor.general.outline.custom,
             click: () => {
@@ -168,6 +180,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
                 }).element);
             }
             const isCardMade = !!response.data.ial[Constants.CUSTOM_RIFF_DECKS];
+            if (!isEncryptedBox(protyle.notebookId)) {
             const riffCardMenu: IMenu[] = [{
                 id: "spaceRepetition",
                 iconHTML: "",
@@ -221,6 +234,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
                 icon: "iconRiffCard",
                 submenu: riffCardMenu,
             }).element);
+            }
         }
         window.siyuan.menus.menu.append(new MenuItem({
             id: "search",
@@ -228,16 +242,16 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
             icon: "iconSearch",
             accelerator: window.siyuan.config.keymap.general.search.custom,
             async click() {
-                const searchPath = getDisplayName(protyle.path, false, true);
+                const searchPath = isBoxDoc ? "" : getDisplayName(protyle.path, false, true);
                 /// #if MOBILE
-                const pathResponse = await fetchSyncPost("/api/filetree/getHPathByPath", {
-                    notebook: protyle.notebookId,
-                    path: searchPath + ".sy"
-                });
+                const pathResponse = isBoxDoc ? undefined : await fetchSyncPost("/api/filetree/getHPathByPath", {
+                        notebook: protyle.notebookId,
+                        path: searchPath + ".sy"
+                    });
                 popSearch(protyle.app, {
                     hasReplace: false,
-                    hPath: pathPosix().join(getNotebookName(protyle.notebookId), pathResponse.data),
-                    idPath: [pathPosix().join(protyle.notebookId, searchPath)],
+                    hPath: isBoxDoc ? getNotebookName(protyle.notebookId) : pathPosix().join(getNotebookName(protyle.notebookId), pathResponse.data),
+                    idPath: [isBoxDoc ? protyle.notebookId : pathPosix().join(protyle.notebookId, searchPath)],
                     page: 1,
                 });
                 /// #else

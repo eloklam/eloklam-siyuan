@@ -1,8 +1,45 @@
-import {hasClosestBlock, isInEmbedBlock} from "../util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName, isInEmbedBlock} from "../util/hasClosest";
 import {Constants} from "../../constants";
 
+export interface IEmbedChildOperationContext {
+    resultElement: HTMLElement;
+    targetID: string;
+    targetElement?: Element;
+    boundaryElement: Element;
+}
+
+export const getEmbedChildOperationContext = (element: Node): IEmbedChildOperationContext | undefined => {
+    const resultElement = hasClosestByClassName(element, "protyle-wysiwyg__embed");
+    if (!resultElement || resultElement.getAttribute("data-allow-child-operation") !== "true") {
+        return;
+    }
+
+    const targetID = resultElement.getAttribute("data-id");
+    if (!targetID) {
+        return;
+    }
+    // 单独查询列表项时，渲染器会在目标外补充一个无 ID 的列表节点。
+    const targetElement = Array.from(resultElement.querySelectorAll(`[data-node-id="${targetID}"]`)).find(item =>
+        item.getAttribute("data-type")?.startsWith("Node") &&
+        hasClosestByClassName(item, "protyle-wysiwyg__embed") === resultElement);
+    return {
+        resultElement,
+        targetID,
+        targetElement,
+        // 文档块不会渲染自身节点，查询结果容器就是它的子块边界。
+        boundaryElement: targetElement || resultElement,
+    };
+};
+
+export const getEmbedChildOperationParentID = (element: Element, context = getEmbedChildOperationContext(element)) => {
+    if (context && !context.targetElement && element.parentElement === context.resultElement) {
+        return context.targetID;
+    }
+};
+
 export const getParentBlock = (element: Element) => {
-    if (element.parentElement.classList.contains("callout-content")) {
+    if (element.parentElement.classList.contains("callout-content") ||
+        element.parentElement.classList.contains("protyle-wysiwyg__embed")) {
         return element.parentElement.parentElement;
     }
     return element.parentElement;
@@ -16,8 +53,16 @@ export const getCalloutInfo = (element: Element) => {
 export const getPreviousBlock = (element: Element) => {
     let parentElement = element;
     while (parentElement) {
-        if (parentElement.previousElementSibling && parentElement.previousElementSibling.getAttribute("data-node-id")) {
-            return parentElement.previousElementSibling;
+        let previous = parentElement.previousElementSibling;
+        while (previous && !previous.getAttribute("data-node-id")) {
+            previous = previous.previousElementSibling;
+        }
+        if (previous) {
+            return previous;
+        }
+        if (parentElement.parentElement?.classList.contains("protyle-wysiwyg__embed") &&
+            parentElement.parentElement.getAttribute("data-allow-child-operation") === "true") {
+            return false;
         }
         const pElement = hasClosestBlock(parentElement.parentElement);
         if (pElement) {
@@ -26,6 +71,25 @@ export const getPreviousBlock = (element: Element) => {
             return false;
         }
     }
+};
+
+export const getSbChildBlockCount = (sbElement: Element) =>
+    sbElement.querySelectorAll(":scope > [data-node-id]").length;
+
+export const getPreviousBlockSibling = (element: Element): Element => {
+    let previous = element.previousElementSibling;
+    while (previous && !previous.getAttribute("data-node-id")) {
+        previous = previous.previousElementSibling;
+    }
+    return previous;
+};
+
+export const getNextBlockSibling = (element: Element): Element => {
+    let next = element.nextElementSibling;
+    while (next && !next.getAttribute("data-node-id")) {
+        next = next.nextElementSibling;
+    }
+    return next;
 };
 
 export const getLastBlock = (element: Element) => {
@@ -53,8 +117,16 @@ export const getFirstBlock = (element: Element) => {
 export const getNextBlock = (element: Element) => {
     let parentElement = element;
     while (parentElement) {
-        if (parentElement.nextElementSibling && !parentElement.nextElementSibling.classList.contains("protyle-attr")) {
-            return parentElement.nextElementSibling as HTMLElement;
+        let next = parentElement.nextElementSibling;
+        while (next && !next.getAttribute("data-node-id")) {
+            next = next.nextElementSibling;
+        }
+        if (next) {
+            return next as HTMLElement;
+        }
+        if (parentElement.parentElement?.classList.contains("protyle-wysiwyg__embed") &&
+            parentElement.parentElement.getAttribute("data-allow-child-operation") === "true") {
+            return false;
         }
         const pElement = hasClosestBlock(parentElement.parentElement);
         if (pElement) {
@@ -83,7 +155,7 @@ export const getContenteditableElement = (element: Element): Element => {
         return element;
     }
     if (element.classList.contains("protyle-title__input")) {
-        return  element;
+        return element;
     }
     let blockElement = element;
     if (!blockElement.getAttribute("data-node-id")) {
@@ -132,9 +204,10 @@ export const isNotEditBlock = (element: Element) => {
         (element.getAttribute("data-type") === "NodeCodeBlock" && element.classList.contains("render-node"));
 };
 
-export const getTopEmptyElement = (element: Element) => {
+export const getTopEmptyElement = (element: Element, boundaryElement?: Element) => {
     let topElement = element;
-    while (topElement.parentElement && !topElement.parentElement.classList.contains("protyle-wysiwyg")) {
+    while (topElement.parentElement && topElement.parentElement !== boundaryElement &&
+        !topElement.parentElement.classList.contains("protyle-wysiwyg")) {
         if (!topElement.parentElement.getAttribute("data-node-id") && !topElement.parentElement.classList.contains("callout-content")) {
             topElement = topElement.parentElement;
         } else {
@@ -145,8 +218,7 @@ export const getTopEmptyElement = (element: Element) => {
                     return true;
                 }
             });
-            if (hasText || topElement.previousElementSibling?.getAttribute("data-node-id") ||
-                topElement.nextElementSibling?.getAttribute("data-node-id")) {
+            if (hasText || getPreviousBlockSibling(topElement) || getNextBlockSibling(topElement)) {
                 break;
             } else {
                 topElement = topElement.parentElement;
@@ -179,9 +251,9 @@ export const getTopAloneElement = (topSourceElement: Element) => {
                 break;
             }
         }
-    } else if ("NodeSuperBlock" === topSourceElement.parentElement.getAttribute("data-type") && topSourceElement.parentElement.childElementCount === 2) {
+    } else if ("NodeSuperBlock" === topSourceElement.parentElement.getAttribute("data-type") && getSbChildBlockCount(topSourceElement.parentElement) === 1) {
         while (topSourceElement.parentElement && !topSourceElement.parentElement.classList.contains("protyle-wysiwyg")) {
-            if (topSourceElement.parentElement.getAttribute("data-type") === "NodeSuperBlock" && topSourceElement.parentElement.childElementCount === 2) {
+            if (topSourceElement.parentElement.getAttribute("data-type") === "NodeSuperBlock" && getSbChildBlockCount(topSourceElement.parentElement) === 1) {
                 topSourceElement = topSourceElement.parentElement;
             } else {
                 topSourceElement = getTopAloneElement(topSourceElement);
@@ -252,6 +324,9 @@ export const isEndOfBlock = (range: Range) => {
         if (hasNextSibling(nextSibling)) {
             return false;
         } else {
+            if (nextSibling.nodeType === 1 && (nextSibling as Element).classList.contains("emoji")) {
+                return false;
+            }
             if (nextSibling.parentElement.getAttribute("spellcheck")) {
                 return true;
             }
@@ -319,4 +394,32 @@ export const getPreviousFileLi = (current: Element) => {
         }
     }
     return false;
+};
+
+// 相邻标签之间插入空格区隔，避免 SpinBlockDOM 解析时合并为一个标签 https://github.com/siyuan-note/siyuan/issues/18191
+export const fixAdjacentTags = (editableElement: Element) => {
+    if (!editableElement) {
+        return;
+    }
+    let node: Node = editableElement.firstChild;
+    while (node) {
+        const next: Node = node.nextSibling;
+        if (node.nodeType !== 3) {
+            const tagSpan = node as HTMLElement;
+            if (tagSpan.tagName === "SPAN" &&
+                (tagSpan.getAttribute("data-type") || "").split(" ").includes("tag")) {
+                // 向后查找跳过 ZWSP 文本节点和 <wbr> 后的下一个节点
+                let after = next;
+                while (after && ((after.nodeType === 3 && after.textContent === Constants.ZWSP) ||
+                    (after.nodeType === 1 && (after as HTMLElement).tagName === "WBR"))) {
+                    after = after.nextSibling;
+                }
+                if (after && after.nodeType !== 3 && (after as HTMLElement).tagName === "SPAN" &&
+                    ((after as HTMLElement).getAttribute("data-type") || "").split(" ").includes("tag")) {
+                    tagSpan.after(" ");
+                }
+            }
+        }
+        node = next;
+    }
 };

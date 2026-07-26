@@ -65,8 +65,8 @@ export const commandPanel = (app: App) => {
             "goForward", "goToEditTabNext", "goToEditTabPrev", "goToTab1", "goToTab2", "goToTab3", "goToTab4",
             "goToTab5", "goToTab6", "goToTab7", "goToTab8", "goToTab9", "goToTabNext", "goToTabPrev", "lockScreen",
             "mainMenu", "move", "newFile", "recentDocs", "replace", "riffCard", "search", "selectOpen1", "syncNow",
-            "splitLR", "splitMoveB", "splitMoveR", "splitTB", "tabToWindow", "stickSearch", "toggleDock", "unsplitAll",
-            "unsplit", "recentClosed"];
+            "splitLR", "splitMoveB", "splitMoveR", "splitTB", "switchLeftDock", "switchRightDock", "switchBottomDock",
+            "tabToWindow", "stickSearch", "toggleDock", "unsplitAll", "unsplit", "recentClosed"];
         /// #if !BROWSER
         keys.push("toggleWin");
         /// #endif
@@ -107,18 +107,7 @@ export const commandPanel = (app: App) => {
         });
     });
 
-    if (listElement.childElementCount === 0) {
-        const liElement = document.createElement("li");
-        liElement.classList.add("b3-list-item", "b3-list-item--focus");
-        liElement.innerHTML = `<span class="b3-list-item__text" style="-webkit-line-clamp: inherit;">${window.siyuan.languages._kernel[122]}</span>`;
-        liElement.addEventListener("click", () => {
-            dialog.destroy();
-        });
-        listElement.insertAdjacentElement("beforeend", liElement);
-    } else {
-        listElement.firstElementChild.classList.add("b3-list-item--focus");
-    }
-
+    listElement.firstElementChild.classList.add("b3-list-item--focus");
     const inputElement = dialog.element.querySelector(".b3-text-field") as HTMLInputElement;
     inputElement.focus();
     listElement.addEventListener("click", (event: KeyboardEvent) => {

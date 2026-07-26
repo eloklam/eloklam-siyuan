@@ -19,6 +19,7 @@ package mobile
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,6 +34,7 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/cache"
 	"github.com/siyuan-note/siyuan/kernel/job"
 	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-note/siyuan/kernel/plugin"
 	"github.com/siyuan-note/siyuan/kernel/server"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/util"
@@ -67,21 +69,21 @@ func VerifyAppStoreTransaction(accountToken, transactionID string) (retCode int)
 	if "" == accountToken || "" == transactionID {
 		retCode = -6
 		retMsg = "invalid parameters"
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
 	if 36 != len(accountToken) {
 		retCode = -6
 		retMsg = fmt.Sprintf("invalid accountToken [%s]", accountToken)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
 	if util.ContainerIOS != util.Container {
 		retCode = -3
 		retMsg = fmt.Sprintf("invalid container [%s]", util.Container)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
@@ -89,7 +91,7 @@ func VerifyAppStoreTransaction(accountToken, transactionID string) (retCode int)
 	if nil == user || "" == user.UserToken {
 		retCode = -4
 		retMsg = "account not logged in"
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
@@ -97,7 +99,7 @@ func VerifyAppStoreTransaction(accountToken, transactionID string) (retCode int)
 	if "0" != cloudRegionArg && "1" != cloudRegionArg {
 		retCode = -1
 		retMsg = fmt.Sprintf("invalid cloud region [%s]", cloudRegionArg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
@@ -105,7 +107,7 @@ func VerifyAppStoreTransaction(accountToken, transactionID string) (retCode int)
 	if util.CurrentCloudRegion != cloudRegion {
 		retCode = -1
 		retMsg = fmt.Sprintf("invalid cloud region [cloudRegionArg=%s, currentRegion=%d]", cloudRegionArg, util.CurrentCloudRegion)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
@@ -113,7 +115,7 @@ func VerifyAppStoreTransaction(accountToken, transactionID string) (retCode int)
 	if user.UserId != userID {
 		retCode = -5
 		retMsg = fmt.Sprintf("invalid user [userID=%s, accountToken=%s]", user.UserId, accountToken)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
@@ -125,74 +127,74 @@ func VerifyAppStoreTransaction(accountToken, transactionID string) (retCode int)
 	if nil != reqErr {
 		retCode = -2
 		retMsg = fmt.Sprintf("verify app store transaction failed: %s", reqErr)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if http.StatusUnauthorized == resp.StatusCode || http.StatusForbidden == resp.StatusCode {
 		retCode = -4
 		retMsg = fmt.Sprintf("verify app store transaction failed [sc=%d]", resp.StatusCode)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if http.StatusOK != resp.StatusCode {
 		retCode = -2
 		retMsg = fmt.Sprintf("verify app store transaction failed [sc=%d]", resp.StatusCode)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
 	if -1 == result.Code {
 		retCode = -5
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if -3 == result.Code {
 		retCode = -6
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if -2 == result.Code {
 		retCode = -8
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if -4 == result.Code {
 		retCode = -8
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if -5 == result.Code {
 		retCode = -7
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if -6 == result.Code {
 		retCode = -9
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if -64 == result.Code {
 		retCode = -2
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 	if 0 != result.Code {
 		retCode = -2
 		retMsg = fmt.Sprintf("verify app store transaction failed [code=%d, msg=%s]", result.Code, result.Msg)
-		logging.LogErrorf(retMsg)
+		logging.LogErrorf("%s", retMsg)
 		return
 	}
 
 	retCode = 0
 	retMsg = fmt.Sprintf("verify app store transaction [%s] success", transactionID)
-	logging.LogInfof(retMsg)
+	logging.LogInfof("%s", retMsg)
 	return
 }
 
@@ -228,6 +230,8 @@ func StartKernel(container, appDir, workspaceBaseDir, timezoneID, localIPs, lang
 		job.StartCron()
 		go model.AutoGenerateFileHistory()
 		go cache.LoadAssets()
+		go plugin.InitManager()
+		go model.StartEmbeddingIndexer()
 	}()
 }
 
@@ -293,11 +297,65 @@ func AssetName(name string) string {
 	return util.AssetName(name, ast.NewNodeID())
 }
 
+func HTML2Markdown(html string) string {
+	return util.NewLute().HTML2Md(html)
+}
+
 func Unzip(zipFilePath, destination string) {
 	if err := gulu.Zip.Unzip(zipFilePath, destination); nil != err {
 		logging.LogErrorf("unzip [%s] failed: %s", zipFilePath, err)
 		panic(err)
 	}
+}
+
+// GetExportFilePath 解析导出文件绝对路径，绕过 HTTP 层以避免锁屏密码拦截。
+// exportPath 格式为 "/export/xxx.zip" 或 "assets/xxx"。
+// 返回文件在磁盘上的绝对路径，以便原生端分块拷贝，避免大文件内存溢出。
+// 解析失败返回空字符串。
+func GetExportFilePath(exportPath string) (ret string) {
+	var absPath string
+	if after, ok := strings.CutPrefix(exportPath, "/export/"); ok {
+		fileName := after
+		if decoded, err := url.PathUnescape(fileName); err == nil {
+			fileName = decoded
+		}
+		fileName = filepath.Clean(fileName)
+		if strings.HasPrefix(fileName, "..") {
+			logging.LogWarnf("get export file path [%s] blocked: path traversal attempt [%s]", exportPath, fileName)
+			return
+		}
+		// 加密导出受控路径（<boxID>/<kind>/<file>）：必须经注册表校验且 box 已解锁，否则 fail-closed
+		if model.IsManagedEncryptedExportPath(fileName) {
+			artifact, ok := model.ResolveManagedExportForMobile(fileName)
+			if !ok {
+				logging.LogWarnf("get export file path [%s] blocked: managed export not available or box locked", exportPath)
+				return
+			}
+			return artifact
+		}
+		absPath = filepath.Join(util.TempDir, "export", fileName)
+		exportBaseDir := filepath.Join(util.TempDir, "export")
+		if !gulu.File.IsSubPath(exportBaseDir, absPath) {
+			logging.LogWarnf("get export file path [%s] blocked: path [%s] is outside export base dir [%s]", exportPath, absPath, exportBaseDir)
+			return
+		}
+	} else if strings.HasPrefix(exportPath, "assets/") {
+		var err error
+		absPath, err = model.GetAssetAbsPath(exportPath)
+		if nil != err {
+			logging.LogErrorf("get asset abs path [%s] failed: %s", exportPath, err)
+			return
+		}
+	} else {
+		logging.LogWarnf("get export file path [%s] failed: unsupported path prefix", exportPath)
+		return
+	}
+
+	if "" == absPath {
+		logging.LogWarnf("get export file path [%s] failed: resolved to empty abs path", exportPath)
+		return
+	}
+	return absPath
 }
 
 func Exit() {

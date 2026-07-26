@@ -1,14 +1,14 @@
 import {Layout} from "./index";
 import {Wnd} from "./Wnd";
 import {Tab} from "./Tab";
-import {Model} from "./Model";
+import type {Model} from "./Model";
 import {Graph} from "./dock/Graph";
 import {Editor} from "../editor";
 import {Files} from "./dock/Files";
 import {Outline} from "./dock/Outline";
 import {Bookmark} from "./dock/Bookmark";
 import {Tag} from "./dock/Tag";
-import {getAllModels, getAllTabs, getAllWnds} from "./getAll";
+import {getAllEditor, getAllModels, getAllTabs, getAllWnds} from "./getAll";
 import {Asset} from "../asset";
 import {Search} from "../search";
 import {Dock} from "./dock";
@@ -22,14 +22,21 @@ import {Backlink} from "./dock/Backlink";
 import {openFileById} from "../editor/util";
 import {isWindow} from "../util/functions";
 import {showMessage} from "../dialog/message";
-import {getIdZoomInByPath} from "../util/pathName";
+import {isEncryptedBox, parseUriInfo} from "../util/pathName";
 import {Custom} from "./dock/Custom";
 import {newCardModel} from "../card/newCardTab";
+import {newDatabaseRowModel} from "../editor/databaseRow";
 import {App} from "../index";
-import {afterLoadPlugin} from "../plugin/loader";
-import {setTitle} from "../dialog/processSystem";
-import {newCenterEmptyTab, resizeTabs} from "./tabUtil";
+import {afterLayoutReady} from "../plugin/loader";
+import {newCenterEmptyTab, resizeTabs, setTabPosition} from "./tabUtil";
 import {setStorageVal} from "../protyle/util/compatibility";
+import {adjustDockPadding} from "./dock/util";
+import {setTitle} from "../util/processTitle";
+import {activateQueuedAVLocate, queueAVLocateRequest} from "../protyle/render/av/locate";
+
+const isBuiltInCustomModel = (type: string) => {
+    return type === "siyuan-card" || type === "siyuan-database-row";
+};
 
 export const setPanelFocus = (element: Element, isSaveLayout = true) => {
     if (element.getAttribute("data-type") === "wnd") {
@@ -79,7 +86,10 @@ const dockToJSON = (dock: Dock) => {
     const json = [];
     const subDockToJSON = (index: number) => {
         const data: Config.IUILayoutDockTab[] = [];
-        dock.element.querySelectorAll(`span[data-index="${index}"]`).forEach(item => {
+        dock.elements[index].querySelectorAll(".dock__item").forEach(item => {
+            if (!item.getAttribute("data-type")) {
+                return;
+            }
             data.push({
                 type: item.getAttribute("data-type"),
                 size: {
@@ -171,9 +181,9 @@ export const exportLayout = async (options: {
     cb: () => void,
     errorExit: boolean
 }) => {
-    const editors = getAllModels().editor;
+    const editors = getAllEditor();
     for (let i = 0; i < editors.length; i++) {
-        await saveScroll(editors[i].editor.protyle);
+        await saveScroll(editors[i].protyle);
     }
     if (isWindow()) {
         const layoutJSON: any = {
@@ -186,6 +196,7 @@ export const exportLayout = async (options: {
     }
     const useElement = document.querySelector("#barDock use");
     if (!useElement) {
+        options.cb();
         return;
     }
     const layoutJSON: any = {
@@ -220,20 +231,75 @@ export const getAllLayout = () => {
     return layoutJSON;
 };
 
+const DOCK_KEYS = ["left", "right", "bottom"] as const;
+
+// agentChat 停靠按钮：已存在则去重，不存在则按默认布局补全
+const ensureAgentChatDock = (layout: Pick<Config.IUiLayout, "left" | "right" | "bottom">) => {
+    let hasAgentChat = false;
+    for (const key of DOCK_KEYS) {
+        const sections = layout[key]?.data;
+        if (!sections) {
+            continue;
+        }
+        for (const sub of sections) {
+            if (!sub) {
+                continue;
+            }
+            for (let i = 0; i < sub.length; i++) {
+                if (sub[i]?.type !== "agentChat") {
+                    continue;
+                }
+                if (hasAgentChat) {
+                    sub.splice(i, 1);
+                    i--;
+                } else {
+                    hasAgentChat = true;
+                }
+            }
+        }
+    }
+    if (!hasAgentChat) {
+        for (const key of DOCK_KEYS) {
+            const sections = Constants.SIYUAN_EMPTY_LAYOUT[key]?.data;
+            if (!sections) {
+                continue;
+            }
+            for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+                const sub = sections[sectionIndex];
+                if (!sub) {
+                    continue;
+                }
+                for (let itemIndex = 0; itemIndex < sub.length; itemIndex++) {
+                    const item = sub[itemIndex];
+                    if (item?.type === "agentChat") {
+                        const targetSections = layout[key]?.data;
+                        if (targetSections?.[sectionIndex]) {
+                            targetSections[sectionIndex].splice(itemIndex, 0, {...item});
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+    }
+};
+
 const initInternalDock = (dockItem: Config.IUILayoutDockTab[]) => {
     dockItem.forEach((existSubItem, index) => {
-        if (window.siyuan.isPublish && existSubItem.type === "inbox") {
+        if (window.siyuan.isPublish && (existSubItem.type === "inbox" || existSubItem.type === "agentChat")) {
             dockItem.splice(index, 1);
             return;
         }
         if (existSubItem.hotkeyLangId) {
             existSubItem.title = window.siyuan.languages[existSubItem.hotkeyLangId];
-            existSubItem.hotkey = window.siyuan.config.keymap.general[existSubItem.hotkeyLangId].custom;
+            const km = window.siyuan.config.keymap.general[existSubItem.hotkeyLangId];
+            existSubItem.hotkey = km ? km.custom : "";
         }
     });
 };
 
 const JSONToDock = (json: any, app: App) => {
+    ensureAgentChatDock(json);
     json.left.data.forEach((existItem: Config.IUILayoutDockTab[]) => {
         initInternalDock(existItem);
     });
@@ -247,6 +313,7 @@ const JSONToDock = (json: any, app: App) => {
     window.siyuan.layout.leftDock = new Dock({position: "Left", data: json.left, app});
     window.siyuan.layout.rightDock = new Dock({position: "Right", data: json.right, app});
     window.siyuan.layout.bottomDock = new Dock({position: "Bottom", data: json.bottom, app});
+    adjustDockPadding();
 };
 
 const removedTabs: Tab[] = [];
@@ -316,6 +383,12 @@ export const JSONToCenter = (
         }
         (layout as Wnd).addTab(child, false, false, json.activeTime);
     } else if (json.instance === "Editor" && json.blockId) {
+        const notebook = window.siyuan.notebooks.find((item) => item.id === json.notebookId);
+        if (notebook?.closed && isEncryptedBox(json.notebookId)) {
+            (layout as Tab).headElement.removeAttribute("data-init-active");
+            removedTabs.push(layout as Tab);
+            return;
+        }
         if (window.siyuan.config.fileTree.openFilesUseCurrentTab) {
             (layout as Tab).headElement.classList.add("item--unupdate");
         }
@@ -367,6 +440,15 @@ export const JSONToCenter = (
             config: json.config
         }));
     } else if (json.instance === "Custom") {
+        if (json.customModelType === "siyuan-database-row") {
+            const notebookId = json.customModelData?.notebookId;
+            const notebook = window.siyuan.notebooks.find((item) => item.id === notebookId);
+            if (notebook?.closed && isEncryptedBox(notebookId)) {
+                (layout as Tab).headElement.removeAttribute("data-init-active");
+                removedTabs.push(layout as Tab);
+                return;
+            }
+        }
         if (window.siyuan.config.fileTree.openFilesUseCurrentTab) {
             (layout as Tab).headElement.classList.add("item--unupdate");
         }
@@ -414,7 +496,7 @@ export const JSONToLayout = (app: App, isStart: boolean) => {
         const initData = item.getAttribute("data-initdata");
         if (initData) {
             const initDataObj = JSON.parse(initData);
-            if (initDataObj.instance === "Custom" && initDataObj.customModelType !== "siyuan-card") {
+            if (initDataObj.instance === "Custom" && !isBuiltInCustomModel(initDataObj.customModelType)) {
                 let hasPlugin = false;
                 app.plugins.find(plugin => {
                     if (Object.keys(plugin.models).includes(initDataObj.customModelType)) {
@@ -433,13 +515,27 @@ export const JSONToLayout = (app: App, isStart: boolean) => {
         }
     });
 
-    const idZoomIn = getIdZoomInByPath();
-    if (idZoomIn.id) {
+    const info = parseUriInfo();
+    if (info.id) {
+        if (info.avItemID) {
+            queueAVLocateRequest(info.id, {
+                itemID: info.avItemID,
+                viewID: info.avViewID,
+                groupID: info.avGroupID,
+            });
+        }
         openFileById({
             app,
-            id: idZoomIn.id,
-            action: idZoomIn.isZoomIn ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
-            zoomIn: idZoomIn.isZoomIn,
+            id: info.id,
+            action: info.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
+                (info.focus ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
+            zoomIn: info.avItemID ? false : info.focus,
+            afterOpen: (model) => {
+                const protyle = (model as { editor?: { protyle?: IProtyle } })?.editor?.protyle;
+                if (protyle) {
+                    activateQueuedAVLocate(protyle, info.id);
+                }
+            },
         });
     } else {
         let latestTabHeaderElement: HTMLElement;
@@ -464,11 +560,25 @@ export const JSONToLayout = (app: App, isStart: boolean) => {
         });
     }
     // 需放在 tab.parent.switchTab 后，否则当前 tab 永远为最后一个
-    app.plugins.forEach(item => {
-        afterLoadPlugin(item);
-    });
+    afterLayoutReady(app);
     saveLayout();
-    resizeTopBar();
+    // https://github.com/siyuan-note/siyuan/issues/17779
+    if (window.siyuan.layout.rightDock.layout.children[0].element.classList.contains("fn__none") &&
+        window.siyuan.layout.rightDock.layout.children[1].element.classList.contains("fn__none")) {
+        window.siyuan.layout.rightDock.layout.element.style.width = "0px";
+    }
+    if (window.siyuan.layout.leftDock.layout.children[0].element.classList.contains("fn__none") &&
+        window.siyuan.layout.leftDock.layout.children[1].element.classList.contains("fn__none")) {
+        window.siyuan.layout.leftDock.layout.element.style.width = "0px";
+    }
+    if (window.siyuan.layout.bottomDock.layout.children[0].element.classList.contains("fn__none") &&
+        window.siyuan.layout.bottomDock.layout.children[1].element.classList.contains("fn__none")) {
+        window.siyuan.layout.bottomDock.layout.element.style.height = "0px";
+    }
+    // 等待 dock 面板动画结束
+    setTimeout(() => {
+        setTabPosition();
+    }, Constants.TIMEOUT_TRANSITION);
 };
 
 export const layoutToJSON = (layout: Layout | Wnd | Tab | Model, json: any, breakObj?: IObject) => {
@@ -478,7 +588,11 @@ export const layoutToJSON = (layout: Layout | Wnd | Tab | Model, json: any, brea
             if (layout.element.classList.contains("fn__flex-1")) {
                 json.size = "auto";
             } else {
-                json.size = (layout.parent.direction === "tb" ? layout.element.clientHeight : layout.element.clientWidth) + "px";
+                if (layout.element.style.maxWidth && layout.parent.direction !== "tb") {
+                    json.size = layout.element.getAttribute(Constants.ATTRIBUTE_DOCK_WIDTH) + "px";
+                } else {
+                    json.size = (layout.parent.direction === "tb" ? layout.element.clientHeight : layout.element.clientWidth) + "px";
+                }
             }
         }
         json.resize = layout.resize;
@@ -515,7 +629,7 @@ export const layoutToJSON = (layout: Layout | Wnd | Tab | Model, json: any, brea
         json.instance = "Tab";
         json.activeTime = layout.headElement?.getAttribute("data-activetime");
     } else if (layout instanceof Editor) {
-        if (!layout.editor.protyle.notebookId && breakObj) {
+        if ((!layout.editor.protyle.notebookId || !layout.editor.protyle.block.id || !layout.editor.protyle.block.rootID) && breakObj) {
             breakObj.editor = "true";
         }
         json.notebookId = layout.editor.protyle.notebookId;
@@ -523,6 +637,7 @@ export const layoutToJSON = (layout: Layout | Wnd | Tab | Model, json: any, brea
         json.rootId = layout.editor.protyle.block.rootID;
         json.mode = layout.editor.protyle.preview.element.classList.contains("fn__none") ? "wysiwyg" : "preview";
         json.action = (layout.editor.protyle.block.showAll && layout.editor.protyle.block.id !== layout.editor.protyle.block.rootID) ? Constants.CB_GET_ALL : Constants.CB_GET_SCROLL;
+        json.databaseRowId = layout.editor.protyle.element.dataset.databaseRowId;
         json.instance = "Editor";
     } else if (layout instanceof Asset) {
         json.path = layout.path;
@@ -627,9 +742,13 @@ export const resizeTopBar = () => {
     let afterDragElement = dragElement.nextElementSibling;
     const hideIds: string[] = [];
     while (toolbarElement.scrollWidth > toolbarElement.clientWidth + 2) {
-        hideIds.push(afterDragElement.id);
-        afterDragElement.classList.add("fn__none");
-        afterDragElement.setAttribute("data-hide", "true");
+        // 跳过默认即隐藏的元素（如桌面端 #barExit），它们本就不占溢出空间，
+        // 若为其打上 data-hide，最大化后恢复阶段会误将其显示出来
+        if (!afterDragElement.classList.contains("fn__none")) {
+            hideIds.push(afterDragElement.id);
+            afterDragElement.classList.add("fn__none");
+            afterDragElement.setAttribute("data-hide", "true");
+        }
         afterDragElement = afterDragElement.nextElementSibling;
         if (afterDragElement.id === "barMore") {
             break;
@@ -638,9 +757,11 @@ export const resizeTopBar = () => {
 
     let beforeDragElement = dragElement.previousElementSibling;
     while (toolbarElement.scrollWidth > toolbarElement.clientWidth + 2) {
-        hideIds.push(beforeDragElement.id);
-        beforeDragElement.classList.add("fn__none");
-        beforeDragElement.setAttribute("data-hide", "true");
+        if (!beforeDragElement.classList.contains("fn__none")) {
+            hideIds.push(beforeDragElement.id);
+            beforeDragElement.classList.add("fn__none");
+            beforeDragElement.setAttribute("data-hide", "true");
+        }
         beforeDragElement = beforeDragElement.previousElementSibling;
         if (beforeDragElement.id === "barWorkspace") {
             break;
@@ -653,15 +774,18 @@ export const resizeTopBar = () => {
     }
     barMoreElement.setAttribute("data-hideids", hideIds.join(","));
 
-    const width = dragElement.clientWidth;
-    const dragRect = dragElement.getBoundingClientRect();
-    const left = dragRect.left;
-    const right = window.innerWidth - dragRect.right;
-    if (left > right && left - right < width / 3) {
-        dragElement.style.paddingRight = (left - right) + "px";
-    } else if (left < right && right - left < width / 3) {
-        dragElement.style.paddingLeft = (right - left) + "px";
+    if (!window.siyuan.config.appearance.hideToolbar) {
+        const width = dragElement.clientWidth;
+        const dragRect = dragElement.getBoundingClientRect();
+        const left = dragRect.left;
+        const right = window.innerWidth - dragRect.right;
+        if (left > right && left - right < width / 3) {
+            dragElement.style.paddingRight = (left - right) + "px";
+        } else if (left < right && right - left < width / 3) {
+            dragElement.style.paddingLeft = (right - left) + "px";
+        }
     }
+
     window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].forEach((id: string) => {
         toolbarElement.querySelector("#" + id)?.classList.add("fn__none");
     });
@@ -676,6 +800,12 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
                 app,
                 tab: tab,
                 data: json.customModelData
+            });
+        } else if (json.customModelType === "siyuan-database-row") {
+            model = newDatabaseRowModel({
+                app,
+                tab,
+                data: json.customModelData,
             });
         } else {
             app.plugins.find(item => {
@@ -696,16 +826,27 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
                 json.action = json.action.filter((item: string) => item !== Constants.CB_GET_ALL);
             }
         }
-        model = new Editor({
+        const editorModel = new Editor({
             app,
             tab,
             rootId: json.rootId,
             blockId: json.blockId,
+            notebookId: json.notebookId,
             mode: json.mode,
             scrollPosition: json.scrollPosition,
             action: Array.isArray(json.action) ? json.action.concat(Constants.CB_GET_FOCUS) :
                 (json.action ? [json.action, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS]),
+            afterInitProtyle(editor) {
+                if (json.databaseRowId) {
+                    editor.protyle.databaseAttributePanel?.expand();
+                    editor.protyle.contentElement.scrollTop = 0;
+                }
+            },
         });
+        if (json.databaseRowId) {
+            editorModel.editor.protyle.element.dataset.databaseRowId = json.databaseRowId;
+        }
+        model = editorModel;
     }
     return model;
 };
@@ -770,6 +911,7 @@ export const addResize = (obj: Layout | Wnd, after = true) => {
 
         let range: Range;
         resizeElement.addEventListener("mousedown", (event: MouseEvent) => {
+            event.preventDefault();
             getAllModels().editor.forEach((item) => {
                 if (item.editor && item.editor.protyle && item.element.parentElement) {
                     hideElements(["gutter"], item.editor.protyle);
@@ -827,6 +969,9 @@ export const addResize = (obj: Layout | Wnd, after = true) => {
                     nextNowSize < 64 && nextNowSize < nextSize) {
                     return;
                 }
+                if (nextElement.classList.contains("layout__center") && nextNowSize <= 148) {
+                    return;
+                }
                 if (!previousElement.classList.contains("fn__flex-1")) {
                     previousElement.style[direction === "lr" ? "width" : "height"] = previousNowSize + "px";
                 }
@@ -842,6 +987,7 @@ export const addResize = (obj: Layout | Wnd, after = true) => {
                 documentSelf.onselectstart = null;
                 documentSelf.onselect = null;
                 adjustLayout(isWindow() ? window.siyuan.layout.centerLayout : undefined);
+                setTabPosition(true);
                 resizeTabs();
                 if (!isWindow()) {
                     window.siyuan.layout.leftDock.setSize();
@@ -932,6 +1078,7 @@ export const addResize = (obj: Layout | Wnd, after = true) => {
 export const adjustLayout = (layout: Layout = window.siyuan.layout.centerLayout.parent) => {
     layout.children.forEach((item: Layout | Wnd) => {
         item.element.style.maxWidth = "";
+        item.element.removeAttribute(Constants.ATTRIBUTE_DOCK_WIDTH);
         if (!item.element.style.width && !item.element.classList.contains("layout__center")) {
             item.element.style.minWidth = "8px";
         } else {
@@ -948,10 +1095,13 @@ export const adjustLayout = (layout: Layout = window.siyuan.layout.centerLayout.
     if (layout.direction === "lr" && layout.element.scrollWidth > layout.element.clientWidth + 2) {
         let index = Math.ceil(screen.width / 8);
         while (index > 0) {
-            let width = 0;
+            let width = layout.element.firstElementChild.classList.contains("layout__dockl") ? 8 : 0;
             layout.children.find((item: Layout | Wnd) => {
                 if (item.element.style.width && item.element.style.width !== "0px") {
-                    item.element.style.maxWidth = Math.max(Math.min(item.element.clientWidth, window.innerWidth) - 8, 64) + "px";
+                    if (!item.element.hasAttribute(Constants.ATTRIBUTE_DOCK_WIDTH)) {
+                        item.element.setAttribute(Constants.ATTRIBUTE_DOCK_WIDTH, item.element.clientWidth.toString());
+                    }
+                    item.element.style.maxWidth = Math.max(Math.min(item.element.clientWidth, window.innerWidth) - 8, 168) + "px";
                 }
                 width += item.element.clientWidth;
             });

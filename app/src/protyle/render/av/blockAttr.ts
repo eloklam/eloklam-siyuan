@@ -17,6 +17,15 @@ import {webUtils} from "electron";
 import {isBrowser} from "../../../util/functions";
 import {Constants} from "../../../constants";
 import {getCompressURL, removeCompressURL} from "../../../util/image";
+import {openDatabaseRowByData} from "./openDatabaseRow";
+
+export const getAVTemplateHTML = (content: string) => {
+    if (window.siyuan.config.editor.allowHTMLBLockScript) {
+        return content;
+    }
+    // 默认过滤危险标签和事件属性，避免数据库模板字段中的代码直接执行
+    return window.DOMPurify.sanitize(content);
+};
 
 const genAVRollupHTML = (value: IAVCellValue) => {
     let html = "";
@@ -24,13 +33,13 @@ const genAVRollupHTML = (value: IAVCellValue) => {
     switch (value.type) {
         case "block":
             if (value?.isDetached) {
-                html = `<span>${value.block?.content || window.siyuan.languages.untitled}</span>`;
+                html = `<span>${escapeHtml(value.block?.content || window.siyuan.languages.untitled)}</span>`;
             } else {
-                html = `<span data-type="block-ref" data-id="${value.block.id}" data-subtype="s" class="av__celltext--ref">${value.block?.content || window.siyuan.languages.untitled}</span>`;
+                html = `<span data-type="block-ref" data-id="${value.block.id}" data-subtype="s" class="av__celltext--ref">${escapeHtml(value.block?.content || window.siyuan.languages.untitled)}</span>`;
             }
             break;
         case "text":
-            html = value.text.content;
+            html = escapeHtml(value.text.content);
             break;
         case "number":
             html = value.number.formattedContent || value.number.content.toString();
@@ -53,13 +62,13 @@ const genAVRollupHTML = (value: IAVCellValue) => {
             }
             break;
         case "url":
-            html = value.url.content ? `<a class="fn__a" href="${value.url.content}" target="_blank">${value.url.content}</a>` : "";
+            html = value.url.content ? `<a class="fn__a" href="${escapeAttr(value.url.content)}" target="_blank">${escapeHtml(value.url.content)}</a>` : "";
             break;
         case "phone":
-            html = value.phone.content ? `<a class="fn__a" href="tel:${value.phone.content}" target="_blank">${value.phone.content}</a>` : "";
+            html = value.phone.content ? `<a class="fn__a" href="tel:${escapeAttr(value.phone.content)}" target="_blank">${escapeHtml(value.phone.content)}</a>` : "";
             break;
         case "email":
-            html = value.email.content ? `<a class="fn__a" href="mailto:${value.email.content}" target="_blank">${value.email.content}</a>` : "";
+            html = value.email.content ? `<a class="fn__a" href="mailto:${escapeAttr(value.email.content)}" target="_blank">${escapeHtml(value.email.content)}</a>` : "";
             break;
     }
     return html;
@@ -72,7 +81,7 @@ export const genAVValueHTML = (value: IAVCellValue) => {
             html = `<input data-id="${value.block.id}" value="${escapeAttr(value.block.content)}" type="text" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">`;
             break;
         case "text":
-            html = `<textarea style="resize: vertical" rows="${(value.text?.content || "").split("\n").length}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">${value.text?.content || ""}</textarea>`;
+            html = `<textarea style="resize: vertical" rows="${(value.text?.content || "").split("\n").length}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">${escapeHtml(value.text?.content || "")}</textarea>`;
             break;
         case "number":
             html = `<input value="${value.number.isNotEmpty ? value.number.content : ""}" type="number" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
@@ -90,9 +99,9 @@ export const genAVValueHTML = (value: IAVCellValue) => {
         case "mAsset":
             value.mAsset?.forEach(item => {
                 if (item.type === "image") {
-                    html += `<img loading="lazy" class="av__cellassetimg ariaLabel" aria-label="${item.content}" src="${getCompressURL(item.content)}">`;
+                    html += `<img loading="lazy" class="av__cellassetimg ariaLabel" aria-label="${escapeAriaLabel(item.content)}" src="${getCompressURL(item.content)}">`;
                 } else {
-                    html += `<span class="b3-chip b3-chip--middle av__celltext--url ariaLabel" aria-label="${escapeAttr(item.content)}" data-name="${escapeAttr(item.name)}" data-url="${escapeAttr(item.content)}">${item.name || item.content}</span>`;
+                    html += `<span class="b3-chip b3-chip--middle av__celltext--url ariaLabel" aria-label="${escapeAriaLabel(item.content)}" data-name="${escapeAttr(item.name)}" data-url="${escapeAttr(item.content)}">${escapeHtml(item.name || item.content)}</span>`;
                 }
             });
             break;
@@ -113,25 +122,25 @@ export const genAVValueHTML = (value: IAVCellValue) => {
             }
             break;
         case "url":
-            html = `<input value="${value.url.content}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
+            html = `<input value="${escapeAttr(value.url.content)}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
 <span class="fn__space"></span>
-<a ${value.url.content ? `href="${value.url.content}"` : ""} target="_blank" aria-label="${window.siyuan.languages.openBy}" class="block__icon block__icon--show fn__flex-center b3-tooltips__w b3-tooltips"><svg><use xlink:href="#iconLink"></use></svg></a>`;
+<a ${value.url.content ? `href="${escapeAttr(value.url.content)}"` : ""} target="_blank" aria-label="${window.siyuan.languages.openBy}" class="block__icon block__icon--show fn__flex-center b3-tooltips__w b3-tooltips"><svg><use xlink:href="#iconLink"></use></svg></a>`;
             break;
         case "phone":
-            html = `<input value="${value.phone.content}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
+            html = `<input value="${escapeAttr(value.phone.content)}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
 <span class="fn__space"></span>
-<a ${value.phone.content ? `href="tel:${value.phone.content}"` : ""} target="_blank" aria-label="${window.siyuan.languages.openBy}" class="block__icon block__icon--show fn__flex-center b3-tooltips__w b3-tooltips"><svg><use xlink:href="#iconPhone"></use></svg></a>`;
+<a ${value.phone.content ? `href="tel:${escapeAttr(value.phone.content)}"` : ""} target="_blank" aria-label="${window.siyuan.languages.openBy}" class="block__icon block__icon--show fn__flex-center b3-tooltips__w b3-tooltips"><svg><use xlink:href="#iconPhone"></use></svg></a>`;
             break;
         case "checkbox":
             html = `<svg class="av__checkbox"><use xlink:href="#icon${value.checkbox.checked ? "Check" : "Uncheck"}"></use></svg>`;
             break;
         case "template":
-            html = `<div class="fn__flex-1" placeholder="${window.siyuan.languages.empty}">${value.template.content}</div>`;
+            html = `<div class="fn__flex-1" placeholder="${window.siyuan.languages.empty}">${getAVTemplateHTML(value.template.content)}</div>`;
             break;
         case "email":
-            html = `<input value="${value.email.content}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
+            html = `<input value="${escapeAttr(value.email.content)}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
 <span class="fn__space"></span>
-<a ${value.email.content ? `href="mailto:${value.email.content}"` : ""} target="_blank" aria-label="${window.siyuan.languages.openBy}" class="block__icon block__icon--show fn__flex-center b3-tooltips__w b3-tooltips"><svg><use xlink:href="#iconEmail"></use></svg></a>`;
+<a ${value.email.content ? `href="mailto:${escapeAttr(value.email.content)}"` : ""} target="_blank" aria-label="${window.siyuan.languages.openBy}" class="block__icon block__icon--show fn__flex-center b3-tooltips__w b3-tooltips"><svg><use xlink:href="#iconEmail"></use></svg></a>`;
             break;
         case "relation":
             value?.relation?.contents?.forEach((item, index) => {
@@ -164,10 +173,19 @@ export const genAVValueHTML = (value: IAVCellValue) => {
     return html;
 };
 
-export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IProtyle, cb?: (element: HTMLElement) => void) => {
-    fetchPost("/api/av/getAttributeViewKeys", {id}, (response) => {
+let attributeViewRenderID = 0;
+
+export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IProtyle, cb?: (element: HTMLElement) => void,
+                                  row?: { avID: string, itemID: string, valueID: string }) => {
+    const renderID = (++attributeViewRenderID).toString();
+    element.dataset.avAttributeRenderId = renderID;
+    fetchPost("/api/av/getAttributeViewKeys", row ? {id, avID: row.avID, itemID: row.itemID, valueID: row.valueID} : {id}, (response) => {
+        if (element.dataset.avAttributeRenderId !== renderID) {
+            return;
+        }
         let html = "";
-        response.data.forEach((table: {
+        const tables = Array.isArray(response.data) ? response.data : [];
+        tables.forEach((table: {
             keyValues: {
                 key: {
                     type: TAVCol,
@@ -184,6 +202,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                     keyID: string,
                     id: string,
                     blockID: string,
+                    isDetached?: boolean,
                     type: TAVCol & IAVCellValue
                 }  []
             }[],
@@ -192,7 +211,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             avName: string
         }) => {
             let innerHTML = `<div class="custom-attr__avheader">
-    <div class="block__logo popover__block" style="max-width:calc(100% - 40px)" data-id='${JSON.stringify(table.blockIDs)}'>
+    <div class="block__logo block__logo--icon popover__block" style="max-width:calc(100% - 40px)" data-id='${JSON.stringify(table.blockIDs)}'>
         <svg class="block__logoicon"><use xlink:href="#iconDatabase"></use></svg>
         <span class="fn__ellipsis">${table.avName || window.siyuan.languages.database}</span>
     </div>
@@ -202,11 +221,11 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             table.keyValues?.forEach(item => {
                 innerHTML += `<div class="block__icons av__row" data-id="${id}" data-col-id="${item.key.id}">
     <div class="block__icon" draggable="true"><svg><use xlink:href="#iconDrag"></use></svg></div>
-    <div class="block__logo ariaLabel fn__pointer" data-type="editCol" data-position="parentW" aria-label="${escapeAriaLabel(item.key.name)}<div class='ft__on-surface'>${escapeAriaLabel(item.key.desc)}</div>">
+    <div class="block__logo block__logo--icon ariaLabel fn__pointer" data-type="editCol" data-position="parentW" aria-label="${escapeAriaLabel(item.key.name)}<div class='ft__on-surface'>${escapeAriaLabel(item.key.desc)}</div>">
         ${item.key.icon ? unicode2Emoji(item.key.icon, "block__logoicon", true) : `<svg class="block__logoicon"><use xlink:href="#${getColIconByType(item.key.type)}"></use></svg>`}
         <span>${escapeHtml(item.key.name)}</span>
     </div>
-    <div data-av-id="${table.avID}" data-col-id="${item.values[0].keyID}" data-row-id="${item.values[0].blockID}" data-id="${item.values[0].id}" data-type="${item.values[0].type}" 
+    <div data-av-id="${table.avID}" data-col-id="${item.values[0].keyID}" data-row-id="${item.values[0].blockID}" data-id="${item.values[0].id}" data-type="${item.values[0].type}"${item.values[0].isDetached ? ' data-detached="true"' : ""}
 data-options="${item.key?.options ? escapeAttr(JSON.stringify(item.key.options)) : "[]"}" 
 ${["text", "number", "date", "url", "phone", "template", "email"].includes(item.values[0].type) ? "" : `placeholder="${window.siyuan.languages.empty}"`}  
 class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"].includes(item.values[0].type) ? "" : " custom-attr__avvalue"}${["created", "updated"].includes(item.values[0].type) ? " custom-attr__avvalue--readonly" : ""}">${genAVValueHTML(item.values[0])}</div>
@@ -219,7 +238,12 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
 
             if (element.innerHTML) {
                 // 防止 blockElement 找不到
-                element.querySelector(`[data-node-id="${id}"][data-av-id="${table.avID}"]`).innerHTML = innerHTML;
+                const blockElement = element.querySelector(`[data-node-id="${id}"][data-av-id="${table.avID}"]`);
+                if (blockElement) {
+                    blockElement.innerHTML = innerHTML;
+                } else {
+                    element.insertAdjacentHTML("beforeend", `<div data-av-id="${table.avID}" data-av-type="table" data-node-id="${id}" data-type="NodeAttributeView">${innerHTML}</div>`);
+                }
             }
         });
         if (element.innerHTML === "") {
@@ -364,6 +388,33 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                 }
             });
             element.addEventListener("click", (event) => {
+                const backlinkToggleElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "av-backlinks-toggle");
+                if (backlinkToggleElement) {
+                    const backlinksElement = hasClosestByClassName(backlinkToggleElement, "custom-attr__avbacklinks");
+                    if (backlinksElement) {
+                        const expanded = backlinksElement.dataset.expanded !== "true";
+                        backlinksElement.dataset.expanded = expanded.toString();
+                        backlinkToggleElement.setAttribute("aria-expanded", expanded.toString());
+                        backlinkToggleElement.querySelector("use").setAttribute("xlink:href", expanded ? "#iconDown" : "#iconRight");
+                        event.stopPropagation();
+                        return;
+                    }
+                }
+                const backlinkOpenElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "av-backlink-open");
+                if (backlinkOpenElement) {
+                    openDatabaseRowByData(protyle, {
+                        avID: backlinkOpenElement.dataset.avId,
+                        databaseBlockID: backlinkOpenElement.dataset.databaseBlockId,
+                        notebookID: backlinkOpenElement.dataset.boxId,
+                        itemID: backlinkOpenElement.dataset.itemId,
+                        valueID: backlinkOpenElement.dataset.valueId,
+                        title: backlinkOpenElement.dataset.title,
+                        boundBlockID: backlinkOpenElement.dataset.boundBlockId,
+                        isDetached: backlinkOpenElement.dataset.detached === "true",
+                    });
+                    event.stopPropagation();
+                    return;
+                }
                 const removeElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "remove");
                 if (removeElement) {
                     const blockElement = hasClosestBlock(removeElement);
@@ -435,9 +486,9 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                     value = {
                         block: {
                             content: item.value,
-                            id: item.dataset.id,
+                            id: item.parentElement.dataset.detached === "true" ? "" : item.dataset.id,
                         },
-                        isDetached: false
+                        isDetached: item.parentElement.dataset.detached === "true"
                     };
                 }
                 fetchPost("/api/av/setAttributeViewBlockAttr", {
@@ -454,9 +505,70 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                 });
             });
         });
-        if (cb) {
-            cb(element);
+        renderAttributeViewBacklinks(element, id, renderID, row, cb);
+    });
+};
+
+const renderAttributeViewBacklinks = (element: HTMLElement, id: string, renderID: string,
+                                      row?: { avID: string, itemID: string, valueID: string },
+                                      cb?: (element: HTMLElement) => void) => {
+    const oldBacklinksElement = element.querySelector<HTMLElement>(".custom-attr__avbacklinks");
+    const expanded = oldBacklinksElement?.dataset.expanded === "true";
+    fetchPost("/api/av/getAttributeViewBacklinks", row ? {
+        id,
+        avID: row.avID,
+        itemID: row.itemID,
+        valueID: row.valueID,
+    } : {id}, (response) => {
+        if (element.dataset.avAttributeRenderId !== renderID) {
+            return;
         }
+        const currentBacklinksElement = element.querySelector<HTMLElement>(".custom-attr__avbacklinks");
+        const currentExpanded = currentBacklinksElement ? currentBacklinksElement.dataset.expanded === "true" : expanded;
+        currentBacklinksElement?.remove();
+        const data = response.data as {
+            total: number,
+            items: {
+                avID: string,
+                avName: string,
+                databaseBlockID: string,
+                boxID: string,
+                databasePath: string,
+                itemID: string,
+                valueID: string,
+                title: string,
+                icon: string,
+                boundBlockID: string,
+                isDetached: boolean,
+            }[]
+        };
+        if (data?.total > 0) {
+            const countLabel = window.siyuan.languages.avBacklinks.replace("${count}", data.total.toString());
+            let itemsHTML = "";
+            data.items.forEach((item) => {
+                const title = item.title || window.siyuan.languages.untitled;
+                const databasePath = item.databasePath ? `${item.databasePath} / ${item.avName}` : item.avName;
+                itemsHTML += `<button type="button" class="custom-attr__avbacklink" data-type="av-backlink-open" data-av-id="${escapeAttr(item.avID)}" data-database-block-id="${escapeAttr(item.databaseBlockID)}" data-box-id="${escapeAttr(item.boxID)}" data-item-id="${escapeAttr(item.itemID)}" data-value-id="${escapeAttr(item.valueID)}" data-title="${escapeAttr(title)}" data-bound-block-id="${escapeAttr(item.boundBlockID)}" data-detached="${item.isDetached}">
+    ${item.icon ? `<span class="custom-attr__avbacklinkicon">${unicode2Emoji(item.icon, "", true)}</span>` : ""}
+    <span class="fn__flex-1 fn__ellipsis">
+        <span class="custom-attr__avbacklinktitle fn__ellipsis">${escapeHtml(title)}</span>
+        <span class="custom-attr__avbacklinkpath fn__ellipsis">${escapeHtml(databasePath || window.siyuan.languages.database)}</span>
+    </span>
+    <span class="custom-attr__avbacklinkopen b3-tooltips b3-tooltips__w" aria-label="${escapeAttr(window.siyuan.languages.openBy)}"><svg><use xlink:href="#iconOpen"></use></svg></span>
+</button>`;
+            });
+            element.insertAdjacentHTML("afterbegin", `<div class="custom-attr__avbacklinks" data-expanded="${currentExpanded}">
+    <button type="button" class="custom-attr__avbacklinks-toggle" data-type="av-backlinks-toggle" aria-expanded="${currentExpanded}">
+        <svg><use xlink:href="${currentExpanded ? "#iconDown" : "#iconRight"}"></use></svg>
+        <svg><use xlink:href="#iconLink"></use></svg>
+        <span class="fn__flex-1">${escapeHtml(countLabel)}</span>
+    </button>
+    <div class="custom-attr__avbacklinks-body">
+        ${itemsHTML}
+    </div>
+</div>`);
+        }
+        cb?.(element);
     });
 };
 
@@ -504,7 +616,7 @@ const openEdit = (protyle: IProtyle, element: HTMLElement, event: MouseEvent) =>
                 if (target.tagName === "IMG") {
                     previewImages([removeCompressURL(target.getAttribute("src"))]);
                 } else {
-                    openLink(protyle, target.dataset.url, event, event.ctrlKey || event.metaKey);
+                    openLink(protyle.app, target.dataset.url, event, event.ctrlKey || event.metaKey);
                 }
             }
             event.stopPropagation();

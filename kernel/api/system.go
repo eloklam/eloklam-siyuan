@@ -17,6 +17,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -125,13 +127,20 @@ func getChangelog(c *gin.Context) {
 		return
 	}
 
-	changelogPath := filepath.Join(changelogsDir, "v"+util.Ver, "v"+util.Ver+"_"+model.Conf.Lang+".md")
+	if !util.IsReleaseVer(util.Ver) {
+		model.Conf.ShowChangelog = false
+		model.Conf.Save()
+		return
+	}
+
+	verDir := filepath.Join(changelogsDir, "v"+util.Ver)
+	changelogPath := filepath.Join(verDir, "v"+util.Ver+"."+model.Conf.Lang+".md")
 	if !gulu.File.IsExist(changelogPath) {
-		changelogPath = filepath.Join(changelogsDir, "v"+util.Ver, "v"+util.Ver+".md")
-		if !gulu.File.IsExist(changelogPath) {
-			logging.LogErrorf("changelog not found: %s", changelogPath)
-			return
-		}
+		changelogPath = filepath.Join(verDir, "v"+util.Ver+".md")
+	}
+	if !gulu.File.IsExist(changelogPath) {
+		logging.LogErrorf("changelog not found in %s", verDir)
+		return
 	}
 
 	contentData, err := os.ReadFile(changelogPath)
@@ -141,6 +150,7 @@ func getChangelog(c *gin.Context) {
 	}
 
 	model.Conf.ShowChangelog = false
+	model.Conf.Save()
 	luteEngine := lute.New()
 	htmlContent := luteEngine.MarkdownStr("", string(contentData))
 	htmlContent = util.LinkTarget(htmlContent, "")
@@ -343,9 +353,27 @@ func exportConf(c *gin.Context) {
 	clonedConf.Stat = nil
 	clonedConf.Api = nil
 	clonedConf.Repo = nil
+	clonedConf.Secrets = nil
+	clonedConf.NotebookCrypto = nil
+	clonedConf.Onboarding = nil
 	clonedConf.Publish = nil
+	clonedConf.CookieKey = ""
+	clonedConf.MCPOAuth = ""
 	clonedConf.CloudRegion = 0
-	clonedConf.DataIndexState = 0
+	if nil != clonedConf.AI {
+		for _, provider := range clonedConf.AI.Providers {
+			if nil != provider {
+				provider.APIKey = ""
+			}
+		}
+		if nil != clonedConf.AI.Embedding {
+			clonedConf.AI.Embedding.APIKey = ""
+		}
+		if nil != clonedConf.AI.Rerank {
+			clonedConf.AI.Rerank.APIKey = ""
+		}
+		clonedConf.AI.MCP = nil
+	}
 
 	data, err = gulu.JSON.MarshalIndentJSON(clonedConf, "", "  ")
 	if err != nil {
@@ -509,6 +537,7 @@ func importConf(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	preserveImportedAISecrets(importedConf.AI, model.Conf.AI)
 
 	model.Conf.FileTree = importedConf.FileTree
 	model.Conf.Tag = importedConf.Tag
@@ -525,6 +554,41 @@ func importConf(c *gin.Context) {
 	model.Conf.Save()
 
 	logging.LogInfof("imported conf")
+}
+
+func preserveImportedAISecrets(imported, current *conf.AI) {
+	if imported == nil || current == nil {
+		return
+	}
+
+	currentProviders := map[string]*conf.Provider{}
+	for _, provider := range current.Providers {
+		if provider != nil && provider.ID != "" && provider.APIKey != "" {
+			currentProviders[provider.ID] = provider
+		}
+	}
+	for _, provider := range imported.Providers {
+		if provider != nil && provider.APIKey == "" {
+			if currentProvider := currentProviders[provider.ID]; currentProvider != nil &&
+				currentProvider.BaseURL == provider.BaseURL && currentProvider.Protocol == provider.Protocol {
+				provider.APIKey = currentProvider.APIKey
+			}
+		}
+	}
+
+	if imported.Embedding != nil && current.Embedding != nil && imported.Embedding.APIKey == "" &&
+		imported.Embedding.ID != "" && imported.Embedding.ID == current.Embedding.ID &&
+		imported.Embedding.BaseURL == current.Embedding.BaseURL {
+		imported.Embedding.APIKey = current.Embedding.APIKey
+	}
+	if imported.Rerank != nil && current.Rerank != nil && imported.Rerank.APIKey == "" &&
+		imported.Rerank.ID != "" && imported.Rerank.ID == current.Rerank.ID &&
+		imported.Rerank.Endpoint == current.Rerank.Endpoint {
+		imported.Rerank.APIKey = current.Rerank.APIKey
+	}
+	if imported.MCP == nil {
+		imported.MCP = current.MCP
+	}
 }
 
 func getConf(c *gin.Context) {
@@ -560,11 +624,49 @@ func getConf(c *gin.Context) {
 		maskedConf = model.FilterConfByPublishIgnore(publishIgnore, maskedConf)
 	}
 
+	// 浏览器环境下不返回工作空间绝对路径，避免泄露用户名等敏感信息
+	// 原生客户端（桌面 Electron、移动端）UA 以 "SiYuan/" 开头，照常返回真实路径
+	// REF: https://github.com/siyuan-note/siyuan/issues/17410
+	if util.IsBrowserRequest(c) {
+		maskedConf.System.WorkspaceDir = ""
+		maskedConf.System.AppDir = ""
+		maskedConf.System.ConfDir = ""
+		maskedConf.System.DataDir = ""
+		maskedConf.System.HomeDir = ""
+	}
+
 	ret.Data = map[string]any{
 		"conf":      maskedConf,
 		"start":     !util.IsUILoaded,
 		"isPublish": isPublish,
 	}
+}
+
+func ensureOnboarding(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	onboarding, notebookCreated, err := model.EnsureOnboarding()
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	if notebookCreated {
+		box := model.Conf.Box(onboarding.NotebookID)
+		if nil != box {
+			evt := util.NewCmdResult("createnotebook", 0, util.PushModeBroadcast)
+			evt.Data = map[string]any{"box": box, "existed": false}
+			util.PushEvent(evt)
+		}
+	}
+	ret.Data = onboarding
+}
+
+func dismissOnboarding(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	ret.Data = model.DismissOnboarding()
 }
 
 func setUILayout(c *gin.Context) {
@@ -632,8 +734,16 @@ func setAccessAuthCode(c *gin.Context) {
 		aac = model.Conf.AccessAuthCode
 	}
 
+	originalLen := len(aac)
+
 	aac = util.RemoveInvalid(aac)
 	aac = strings.TrimSpace(aac)
+
+	if 0 < originalLen && 0 == len(aac) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(287)
+		return
+	}
 
 	model.Conf.AccessAuthCode = aac
 	model.Conf.Save()
@@ -668,15 +778,9 @@ func setFollowSystemLockScreen(c *gin.Context) {
 func getSysFonts(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
-	fonts := util.LoadSysFonts()
 
-	// TODO: 字重 https://github.com/siyuan-note/siyuan/issues/10313
-	var families []string
-	for _, font := range fonts {
-		families = append(families, font.Family)
-	}
-	families = gulu.Str.RemoveDuplicatedElem(families)
-	ret.Data = families
+	fonts := util.LoadSysFonts()
+	ret.Data = fonts
 }
 
 func version(c *gin.Context) {
@@ -699,6 +803,64 @@ func bootProgress(c *gin.Context) {
 
 	progress, details := util.GetBootProgressDetails()
 	ret.Data = map[string]any{"progress": progress, "details": details}
+}
+
+// bootProgressSSE 以 Server-Sent Events 推送启动进度，仅在进度发生变化时写一帧。
+func bootProgressSSE(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Writer.Flush()
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return
+	}
+
+	// 连接后立即推送当前进度，避免等待第一个 tick
+	progress, details := util.GetBootProgressDetails()
+	lastProgress, lastDetails := progress, details
+	if err := writeBootProgressSSE(c, flusher, progress, details); err != nil {
+		return
+	}
+	if 100 <= progress {
+		return
+	}
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	ctx := c.Request.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			// 客户端断开连接
+			return
+		case <-ticker.C:
+			progress, details = util.GetBootProgressDetails()
+			if progress == lastProgress && details == lastDetails {
+				continue
+			}
+			lastProgress, lastDetails = progress, details
+			if err := writeBootProgressSSE(c, flusher, progress, details); err != nil {
+				return
+			}
+			if 100 <= progress {
+				return
+			}
+		}
+	}
+}
+
+func writeBootProgressSSE(c *gin.Context, flusher http.Flusher, progress int32, details string) error {
+	data, err := json.Marshal(map[string]any{"progress": progress, "details": details})
+	if err != nil {
+		return err
+	}
+	if _, err = fmt.Fprintf(c.Writer, "data: %s\n\n", data); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
 }
 
 func setAppearanceMode(c *gin.Context) {
@@ -980,7 +1142,7 @@ func exit(c *gin.Context) {
 		force = forceArg.(bool)
 	}
 
-	execInstallPkgArg := arg["execInstallPkg"] // 0：默认检查新版本，1：不执行新版本安装，2：执行新版本安装
+	execInstallPkgArg := arg["execInstallPkg"] // 0：默认检查新版本，1：不返回安装包，2：返回安装包路径并退出
 	execInstallPkg := 0
 	if nil != execInstallPkgArg {
 		execInstallPkg = int(execInstallPkgArg.(float64))
@@ -992,15 +1154,18 @@ func exit(c *gin.Context) {
 		setCurrentWorkspace = setCurrentWorkspaceArg.(bool)
 	}
 
-	exitCode := model.Close(force, setCurrentWorkspace, execInstallPkg)
+	exitCode, installPkgPath := model.Close(force, setCurrentWorkspace, execInstallPkg)
 	ret.Code = exitCode
+	data := map[string]any{"closeTimeout": 0}
+	if "" != installPkgPath {
+		data["installPkgPath"] = installPkgPath
+	}
+	ret.Data = data
 	switch exitCode {
 	case 0:
 	case 1: // 同步执行失败
 		ret.Msg = model.Conf.Language(96) + "<div class=\"fn__space\"></div><button class=\"b3-button b3-button--white\">" + model.Conf.Language(97) + "</button>"
-		ret.Data = map[string]any{"closeTimeout": 0}
 	case 2: // 提示新安装包
 		ret.Msg = model.Conf.Language(61)
-		ret.Data = map[string]any{"closeTimeout": 0}
 	}
 }

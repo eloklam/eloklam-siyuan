@@ -11,7 +11,7 @@ import {hasClosestBlock, hasClosestByClassName} from "../util/hasClosest";
 import {getContenteditableElement, getTopAloneElement} from "../wysiwyg/getBlock";
 import {replaceFileName} from "../../editor/rename";
 import {transaction} from "../wysiwyg/transaction";
-import {getAssetName, getDisplayName, pathPosix} from "../../util/pathName";
+import {getAssetName, getDisplayName, isEncryptedBox, pathPosix} from "../../util/pathName";
 import {genEmptyElement} from "../../block/util";
 import {updateListOrder} from "../wysiwyg/list";
 import {escapeHtml} from "../../util/escape";
@@ -135,22 +135,22 @@ export const hintSlash = (key: string, protyle: IProtyle) => {
         id: "calloutNote",
         value: `> [!NOTE]\n> ${Lute.Caret}`,
         html: `<div class="b3-list-item__first"><span class="b3-list-item__graphic">✏️</span><span class="b3-list-item__text">${window.siyuan.languages.callout} - <span style="color: var(--b3-callout-note)">Note</span></span></div>`,
-    },{
+    }, {
         filter: [window.siyuan.languages.callout, "callout", "ts", "提示", "tishi", "tip"],
         id: "calloutTip",
         value: `> [!TIP]\n> ${Lute.Caret}`,
         html: `<div class="b3-list-item__first"><span class="b3-list-item__graphic">💡</span><span class="b3-list-item__text">${window.siyuan.languages.callout} - <span style="color: var(--b3-callout-tip)">Tip</span></span></div>`,
-    },{
+    }, {
         filter: [window.siyuan.languages.callout, "callout", "ts", "提示", "tishi", "important"],
         id: "calloutImportant",
         value: `> [!IMPORTANT]\n> ${Lute.Caret}`,
         html: `<div class="b3-list-item__first"><span class="b3-list-item__graphic">❗</span><span class="b3-list-item__text">${window.siyuan.languages.callout} - <span style="color: var(--b3-callout-important)">Important</span></span></div>`,
-    },{
+    }, {
         filter: [window.siyuan.languages.callout, "callout", "ts", "提示", "tishi", "warning"],
         id: "calloutWarning",
         value: `> [!WARNING]\n> ${Lute.Caret}`,
         html: `<div class="b3-list-item__first"><span class="b3-list-item__graphic">⚠️</span><span class="b3-list-item__text">${window.siyuan.languages.callout} - <span style="color: var(--b3-callout-warning)">Warning</span></span></div>`,
-    },{
+    }, {
         filter: [window.siyuan.languages.callout, "callout", "ts", "提示", "tishi", "caution"],
         id: "calloutCaution",
         value: `> [!CAUTION]\n> ${Lute.Caret}`,
@@ -243,7 +243,7 @@ export const hintSlash = (key: string, protyle: IProtyle) => {
         filter: [window.siyuan.languages.tag, "tags", "标签", "biaoqian", "bq"],
         id: "tag",
         value: "tag",
-        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconTags"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.tag}</span><span class="b3-menu__accelerator b3-menu__accelerator--hotkey">${updateHotkeyTip((window.siyuan.config.keymap.editor.insert.tag.custom))}</span></div>`,
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconTag"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.tag}</span><span class="b3-menu__accelerator b3-menu__accelerator--hotkey">${updateHotkeyTip((window.siyuan.config.keymap.editor.insert.tag.custom))}</span></div>`,
     }, {
         filter: [window.siyuan.languages["inline-math"], "inline formulas", "inline math", "行级公式", "hangjigongshi", "hjgs", "行级数学公式", "hangjishuxvegongshi", "hangjishuxuegongshi", "hjsxgs"],
         id: "inlineMath",
@@ -262,8 +262,8 @@ export const hintSlash = (key: string, protyle: IProtyle) => {
     }, {
         filter: [window.siyuan.languages.insertIframeURL, "insert iframe link", "插入 iframe 链接", "charuiframelianjie", "criframelj"],
         id: "insertIframeURL",
-        value: '<iframe sandbox="allow-forms allow-presentation allow-same-origin allow-scripts allow-modals allow-popups" src="" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>',
-        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconLanguage"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.insertIframeURL}</span></div>`,
+        value: '<iframe sandbox="allow-forms allow-presentation allow-same-origin allow-scripts allow-modals allow-popups allow-storage-access-by-user-activation" src="" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconGlobe"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.insertIframeURL}</span></div>`,
     }, {
         filter: [window.siyuan.languages.insertImgURL, "insert image link", "image", "img", "插入图片链接", "charutupianlianjie", "crtplj"],
         id: "insertImgURL",
@@ -458,14 +458,23 @@ export const genHintItemHTML = (item: IBlock) => {
 export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IHintData[] => {
     const nodeElement = hasClosestBlock(getEditorRange(protyle.wysiwyg.element).startContainer);
     protyle.hint.genLoading(protyle);
-    fetchPost("/api/search/searchRefBlock", {
-        k: key,
-        id: nodeElement ? nodeElement.getAttribute("data-node-id") : protyle.block.parentID,
-        beforeLen: Math.floor((Math.max(protyle.element.clientWidth / 2, 320) - 58) / 28.8),
-        rootID: source === "av" ? "" : protyle.block.rootID,
-        isDatabase: source === "av",
-        isSquareBrackets: ["[[", "【【"].includes(protyle.hint.splitChar)
-    }, (response) => {
+    let refParam: IObject;
+    if (protyle.lite) {
+        refParam = {k: key, id: "", rootID: "", beforeLen: 48, isDatabase: false, isSquareBrackets: true};
+    } else {
+        refParam = {
+            k: key,
+            id: nodeElement ? nodeElement.getAttribute("data-node-id") : protyle.block.parentID,
+            beforeLen: Math.floor((Math.max(protyle.element.clientWidth / 2, 320) - 58) / 28.8),
+            rootID: source === "av" ? "" : protyle.block.rootID,
+            isDatabase: source === "av",
+            isSquareBrackets: ["[[", "【【"].includes(protyle.hint.splitChar)
+        };
+        if (isEncryptedBox(protyle.notebookId)) {
+            refParam.notebook = protyle.notebookId;
+        }
+    }
+    fetchPost("/api/search/searchRefBlock", refParam, (response) => {
         const dataList: IHintData[] = [];
         if (response.data.newDoc) {
             const newFileName = Lute.UnEscapeHTMLStr(replaceFileName(response.data.k));
@@ -514,13 +523,17 @@ export const hintEmbed = (key: string, protyle: IProtyle): IHintData[] => {
     }
     protyle.hint.genLoading(protyle);
     const nodeElement = hasClosestBlock(getEditorRange(protyle.wysiwyg.element).startContainer);
-    fetchPost("/api/search/searchRefBlock", {
+    const embedParam: IObject = {
         k: key,
         isDatabase: false,
         beforeLen: Math.floor((Math.max(protyle.element.clientWidth / 2, 320) - 58) / 28.8),
         id: nodeElement ? nodeElement.getAttribute("data-node-id") : protyle.block.parentID,
         rootID: protyle.block.rootID,
-    }, (response) => {
+    };
+    if (isEncryptedBox(protyle.notebookId)) {
+        embedParam.notebook = protyle.notebookId;
+    }
+    fetchPost("/api/search/searchRefBlock", embedParam, (response) => {
         const dataList: IHintData[] = [];
         response.data.blocks.forEach((item: IBlock) => {
             dataList.push({
@@ -622,6 +635,7 @@ export const hintMoveBlock = (pathString: string, sourceElements: Element[], pro
             if (item.classList.contains("protyle-attr")) {
                 return;
             }
+            item.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
             doOperations.push({
                 action: "update",
                 id: item.getAttribute("data-node-id"),
