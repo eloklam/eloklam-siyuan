@@ -8,7 +8,7 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
-func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, query string, depth *int, cachedAttrViews map[string]*av.AttributeView) (ret *av.Calendar) {
+func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, query string, depth *int, cachedAttrViews map[string]*av.AttributeView, ignoreRows bool) (ret *av.Calendar) {
 	viewable := attrView.RenderedViewables[view.ID]
 	if nil != viewable {
 		ret = viewable.(*av.Calendar)
@@ -27,10 +27,15 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 		ret.WeekStart = view.Calendar.WeekStart
 		ret.FieldMapping = view.Calendar.FieldMapping
 
-		for _, field := range view.Calendar.Fields {
+		fields := make([]*av.ViewCalendarCardField, len(view.Calendar.Fields))
+		copy(fields, view.Calendar.Fields)
+		for _, field := range fields {
 			key, getErr := attrView.GetKey(field.ID)
 			if nil != getErr {
-				removeMissingField(attrView, view, field.ID)
+				// 找不到字段则在视图中删除（元数据查询场景不写盘）
+				if !ignoreRows {
+					removeMissingField(attrView, view, field.ID)
+				}
 				continue
 			}
 
@@ -55,6 +60,11 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 				},
 			})
 		}
+	}
+
+	// 菜单等只需要字段/视图元数据的场景，跳过全部卡片处理
+	if ignoreRows {
+		return
 	}
 
 	cardsValues := generateAttrViewItems(attrView, view)

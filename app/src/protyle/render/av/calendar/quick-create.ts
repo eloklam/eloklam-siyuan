@@ -124,7 +124,9 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
         }
         if (document.activeElement === document.body || document.activeElement === null) {
             titleInput.focus();
-            titleInput.select();
+            if (titleInput.value === (draft.title || "")) {
+                titleInput.select();
+            }
         }
         window.requestAnimationFrame(reclaimFocus);
     };

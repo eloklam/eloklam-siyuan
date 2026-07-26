@@ -331,17 +331,18 @@ const computeTimedEventColumns = (events: ICalendarNormalizedEvent[], day: dayjs
         clusterEndRow = Math.max(clusterEndRow, rowEnd);
     });
     closeCluster(items.length);
-    return {items, maxColumns: Math.max(1, ...items.map(item => item.clusterColumns))};
+    return {items};
 };
 
 const renderTimedEventLayer = (events: ICalendarNormalizedEvent[], day: dayjs.Dayjs, editable = true) => {
     const timedEvents = sortCalendarEvents(events.filter(event => !event.isAllDay));
     const layout = computeTimedEventColumns(timedEvents, day);
     const eventHTML = layout.items.map(item => {
-        const columnStyle = item.clusterColumns > 1 ? `grid-column:${item.column + 1}` : "grid-column:1 / -1";
-        return `<div class="av__calendar-timed-event" style="grid-row:${item.range.rowStart} / span ${item.range.rowSpan};${columnStyle}">${eventButtonHTML(item.event, day, editable)}</div>`;
+        const overlapStyle = item.clusterColumns > 1 ?
+            `;width:calc(${100 / item.clusterColumns}% - 2px);margin-left:${(item.column * 100) / item.clusterColumns}%` : "";
+        return `<div class="av__calendar-timed-event" style="grid-row:${item.range.rowStart} / span ${item.range.rowSpan};grid-column:1 / -1${overlapStyle}">${eventButtonHTML(item.event, day, editable)}</div>`;
     }).join("");
-    return `<div class="av__calendar-timed-events" style="grid-template-columns:repeat(${layout.maxColumns}, minmax(0, 1fr))">${eventHTML}</div>`;
+    return `<div class="av__calendar-timed-events">${eventHTML}</div>`;
 };
 
 const renderTimeSlotsForDay = (day: dayjs.Dayjs, editable = true) => {
@@ -446,7 +447,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true) 
     if (hasActiveQuery && events.length === 0 && viewMode !== 3) {
         body = `<div class="av__calendar-no-results ft__on-surface">${window.siyuan.languages.calendarNoMatchingEvent || window.siyuan.languages.emptyContent}</div>${body}`;
     }
-    if (!hasActiveQuery && totalEventCount === 0 && editable) {
+    if (!hasActiveQuery && normalized.baseEventsByID.size === 0 && editable) {
         body = `<div class="av__calendar-empty-hint ft__on-surface">${window.siyuan.languages.calendarEmptyHint || "No calendar items yet — click a day or a time slot to create the first one."}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
@@ -544,7 +545,9 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         }
     };
     const setCalendarViewMode = (mode: number) => {
-        if (mode === viewMode || ![0, 1, 2, 3].includes(mode)) {
+        const persistedMode = getSafeViewMode(calendar.viewMode);
+        const hasLocalOverride = !!options.blockElement.dataset.calendarViewMode;
+        if (![0, 1, 2, 3].includes(mode) || (mode === persistedMode && !hasLocalOverride && mode === viewMode)) {
             return;
         }
         const avID = options.blockElement.getAttribute("data-av-id");
@@ -564,7 +567,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             action: "setAttrViewCalendarViewMode",
             avID,
             blockID,
-            data: viewMode,
+            data: persistedMode,
             viewID: data.viewID,
         }]);
         delete options.blockElement.dataset.calendarViewMode;
@@ -599,6 +602,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             }
             const date = (item as HTMLElement).dataset.date;
             if (!date || options.blockElement.dataset.calendarDate === date) {
+                return;
+            }
+            if ((item as HTMLElement).classList.contains("av__calendar-day--muted")) {
+                // Adjacent-month cells navigate, so the visible month always
+                // matches the stored anchor.
+                setCalendarAnchor(dayjs(date));
                 return;
             }
             // Select without re-rendering so the current view stays put; the
@@ -1099,9 +1108,10 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             const draftDate = dayjs(targetDate).subtract(dragOffsetDays, "day").format("YYYY-MM-DD");
             const draggedEventElement = calendarElement?.querySelector(`.av__calendar-event[data-occurrence="${eventID}"], .av__calendar-event[data-id="${eventID}"]`) as HTMLElement;
             applyScopedEventDraft(sourceEvent, (target) => {
+                const dayDelta = dayjs(draftDate).diff(sourceEvent.start.startOf("day"), "day");
                 const targetDraftDate = target === sourceEvent ?
                     draftDate :
-                    target.start.add(dayjs(draftDate).diff(sourceEvent.start, "day"), "day").format("YYYY-MM-DD");
+                    target.start.startOf("day").add(dayDelta, "day").format("YYYY-MM-DD");
                 const draft = buildDraftForDate(target, targetDraftDate);
                 if (target.isAllDay && target.end && !target.start.isSame(target.end, "day")) {
                     draft.endTime = target.end?.format("HH:mm") || "23:59";

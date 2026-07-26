@@ -543,7 +543,7 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
     const draft = getDraftFromDialog(dialog);
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
+    if ((!draft.title && !options.event?.isTitleFallback) || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
         showInvalidDraftMessage(draft, mapping);
         return false;
     }
@@ -643,7 +643,7 @@ const duplicateEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     };
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    if (!draft.title || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
+    if ((!draft.title && !options.event?.isTitleFallback) || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
         showInvalidDraftMessage(draft, mapping);
         return false;
     }

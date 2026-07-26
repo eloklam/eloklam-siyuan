@@ -111,7 +111,7 @@ func renderView(attrView *av.AttributeView, view *av.View, query string, depth *
 	case av.LayoutTypeKanban:
 		ret = RenderAttributeViewKanban(attrView, view, query, depth, cachedAttrViews, ignoreRows)
 	case av.LayoutTypeCalendar:
-		ret = RenderAttributeViewCalendar(attrView, view, query, depth, cachedAttrViews)
+		ret = RenderAttributeViewCalendar(attrView, view, query, depth, cachedAttrViews, ignoreRows)
 	}
 	return
 }

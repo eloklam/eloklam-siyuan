@@ -40,11 +40,10 @@ if (!/const renderTimedEventLayer = \([^)]*events[^)]*day[^)]*editable/.test(ren
 if (!render.includes("const layout = computeTimedEventColumns(timedEvents, day);")) {
   fail("week/day timed events are not rendered through the shared grid layer");
 }
-if (!render.includes("grid-column:${item.column + 1}") || !render.includes("grid-column:1 / -1")) {
-  fail("timed events missing overlap column assignment");
-}
-if (!render.includes("grid-template-columns:repeat(${layout.maxColumns}, minmax(0, 1fr))")) {
-  fail("timed event layer missing overlap column template");
+if (!render.includes("width:calc(${100 / item.clusterColumns}% - 2px)") ||
+  !render.includes("margin-left:${(item.column * 100) / item.clusterColumns}%") ||
+  !render.includes("grid-column:1 / -1")) {
+  fail("timed events missing per-cluster overlap sizing");
 }
 
 for (const term of [
