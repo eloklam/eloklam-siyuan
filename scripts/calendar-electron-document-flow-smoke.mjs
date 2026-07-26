@@ -11,6 +11,7 @@ import {fileURLToPath} from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDir, "..");
 const appDir = path.join(root, "app");
+const expectedKernelVersion = JSON.parse(fs.readFileSync(path.join(appDir, "package.json"), "utf8")).version;
 const kernelDir = path.join(root, "kernel");
 const appKernelDir = path.join(appDir, "kernel");
 const appKernelBinary = path.join(appKernelDir, process.platform === "win32" ? "SiYuan-Kernel.exe" : "SiYuan-Kernel");
@@ -90,7 +91,7 @@ const waitForKernelBoot = async (baseURL) => {
     try {
       const version = await postJSON(baseURL, "/api/system/version");
       const progress = await postJSON(baseURL, "/api/system/bootProgress");
-      if (version === "3.6.5" && progress?.progress >= 100) {
+      if (version === expectedKernelVersion && progress?.progress >= 100) {
         return;
       }
       lastError = `version=${version} progress=${progress?.progress}`;
@@ -455,6 +456,7 @@ const main = async () => {
       }
     }
     kernel = spawn(appKernelBinary, [
+      "serve",
       "--port", String(kernelPort),
       "--wd", appDir,
       "--workspace", workspace,

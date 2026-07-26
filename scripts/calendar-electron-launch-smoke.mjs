@@ -12,6 +12,7 @@ import {fileURLToPath} from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDir, "..");
 const appDir = path.join(root, "app");
+const expectedKernelVersion = JSON.parse(fs.readFileSync(path.join(appDir, "package.json"), "utf8")).version;
 const kernelDir = path.join(root, "kernel");
 const requireFromApp = createRequire(path.join(appDir, "package.json"));
 const ts = requireFromApp("typescript");
@@ -107,7 +108,7 @@ const waitForKernelBoot = async (baseURL) => {
     try {
       const version = await postJSON(baseURL, "/api/system/version");
       const progress = await postJSON(baseURL, "/api/system/bootProgress");
-      if (version === "3.6.5" && progress?.progress >= 100) {
+      if (version === expectedKernelVersion && progress?.progress >= 100) {
         return;
       }
       lastError = `version=${version} progress=${progress?.progress}`;
@@ -252,6 +253,8 @@ exports.Constants = {
 };
 `);
   writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = (message) => (globalThis.__calendarRenderMessages ||= []).push(message);\n");
+  writeFile(path.join(tempDir, "src/editor/util.js"), "exports.openFileById = (options) => (globalThis.__calendarRenderOpenBlocks ||= []).push({options, blockID: options && options.id});\n");
+  writeFile(path.join(tempDir, "src/mobile/editor.js"), "exports.openMobileFileById = (app, blockID) => (globalThis.__calendarRenderOpenBlocks ||= []).push({app, blockID, mobile: true});\n");
   writeFile(path.join(tempDir, "src/util/escape.js"), `
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[item]));
 exports.escapeHtml = escapeHtml;
@@ -270,7 +273,20 @@ exports.hasClosestByAttribute = (element, attr, value) => {
 `);
   writeFile(path.join(tempDir, "src/protyle/wysiwyg/transaction.js"), "exports.transaction = (protyle, doOperations, undoOperations) => (globalThis.__calendarRenderTransactions ||= []).push({doOperations, undoOperations});\n");
   writeFile(path.join(tempDir, "src/protyle/render/av/render.js"), "exports.genTabHeaderHTML = () => '<div class=\"av__header\"></div>';\n");
-  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), "exports.openEventDialog = (options) => (globalThis.__calendarRenderDialogs ||= []).push(options);\n");
+  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), `
+exports.openEventDialog = (options) => (globalThis.__calendarRenderDialogs ||= []).push(options);
+exports.openRecurrenceScopeDialog = (options) => {
+  (globalThis.__calendarRenderScopeDialogs ||= []).push({action: options.action, disabled: options.disabledScopes});
+  options.onSelect('series');
+  return {destroy: () => {}};
+};
+exports.getDisabledRecurrenceScopes = () => ({occurrence: '', future: ''});
+exports.isRecurringSourceEvent = (event) => {
+  if (!event || event.isOccurrence) return false;
+  const raw = (event.recurrenceRaw || '').trim();
+  return !!event.recurrence || (!!raw && raw.toUpperCase() !== 'NONE');
+};
+`);
   writeFile(path.join(tempDir, "src/protyle/render/av/calendar/transactions.js"), `
 const record = (type, payload) => {
   (globalThis.__calendarRenderTxCalls ||= []).push({type, payload});
@@ -322,6 +338,7 @@ exports.Dialog = Dialog;
   writeFile(path.join(tempDir, "src/constants.js"), "exports.Constants = {CB_GET_FOCUS: 'cb-get-focus'};\n");
   writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = (message) => (globalThis.__calendarDialogMessages ||= []).push(message);\n");
   writeFile(path.join(tempDir, "src/editor/util.js"), "exports.openFileById = (options) => (globalThis.__calendarDialogOpenBlocks ||= []).push({options, blockID: options && options.id});\n");
+  writeFile(path.join(tempDir, "src/dialog/confirmDialog.js"), "exports.confirmDialog = (title, text, confirm) => { (globalThis.__calendarDialogConfirms ||= []).push({title, text}); if (confirm) confirm(); };\n");
   writeFile(path.join(tempDir, "src/mobile/editor.js"), "exports.openMobileFileById = (app, blockID) => (globalThis.__calendarDialogOpenBlocks ||= []).push({app, blockID, mobile: true});\n");
   writeFile(path.join(tempDir, "src/util/escape.js"), `
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[item]));
@@ -434,6 +451,7 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
     newDialog.element.querySelector('[data-type="calendar-recurrence-weekday"][value="WE"]').checked = true;
     const weekdayVisible = newDialog.element.querySelector('[data-type="calendar-weekday-row"]').style.display !== 'none';
     newDialog.element.querySelector('[data-type="event-save"]').click();
+    await new Promise(resolve => setTimeout(resolve, 20));
     const createCall = globalThis.__calendarDialogTxCalls.find(call => call.type === 'create');
 
     const event = {
@@ -456,17 +474,27 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
 
     const occurrence = {...event, id: 'row-dialog::2026-06-10', isOccurrence: true, occurrenceDate: '2026-06-10'};
     const futureDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-10', event: occurrence, onSave: () => saves++});
-    const hasFutureButton = !!futureDialog.element.querySelector('[data-type="event-save-future"]');
     futureDialog.element.querySelector('#av-event-title').value = 'Future dialog event';
-    futureDialog.element.querySelector('[data-type="event-save-future"]').click();
+    futureDialog.element.querySelector('[data-type="event-save"]').click();
+    const saveScopeDialog = globalThis.__calendarDialogInstances.at(-1);
+    const scopeFutureButton = saveScopeDialog.element.querySelector('[data-type="calendar-scope-future"]');
+    const scopeFutureEnabled = !!scopeFutureButton && !scopeFutureButton.disabled;
+    scopeFutureButton.click();
+    await new Promise(resolve => setTimeout(resolve, 20));
     const futureCall = globalThis.__calendarDialogTxCalls.find(call => call.type === 'future');
 
     const occurrenceDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-10', event: occurrence, onDelete: () => deletes++});
     occurrenceDialog.element.querySelector('[data-type="event-delete"]').click();
+    const deleteScopeDialog = globalThis.__calendarDialogInstances.at(-1);
+    const scopeOccurrenceButton = deleteScopeDialog.element.querySelector('[data-type="calendar-scope-occurrence"]');
+    const scopeOccurrenceEnabled = !!scopeOccurrenceButton && !scopeOccurrenceButton.disabled;
+    scopeOccurrenceButton.click();
+    await new Promise(resolve => setTimeout(resolve, 20));
     const deleteOccurrenceCall = globalThis.__calendarDialogTxCalls.find(call => call.type === 'delete-occurrence');
 
     const duplicateDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-03', event, onSave: () => saves++});
     duplicateDialog.element.querySelector('[data-type="event-duplicate"]').click();
+    await new Promise(resolve => setTimeout(resolve, 20));
     const duplicateCreateCall = globalThis.__calendarDialogTxCalls.filter(call => call.type === 'create').at(-1);
 
     const advancedDialog = dialogModule.openEventDialog({protyle, blockElement: host, data, date: '2026-06-03', event: {...event, recurrenceRaw: 'FREQ=WEEKLY;BYMONTH=1'}});
@@ -481,7 +509,8 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
       readOnlyDisabled,
       readOnlyHasSave,
       openedBlock,
-      hasFutureButton,
+      scopeFutureEnabled,
+      scopeOccurrenceEnabled,
       futureDraft: futureCall?.payload?.draft,
       futureDestroyed: futureDialog.destroyed,
       deleteOccurrenceType: deleteOccurrenceCall?.type || '',
@@ -499,7 +528,7 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
     draft.isAllDay !== false || draft.location !== "Dialog Room" || draft.description !== "Dialog details" ||
     draft.colorContent !== "Focus" || draft.recurrenceRaw !== "FREQ=WEEKLY;INTERVAL=2;COUNT=3;UNTIL=2026-06-01;BYDAY=MO,WE" ||
     !result.readOnlyDisabled || result.readOnlyHasSave || result.openedBlock !== "block-dialog" ||
-    !result.hasFutureButton || result.futureDraft?.title !== "Future dialog event" || !result.futureDestroyed ||
+    !result.scopeFutureEnabled || !result.scopeOccurrenceEnabled || result.futureDraft?.title !== "Future dialog event" || !result.futureDestroyed ||
     result.deleteOccurrenceType !== "delete-occurrence" || result.deletes !== 1 ||
     duplicateDraft.title !== "Existing dialog event" || duplicateDraft.recurrenceRaw !== "" ||
     !result.advancedReadOnly || result.messageCount !== 0) {
@@ -549,6 +578,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     globalThis.__calendarRenderMessages = [];
     globalThis.__calendarRenderTransactions = [];
     globalThis.__calendarRenderTxCalls = [];
+    globalThis.__calendarRenderScopeDialogs = [];
     const timestamp = (value) => new Date(value).getTime();
     const field = (id, type, extra = {}) => ({id, type, name: id, desc: '', width: '', icon: '', wrap: false, pin: false, hidden: false, numberFormat: '', template: '', calc: {}, ...extra});
     const cell = (rowID, keyID, type, value) => ({id: rowID + '-' + keyID, valueType: type, color: '', bgColor: '', value: {id: rowID + '-' + keyID, keyID, type, ...value}});
@@ -762,6 +792,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       weekMode,
       slotQuickTitleFocused,
       slotQuickTop,
+      scopeDialogActions: (globalThis.__calendarRenderScopeDialogs || []).map(item => item.action).join(','),
       slotDblclickDialogBlocked,
       slotCreateDraft: slotCreateCall?.payload?.draft,
       dayMode,
@@ -796,6 +827,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.resizeDraft?.endTime !== "10:15" || result.persistedModeOperation !== "setAttrViewCalendarViewMode" ||
     result.dragDraft?.date !== "2026-05-26" || result.dragDraft?.title !== "Calendar none smoke event" ||
     result.weekMode !== "1" || !result.slotQuickTitleFocused || result.slotQuickTop === "" ||
+    result.scopeDialogActions !== "resize" ||
     !result.slotDblclickDialogBlocked || result.slotCreateDraft?.date !== "2026-05-26" ||
     result.slotCreateDraft?.startTime !== "09:00" || result.slotCreateDraft?.endTime !== "09:30" ||
     result.slotCreateDraft?.isAllDay !== false ||
@@ -883,6 +915,7 @@ const main = async () => {
     }
 
     kernel = spawn(appKernelBinary, [
+      "serve",
       "--port", String(kernelPort),
       "--wd", appDir,
       "--workspace", workspace,

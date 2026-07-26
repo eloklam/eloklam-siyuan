@@ -452,9 +452,17 @@ const showInvalidDraftMessage = (draft: ReturnType<typeof getDraftFromDialog>, m
     showMessage(window.siyuan.languages._kernel[29]);
 };
 
-const isRecurringSourceEvent = (event?: ICalendarNormalizedEvent) => !!event && !event.isOccurrence && !!(event.recurrenceRaw || event.recurrence);
+export const isRecurringSourceEvent = (event?: ICalendarNormalizedEvent) => {
+    if (!event || event.isOccurrence) {
+        return false;
+    }
+    // recurrenceRaw "None" explicitly means non-recurring; only treat other
+    // non-empty raw rules (including advanced ones we keep verbatim) as recurring.
+    const raw = (event.recurrenceRaw || "").trim();
+    return !!event.recurrence || (!!raw && raw.toUpperCase() !== "NONE");
+};
 
-const getDisabledRecurrenceScopes = (mapping: ReturnType<typeof getCalendarFieldMapping>, action: "edit" | "delete", event?: ICalendarNormalizedEvent) => {
+export const getDisabledRecurrenceScopes = (mapping: ReturnType<typeof getCalendarFieldMapping>, action: "edit" | "delete", event?: ICalendarNormalizedEvent) => {
     const isSourceEvent = isRecurringSourceEvent(event);
     return {
         occurrence: isSourceEvent ?

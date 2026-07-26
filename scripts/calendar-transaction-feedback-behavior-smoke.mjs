@@ -33,10 +33,10 @@ assertRegex(transactions, /export const updateCalendarEvent = async/, 'update he
 assertRegex(transactions, /export const deleteCalendarEvent = async/, 'delete helper async');
 
 assertRegex(render, /withCalendarOperationFeedback = async[\s\S]*await callback\(\)/, 'render feedback awaits operation');
-assertRegex(render, /const saved = await \(sourceEvent\.isOccurrence[\s\S]*updateCalendarEvent/, 'drag resize/move await backend truth');
+assertRegex(render, /const saved = await \(scope === \"occurrence\"[\s\S]*updateCalendarEvent/, 'drag resize/move await backend truth');
 assertRegex(render, /const saved = await createCalendarEvent/, 'create/duplicate awaits backend truth');
 assertRegex(render, /const draggedEventElement = calendarElement\?\.querySelector\(`\.av__calendar-event\[data-(?:occurrence|id)=/, 'drop finds dragged event element');
-assertRegex(render, /updateEventWithDraft\(targetEvent, draft, draggedEventElement/, 'drop passes operation element for pending guard');
+assertRegex(render, /applyScopedEventDraft\(sourceEvent, \(target\) => \{[\s\S]*?draggedEventElement/, 'drop passes operation element for pending guard');
 assertRegex(render, /operationElement\?\.dataset\.calendarOperation === "pending"/, 'render duplicate pending guard');
 assertNotRegex(render, /showMessage\(operationLabel\)/, 'render must not show saved/submitted success before verified rerender');
 

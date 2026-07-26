@@ -109,5 +109,21 @@ export const openQuickCreate = (options: IQuickCreateOptions) => {
     });
     titleInput.focus();
     titleInput.select();
+    // Global click/focus handlers (and bare X servers) can asynchronously drop
+    // focus back to <body> right after the popover opens; reclaim it briefly so
+    // typing always lands in the title input, without fighting a deliberate
+    // focus move to another control.
+    const focusGuardDeadline = Date.now() + 250;
+    const reclaimFocus = () => {
+        if (!panel.isConnected || Date.now() > focusGuardDeadline) {
+            return;
+        }
+        if (document.activeElement === document.body || document.activeElement === null) {
+            titleInput.focus();
+            titleInput.select();
+        }
+        window.requestAnimationFrame(reclaimFocus);
+    };
+    window.requestAnimationFrame(reclaimFocus);
     return panel;
 };

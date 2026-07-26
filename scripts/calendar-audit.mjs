@@ -526,7 +526,7 @@ for (const term of [
   "persistedModeOperation",
   "setupOperationAction",
   "createFieldOperations",
-  "event-save-future",
+  "calendar-scope-future",
   "futureDraft",
   "delete-occurrence",
   "av-event-recurrence-raw",

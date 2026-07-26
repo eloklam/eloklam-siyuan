@@ -13,9 +13,9 @@ import {genTabHeaderHTML} from "../render";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
-import {openEventDialog} from "./event-dialog";
+import {CalendarRecurrenceScope, getDisabledRecurrenceScopes, isRecurringSourceEvent, openEventDialog, openRecurrenceScopeDialog} from "./event-dialog";
 import {openQuickCreate} from "./quick-create";
-import {createCalendarEvent, createCalendarEventReplacingOccurrence, updateCalendarEvent} from "./transactions";
+import {createCalendarEvent, createCalendarEventReplacingOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 interface IRenderCalendarOptions {
     protyle: IProtyle;
@@ -782,7 +782,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         }
         return baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent;
     };
-    const updateEventWithDraft = (sourceEvent: ICalendarNormalizedEvent, draft: ICalendarEventDraft, operationElement: HTMLElement | null, operationLabel: string, failureMessage: string) => {
+    const updateEventWithDraft = (sourceEvent: ICalendarNormalizedEvent, draft: ICalendarEventDraft, operationElement: HTMLElement | null, operationLabel: string, failureMessage: string, scope: CalendarRecurrenceScope = "series") => {
         const avID = options.blockElement.getAttribute("data-av-id");
         const blockID = options.blockElement.getAttribute("data-node-id");
         if (!avID || !blockID || !mapping.dateFieldID) {
@@ -791,33 +791,49 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             rerender();
             return;
         }
+        const transactionOptions = {
+            protyle: options.protyle,
+            avID,
+            blockID,
+            dateFieldID: mapping.dateFieldID,
+            fields: calendar.fields,
+            mapping,
+            event: sourceEvent,
+            draft,
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        };
         withCalendarOperationFeedback(operationElement, operationLabel, failureMessage, async () => {
-            const saved = await (sourceEvent.isOccurrence && mapping.exceptionFieldID ? createCalendarEventReplacingOccurrence({
-                protyle: options.protyle,
-                avID,
-                blockID,
-                dateFieldID: mapping.dateFieldID,
-                fields: calendar.fields,
-                mapping,
-                event: sourceEvent,
-                draft,
+            const saved = await (scope === "occurrence" ? createCalendarEventReplacingOccurrence({
+                ...transactionOptions,
                 occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
-                previousUpdated: options.blockElement.getAttribute("updated") || "",
-            }) : updateCalendarEvent({
-                protyle: options.protyle,
-                avID,
-                blockID,
-                dateFieldID: mapping.dateFieldID,
-                fields: calendar.fields,
-                mapping,
-                event: sourceEvent,
-                draft,
-                previousUpdated: options.blockElement.getAttribute("updated") || "",
-            }));
+            }) : scope === "future" ? updateCalendarEventThisAndFuture({
+                ...transactionOptions,
+                occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
+            }) : updateCalendarEvent(transactionOptions));
             if (saved) {
                 rerender();
             }
             return saved;
+        });
+    };
+    // Direct manipulation (drag move, resize, schedule drop) of a recurring item
+    // must ask the user for scope, exactly like dialog edits do (P0.6).
+    const applyScopedEventDraft = (sourceEvent: ICalendarNormalizedEvent, buildDraft: (target: ICalendarNormalizedEvent) => ICalendarEventDraft, operationElement: HTMLElement | null, operationLabel: string, failureMessage: string, action: "move" | "resize") => {
+        if (!sourceEvent.isOccurrence && !isRecurringSourceEvent(sourceEvent)) {
+            updateEventWithDraft(sourceEvent, buildDraft(sourceEvent), operationElement, operationLabel, failureMessage);
+            return;
+        }
+        openRecurrenceScopeDialog({
+            action,
+            disabledScopes: getDisabledRecurrenceScopes(mapping, "edit", sourceEvent),
+            onSelect: (scope) => {
+                if (scope === "series") {
+                    const baseEvent = baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent;
+                    updateEventWithDraft(baseEvent, buildDraft(baseEvent), operationElement, operationLabel, failureMessage, "series");
+                    return;
+                }
+                updateEventWithDraft(sourceEvent, buildDraft(sourceEvent), operationElement, operationLabel, failureMessage, scope);
+            },
         });
     };
     const buildDraftForDate = (sourceEvent: ICalendarNormalizedEvent, targetDate: string): ICalendarEventDraft => {
@@ -875,7 +891,6 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 if (!sourceEvent) {
                     return;
                 }
-                const targetEvent = getEditableEvent(sourceEvent);
                 if (sourceEvent.isAllDay) {
                     const deltaDays = parseInt(resizeElement.dataset.days || "0", 10);
                     if (!deltaDays) {
@@ -886,19 +901,18 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                         return;
                     }
                     const nextDurationDays = Math.max(sourceEnd.startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
-                    const targetEnd = targetEvent.start.startOf("day").add(nextDurationDays, "day");
-                    updateEventWithDraft(targetEvent, {
-                        title: targetEvent.title,
-                        date: targetEvent.start.format("YYYY-MM-DD"),
-                        endDate: targetEnd.format("YYYY-MM-DD"),
+                    applyScopedEventDraft(sourceEvent, (target) => ({
+                        title: target.title,
+                        date: target.start.format("YYYY-MM-DD"),
+                        endDate: target.start.startOf("day").add(nextDurationDays, "day").format("YYYY-MM-DD"),
                         isAllDay: true,
-                        startTime: targetEvent.start.format("HH:mm"),
-                        endTime: targetEvent.end ? targetEvent.end.format("HH:mm") : "23:59",
-                        recurrenceRaw: targetEvent.recurrenceRaw,
-                        location: targetEvent.location,
-                        description: targetEvent.description,
-                        colorContent: targetEvent.colorContent,
-                    }, item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.");
+                        startTime: target.start.format("HH:mm"),
+                        endTime: target.end ? target.end.format("HH:mm") : "23:59",
+                        recurrenceRaw: target.recurrenceRaw,
+                        location: target.location,
+                        description: target.description,
+                        colorContent: target.colorContent,
+                    }), item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.", "resize");
                     return;
                 }
                 const delta = parseInt(resizeElement.dataset.delta || "0", 10);
@@ -908,19 +922,21 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                     return;
                 }
                 const nextDuration = nextEnd.diff(sourceEvent.start, "minute");
-                const targetEnd = targetEvent.start.add(nextDuration, "minute");
-                updateEventWithDraft(targetEvent, {
-                    title: targetEvent.title,
-                    date: targetEvent.start.format("YYYY-MM-DD"),
-                    endDate: targetEnd.format("YYYY-MM-DD"),
-                    isAllDay: false,
-                    startTime: targetEvent.start.format("HH:mm"),
-                    endTime: targetEnd.format("HH:mm"),
-                    recurrenceRaw: targetEvent.recurrenceRaw,
-                    location: targetEvent.location,
-                    description: targetEvent.description,
-                    colorContent: targetEvent.colorContent,
-                }, item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.");
+                applyScopedEventDraft(sourceEvent, (target) => {
+                    const targetEnd = target.start.add(nextDuration, "minute");
+                    return {
+                        title: target.title,
+                        date: target.start.format("YYYY-MM-DD"),
+                        endDate: targetEnd.format("YYYY-MM-DD"),
+                        isAllDay: false,
+                        startTime: target.start.format("HH:mm"),
+                        endTime: targetEnd.format("HH:mm"),
+                        recurrenceRaw: target.recurrenceRaw,
+                        location: target.location,
+                        description: target.description,
+                        colorContent: target.colorContent,
+                    };
+                }, item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.", "resize");
                 return;
             }
             const duplicateElement = (event.target as HTMLElement).closest('[data-type="calendar-duplicate-next-day"]') as HTMLElement;
@@ -1000,18 +1016,19 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             if (!sourceEvent || !targetDate) {
                 return;
             }
-            const targetEvent = getEditableEvent(sourceEvent);
             const dragOffsetDays = displayDate ? Math.max(dayjs(displayDate).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0) : 0;
             const draftDate = dayjs(targetDate).subtract(dragOffsetDays, "day").format("YYYY-MM-DD");
-            const targetDraftDate = targetEvent === sourceEvent ?
-                draftDate :
-                targetEvent.start.add(dayjs(draftDate).diff(sourceEvent.start, "day"), "day").format("YYYY-MM-DD");
-            const draft = buildDraftForDate(targetEvent, targetDraftDate);
-            if (targetEvent.isAllDay && targetEvent.end && !targetEvent.start.isSame(targetEvent.end, "day")) {
-                draft.endTime = targetEvent.end?.format("HH:mm") || "23:59";
-            }
             const draggedEventElement = calendarElement?.querySelector(`.av__calendar-event[data-occurrence="${eventID}"], .av__calendar-event[data-id="${eventID}"]`) as HTMLElement;
-            updateEventWithDraft(targetEvent, draft, draggedEventElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarMoveFailed || "Move failed.");
+            applyScopedEventDraft(sourceEvent, (target) => {
+                const targetDraftDate = target === sourceEvent ?
+                    draftDate :
+                    target.start.add(dayjs(draftDate).diff(sourceEvent.start, "day"), "day").format("YYYY-MM-DD");
+                const draft = buildDraftForDate(target, targetDraftDate);
+                if (target.isAllDay && target.end && !target.start.isSame(target.end, "day")) {
+                    draft.endTime = target.end?.format("HH:mm") || "23:59";
+                }
+                return draft;
+            }, draggedEventElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarMoveFailed || "Move failed.", "move");
         });
     });
 };

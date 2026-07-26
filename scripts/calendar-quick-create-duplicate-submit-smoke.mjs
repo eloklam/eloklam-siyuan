@@ -124,7 +124,7 @@ let resolveSave;
 const savePromise = new Promise((resolve) => { resolveSave = resolve; });
 const context = {
   document: {querySelectorAll: () => [], createElement: () => new FakeElement()},
-  window: {siyuan: {languages: {title: "Title", save: "Save", cancel: "Cancel", more: "More", calendarAllDay: "All day", invalid: "Invalid", _kernel: {29: "Save failed"}}}},
+  window: {siyuan: {languages: {title: "Title", save: "Save", cancel: "Cancel", more: "More", calendarAllDay: "All day", invalid: "Invalid", _kernel: {29: "Save failed"}}}, requestAnimationFrame: () => 0},
   showMessage() {},
   escapeAttr: (value) => String(value),
   escapeHtml: (value) => String(value),
