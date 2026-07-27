@@ -2,6 +2,10 @@
 import fs from 'node:fs';
 
 const render = fs.readFileSync('app/src/protyle/render/av/calendar/render.ts', 'utf8');
+// The chip markup moved out of render.ts into event-chip.ts; the assertions that
+// covered it moved with it rather than being dropped.
+const eventChip = fs.readFileSync('app/src/protyle/render/av/calendar/event-chip.ts', 'utf8');
+const contextMenu = fs.readFileSync('app/src/protyle/render/av/calendar/context-menu.ts', 'utf8');
 const dialog = fs.readFileSync('app/src/protyle/render/av/calendar/event-dialog.ts', 'utf8');
 const normalize = fs.readFileSync('app/src/protyle/render/av/calendar/normalize.ts', 'utf8');
 const layout = fs.readFileSync('app/src/protyle/render/av/layout.ts', 'utf8');
@@ -12,10 +16,10 @@ const checks = [
   // The bound document id is derived from the block VALUE id, never from
   // value.isDetached (omitempty, so absent on bound rows) - see getBoundBlockID.
   [normalize.includes('blockID: getBoundBlockID(card)'), 'normalize keeps the bound document id on events'],
-  [render.includes('calendar-open-source'), 'event chips expose first-class open-source affordance'],
+  [eventChip.includes('calendar-open-source') && render.includes('calendar-open-source'), 'event chips expose first-class open-source affordance'],
   [render.includes('openCalendarEventSource'), 'renderer can open source directly from chip'],
   [render.includes('getEventDocumentID(calendarEvent)') && render.includes('event.stopPropagation()'), 'source affordance stops chip dialog and opens source'],
-  [render.includes('calendarOpenSource') || render.includes('Source'), 'event chip labels source affordance'],
+  [eventChip.includes('calendarOpenSource') || eventChip.includes('Source'), 'event chip labels source affordance'],
   [dialog.includes('calendarSource') && dialog.includes('event-source'), 'dialog shows explicit source note/block context'],
   [dialog.includes('event-open-block') && dialog.includes('calendarOpenSource'), 'dialog has obvious Open source action'],
   [scss.includes('&-source') && scss.includes('&-event-source'), 'source affordance styled in calendar SCSS'],
@@ -26,7 +30,11 @@ const checks = [
   [render.includes('import {openDatabaseRowByData} from "../openDatabaseRow";'), 'calendar opens pages through the shared database-row opener'],
   [render.includes('openDatabaseRowByData(protyle, {') && render.includes('boundBlockID: documentID') && render.includes('isDetached: false'), 'bound entries open as a real database row/page'],
   [/if \(calendarEvent && getEventDocumentID\(calendarEvent\)\) \{\s*\n\s*openCalendarEventSource/.test(render), 'primary chip click opens the page for bound entries'],
-  [render.includes('calendar-open-dialog') && render.includes('av__calendar-schedule'), 'bound chips keep a labelled scheduling-dialog affordance'],
+  [render.includes('calendar-open-dialog') && eventChip.includes('av__calendar-schedule'), 'bound chips keep a labelled scheduling-dialog affordance'],
+  // The chip lost its inline buttons; the right-click menu is where those actions
+  // went, and it must still reach the page and the scheduling dialog by name.
+  [contextMenu.includes('data-type="calendar-open-source"') && contextMenu.includes('data-type="calendar-open-dialog"'), 'context menu keeps the open-page and scheduling entry points'],
+  [render.includes('command.type === "calendar-open-source"') && render.includes('command.type === "calendar-open-dialog"'), 'renderer routes the menu open-page/scheduling commands'],
   [scss.includes('&-schedule {'), 'scheduling affordance styled in calendar SCSS'],
   [!/openFileById\(/.test(render) && !/openMobileFileById\(/.test(render), 'calendar no longer bypasses the database-row opener with a bare openFileById'],
 

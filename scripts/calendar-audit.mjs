@@ -21,6 +21,22 @@ const requiredFiles = [
   "app/src/protyle/render/av/calendar/transactions.ts",
   "app/src/protyle/render/av/calendar/render.ts",
   "app/src/protyle/render/av/calendar/event-dialog.ts",
+  // The Week/Day time grid moved out of render.ts (G1-G5). These files are part
+  // of the audited frontend surface so the terms migrated below keep covering
+  // real code instead of silently evaporating with the code that moved.
+  "app/src/protyle/render/av/calendar/time-geometry.ts",
+  "app/src/protyle/render/av/calendar/layout-overlap.ts",
+  "app/src/protyle/render/av/calendar/time-grid.ts",
+  "app/src/protyle/render/av/calendar/now-indicator.ts",
+  // The chip markup, the right-click menu, the key map, the mini month and the
+  // human-readable recurrence summary each moved into their own module. They are
+  // part of the audited frontend surface for the same reason the grid modules
+  // are: terms migrated out of render.ts have to keep covering real code.
+  "app/src/protyle/render/av/calendar/event-chip.ts",
+  "app/src/protyle/render/av/calendar/context-menu.ts",
+  "app/src/protyle/render/av/calendar/keymap.ts",
+  "app/src/protyle/render/av/calendar/mini-month.ts",
+  "app/src/protyle/render/av/calendar/recurrence-summary.ts",
   "scripts/calendar-kernel-smoke.mjs",
   "scripts/calendar-recurrence-smoke.mjs",
   "scripts/calendar-transactions-smoke.mjs",
@@ -57,7 +73,9 @@ const expectedFeatureTerms = [
   "calendar-next-event",
   "av__calendar-summary",
   "tabindex=\"0\"",
-  "aria-keyshortcuts=\"ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4\"",
+  // The legacy set is still in there verbatim; the Google keys are appended, so
+  // this term proves the old shortcuts were extended and never replaced.
+  "\"ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 D W M X A J K P C ?\"",
   "role=\"region\"",
   "calendar-mode",
   "calendar-drop-day",
@@ -69,7 +87,15 @@ const expectedFeatureTerms = [
   "getEventTooltip",
   "av__calendar-recurring",
   "data-days",
-  "computeTimedEventColumns",
+  // was computeTimedEventColumns in render.ts, now the pure packer in layout-overlap.ts
+  "packTimedEventColumns",
+  "packAllDayLanes",
+  "getCalendarTimeGeometry",
+  "renderCalendarTimeGrid",
+  "mountCalendarNowIndicator",
+  "av__calendar-now-indicator",
+  "calendar-time-create",
+  "calendar-resize-handle",
   "calendar-more",
   "av__calendar-empty-hint",
   "isTitleFallback",
@@ -84,12 +110,29 @@ if (missingFeatureTerms.length > 0) {
 const languageCodeFiles = [
   "app/src/protyle/render/av/calendar/render.ts",
   "app/src/protyle/render/av/calendar/event-dialog.ts",
+  // Everything that moved out of render.ts and still names calendar* keys. The
+  // keys have to keep existing in every bundled language, or the UI that moved
+  // would start showing English fallbacks in a translated build.
+  "app/src/protyle/render/av/calendar/event-chip.ts",
+  "app/src/protyle/render/av/calendar/context-menu.ts",
+  "app/src/protyle/render/av/calendar/keymap.ts",
+  "app/src/protyle/render/av/calendar/mini-month.ts",
+  "app/src/protyle/render/av/calendar/recurrence-summary.ts",
+  "app/src/protyle/render/av/calendar/quick-create.ts",
   "app/src/protyle/render/av/layout.ts",
 ];
 const calendarLanguageKeys = new Set();
 for (const file of languageCodeFiles) {
   const text = read(file);
+  // Two access shapes: the direct `window.siyuan.languages.calendarX` and the
+  // `lang("calendarX", "fallback")` helper the newer modules use. Only matching
+  // the first would let a whole module's keys go unchecked.
   for (const match of text.matchAll(/window\.siyuan\.languages\.([A-Za-z0-9_]+)/g)) {
+    if (match[1].startsWith("calendar")) {
+      calendarLanguageKeys.add(match[1]);
+    }
+  }
+  for (const match of text.matchAll(/\blang\("([A-Za-z0-9_]+)"/g)) {
     if (match[1].startsWith("calendar")) {
       calendarLanguageKeys.add(match[1]);
     }
@@ -126,8 +169,8 @@ if (/if \(sourceEvent\.isOccurrence\)\s*{\s*draft\.recurrenceRaw = ""/.test(cale
 for (const term of [
   "hasClosestByAttribute(options.blockElement, \"data-type\", \"NodeBlockQueryEmbed\")",
   "hasClosestByAttribute(e, \"data-type\", \"NodeBlockQueryEmbed\")",
-  "draggable=\"${editable ? \"true\" : \"false\"}\"",
-  "av__calendar-event--readonly",
+  // draggable / av__calendar-event--readonly moved into event-chip.ts with the
+  // chip markup and are asserted against that file below (calendarEventChip).
   "${editable ? \"\" : \" disabled\"}",
   "window.siyuan.languages._kernel[258]",
 ]) {
@@ -146,8 +189,8 @@ for (const term of [
   "renderWeek",
   "renderDay",
   "renderList",
-  "av__calendar-week-day${day.isSame(dayjs(), \"day\") ? \" av__calendar-day--today\" : \"\"}",
-  "av__calendar-day-view${anchor.isSame(dayjs(), \"day\") ? \" av__calendar-day--today\" : \"\"}",
+  // The week/day "today" markers moved into time-grid.ts with the grid itself;
+  // they are asserted against that file below (calendarTimeGrid).
   "av__calendar-list-day${cursor.isSame(dayjs(), \"day\") ? \" av__calendar-day--today\" : \"\"}",
   "renderEventSummary",
   "data-date=\"${cursor.format(\"YYYY-MM-DD\")}\" data-type=\"calendar-drop-day\"",
@@ -162,13 +205,8 @@ for (const term of [
   "event.start.isAfter(anchor, \"day\")",
   "event.start.isBefore(anchor, \"day\")",
   "showMessage(window.siyuan.languages.calendarNoMatchingEvent",
-  "getEventDateLabel",
-  "title=\"${escapeAttr(eventTooltip)}\"",
-  "aria-label=\"${escapeAttr(eventTooltip)}\"",
-  "window.siyuan.languages.calendarOccurrence || \"Recurring occurrence\"",
-  "const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence",
-  "event.isOccurrence ? \"O\" : \"R\"",
-  "${recurrenceMarker}",
+  // getEventDateLabel / the tooltip attributes / the recurrence marker moved
+  // into event-chip.ts with the chip markup (calendarEventChip block below).
   "jumpDateInput",
   "setCalendarAnchor",
   "getCurrentAnchor",
@@ -187,17 +225,19 @@ for (const term of [
   "aria-label=\"${escapeAttr(`${window.siyuan.languages.calendar || \"Calendar\"} ${title}`)}\"",
   "av__calendar-title\" aria-live=\"polite\"",
   "av__calendar-summary\" aria-live=\"polite\"",
-  "calendarElement?.addEventListener(\"keydown\"",
-  "event.key === \"ArrowLeft\"",
-  "event.key === \"ArrowRight\"",
-  "event.key === \"[\"",
-  "event.key === \"]\"",
-  "event.key.toLowerCase() === \"t\"",
-  "event.key.toLowerCase() === \"n\"",
-  "event.key === \"/\"",
-  "event.key === \"Escape\"",
-  "/^[1-4]$/.test(event.key)",
-  "setCalendarViewMode(parseInt(event.key, 10) - 1)",
+  // The keydown block itself moved into keymap.ts; what render.ts still owns is
+  // the binding and the handler wiring. Every key literal that used to be
+  // asserted here is asserted against keymap.ts below (calendarKeymap).
+  "bindCalendarKeymap(calendarElement, {",
+  "setViewMode: (mode: number) => setCalendarViewMode(mode)",
+  "goToRange: (direction) => setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, direction))",
+  "goToToday: () => setCalendarAnchor(dayjs())",
+  "seekEvent: (direction) => seekEvent(direction)",
+  "escape: backOutOfCalendar",
+  "isCalendarGestureActive()",
+  "abortActiveCalendarGesture()",
+  "addCalendarTeardown",
+  "runCalendarTeardowns(options.blockElement)",
   "eventMatchesSearch",
   "getCalendarSearch",
   "getCalendarFilter",
@@ -227,14 +267,301 @@ for (const term of [
   "duplicateEventToNextDay",
   "draft.recurrenceRaw = \"\"",
   "draft.recurrenceExceptionRaw = \"\"",
-  "window.siyuan.languages.copy || \"Copy\"",
+  // The Copy label moved with the action into context-menu.ts (asserted below).
   "createCalendarEvent({",
   "getEditableEvent",
   "readOnly: true",
   ".av__calendar-event, [data-type='calendar-new']",
+  // The chip's inline buttons became menu commands; render.ts must still route
+  // every one of them through the guarded write paths.
+  "renderCalendarEventChip({",
+  "bindCalendarEventContextMenu({",
+  "runCalendarMenuCommand",
+  "command.type === \"calendar-duplicate-next-day\"",
+  "command.type === \"calendar-resize\"",
+  "command.type === \"calendar-shift\"",
+  "command.type === \"calendar-delete\"",
+  "applyCalendarDurationChange",
+  "shiftCalendarEvent",
+  "requestCalendarEventDelete",
+  "deleteCalendarEventWithScope",
+  "getDisabledRecurrenceScopes(mapping, \"delete\", sourceEvent)",
+  "action: \"delete\",",
+  // The mini month: bound, torn down, and anchored on a click.
+  "bindCalendarMiniMonth(",
+  "getCalendarMiniMonthEventDays(miniMonthEvents)",
+  "onSelectDate: (date) => setCalendarAnchor(date)",
+  "calendar-mini-month-wrapper",
+  "av__calendar-sidebar",
+  "av__calendar-main",
 ]) {
   if (!calendarRender.includes(term)) {
     fail(`calendar render flow missing ${term}`);
+  }
+}
+
+// --- Week/Day time grid (migrated out of render.ts) --------------------------
+// Everything here used to be asserted against render.ts; it moved wholesale into
+// the four grid modules, so the assertions moved with it rather than being
+// deleted. Grid *behaviour* is verified by scripts/calendar-time-grid-smoke.mjs.
+const calendarTimeGeometry = read("app/src/protyle/render/av/calendar/time-geometry.ts");
+for (const term of [
+  "CALENDAR_SNAP_MINUTES = 15",
+  "CALENDAR_MINIMUM_EVENT_MINUTES = 15",
+  "CALENDAR_BUSINESS_START_MINUTE",
+  "CALENDAR_BUSINESS_END_MINUTE",
+  "minutesToPx",
+  "pxToMinutes",
+  "snapMinutes",
+  "getNowOffsetPx",
+  "getEventMinuteRange",
+]) {
+  if (!calendarTimeGeometry.includes(term)) {
+    fail(`calendar time geometry missing ${term}`);
+  }
+}
+
+const calendarLayoutOverlap = read("app/src/protyle/render/av/calendar/layout-overlap.ts");
+for (const term of [
+  "packTimedEventColumns",
+  "packAllDayLanes",
+  "CALENDAR_MINIMUM_EVENT_WIDTH_PERCENT",
+  "columnSpan",
+  "leftPercent",
+  "widthPercent",
+]) {
+  if (!calendarLayoutOverlap.includes(term)) {
+    fail(`calendar overlap packing missing ${term}`);
+  }
+}
+
+const calendarTimeGrid = read("app/src/protyle/render/av/calendar/time-grid.ts");
+for (const term of [
+  "renderCalendarTimeGrid",
+  "av__calendar-time-grid",
+  "av__calendar-grid-header",
+  "av__calendar-allday-row",
+  "av__calendar-allday-bar",
+  "av__calendar-time-gutter",
+  "av__calendar-time-day",
+  "av__calendar-timed-event",
+  "av__calendar-day-header",
+  "data-type=\"calendar-drop-day\"",
+  "calendar-time-create",
+  "calendar-resize-handle",
+  "data-view-kind",
+  "data-start-minute",
+  // migrated from render.ts: the week/day "today" and read-only markers
+  "const isToday = day.isSame(dayjs(), \"day\")",
+  "isToday ? \"av__calendar-day--today\" : \"\"",
+  "isToday ? ' aria-current=\"date\"' : \"\"",
+  "options.editable ? \"\" : \" disabled\"",
+  // read-only calendars get no create surface at all
+  "options.editable ?",
+]) {
+  if (!calendarTimeGrid.includes(term)) {
+    fail(`calendar time grid missing ${term}`);
+  }
+}
+
+const calendarNowIndicator = read("app/src/protyle/render/av/calendar/now-indicator.ts");
+for (const term of [
+  "mountCalendarNowIndicator",
+  "unmountCalendarNowIndicator",
+  "av__calendar-now-indicator",
+  "window.clearInterval",
+  "hasRestoredScroll",
+]) {
+  if (!calendarNowIndicator.includes(term)) {
+    fail(`calendar now indicator missing ${term}`);
+  }
+}
+
+// --- Chip anatomy (migrated out of render.ts's eventButtonHTML) --------------
+// The chip lost its permanent inline buttons. Everything else it carried has to
+// survive byte-for-byte, because the whole app and the smoke suite read the
+// calendar off these attributes.
+const calendarEventChip = read("app/src/protyle/render/av/calendar/event-chip.ts");
+for (const term of [
+  "renderCalendarEventChip",
+  "CalendarChipVariant",
+  "\"month\", \"list\", \"timed\", \"all-day\"",
+  "getEventTooltip",
+  "getEventDateLabel",
+  "title=\"${escapeAttr(eventTooltip)}\"",
+  "aria-label=\"${escapeAttr(eventTooltip)}\"",
+  "window.siyuan.languages.calendarOccurrence || \"Recurring occurrence\"",
+  "const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence",
+  "event.isOccurrence ? \"O\" : \"R\"",
+  "${recurrenceMarker}",
+  "av__calendar-recurring",
+  "av__calendar-source",
+  "av__calendar-schedule",
+  "calendar-open-source",
+  "calendar-open-dialog",
+  "draggable=\"${editable ? \"true\" : \"false\"}\"",
+  "av__calendar-event--readonly",
+  "av__calendar-event--page",
+  "av__calendar-event-dot",
+  "av__calendar-event-text",
+  "buildOptimisticChip",
+  "av__calendar-event--pending",
+  "buildCalendarGhost",
+]) {
+  if (!calendarEventChip.includes(term)) {
+    fail(`calendar event chip missing ${term}`);
+  }
+}
+// The chip must NOT grow permanent inline controls again: that is the defect
+// this module exists to fix.
+for (const term of [">-15m<", ">+15m<", ">-1d<", ">+1d<", "av__calendar-resize\" data-type"]) {
+  if (calendarEventChip.includes(term)) {
+    fail(`calendar event chip must no longer carry inline text buttons: ${term}`);
+  }
+}
+
+// --- Chip context menu (where those inline buttons went) ---------------------
+const calendarContextMenu = read("app/src/protyle/render/av/calendar/context-menu.ts");
+for (const term of [
+  "bindCalendarEventContextMenu",
+  "openCalendarEventMenu",
+  "closeCalendarEventMenu",
+  "av__calendar-menu",
+  "setAttribute(\"role\", \"menu\")",
+  "role=\"menuitem\"",
+  // Same data-type contract the inline buttons used, so the renderer's handlers
+  // and the assertions that drive them keep working from the new place.
+  "data-type=\"calendar-open-source\"",
+  "data-type=\"calendar-open-dialog\"",
+  "data-type=\"calendar-duplicate-next-day\"",
+  "data-type=\"calendar-resize\" data-days=\"-1\"",
+  "data-type=\"calendar-resize\" data-days=\"1\"",
+  "data-type=\"calendar-resize\" data-delta=\"-15\"",
+  "data-type=\"calendar-resize\" data-delta=\"15\"",
+  "data-type=\"calendar-shift\"",
+  "data-type=\"calendar-delete\"",
+  "window.siyuan.languages.copy || \"Copy\"",
+  "window.siyuan.languages.delete || \"Delete\"",
+  // Read-only / query-embed calendars never get a menu at all.
+  "if (!calendarElement || !options.editable)",
+  "contextmenu",
+  "LONG_PRESS_MS",
+  "abortActiveCalendarGesture()",
+  "event.key === \"Escape\"",
+]) {
+  if (!calendarContextMenu.includes(term)) {
+    fail(`calendar context menu missing ${term}`);
+  }
+}
+
+// --- Key map (migrated out of render.ts's keydown block) ---------------------
+// Every key literal below used to be asserted against render.ts. The block moved
+// wholesale into keymap.ts, so the assertions moved with it instead of being
+// deleted; the Google keys are additions on top.
+const calendarKeymap = read("app/src/protyle/render/av/calendar/keymap.ts");
+for (const term of [
+  "bindCalendarKeymap",
+  "resolveCalendarCommand",
+  "shouldIgnoreCalendarKey",
+  "element.addEventListener(\"keydown\"",
+  "element.removeEventListener(\"keydown\"",
+  "event.key === \"ArrowLeft\"",
+  "event.key === \"ArrowRight\"",
+  "event.key === \"[\"",
+  "event.key === \"]\"",
+  "event.key.toLowerCase() === \"t\"",
+  "event.key.toLowerCase() === \"n\"",
+  "event.key === \"/\"",
+  "event.key === \"Escape\"",
+  "/^[1-4]$/.test(event.key)",
+  "CALENDAR_VIEW_MODE_BY_COMMAND[command]",
+  // Google Calendar's map, added alongside the legacy one.
+  "event.key.toLowerCase() === \"d\"",
+  "event.key.toLowerCase() === \"w\"",
+  "event.key.toLowerCase() === \"m\"",
+  "event.key.toLowerCase() === \"x\"",
+  "event.key.toLowerCase() === \"j\"",
+  "event.key.toLowerCase() === \"c\"",
+  "event.key === \"?\"",
+  "CALENDAR_ARIA_KEYSHORTCUTS",
+  "\"ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 D W M X A J K P C ?\"",
+  // The focus-scope fix: BUTTON is gone from the bail list, so a click no longer
+  // kills every shortcut.
+  "[\"INPUT\", \"SELECT\", \"TEXTAREA\"].includes(element.tagName)",
+  "isContentEditable",
+  "isCalendarModalOpen",
+  // The "?" sheet is data, so it cannot drift from the resolver.
+  "getCalendarShortcutSections",
+  "renderCalendarShortcutHelp",
+  "openCalendarShortcutHelp",
+  "av__calendar-shortcuts",
+  "av__calendar-shortcuts-section",
+  "av__calendar-shortcuts-title",
+  "av__calendar-shortcuts-row",
+  "av__calendar-shortcuts-keys",
+  "av__calendar-shortcuts-label",
+  "<kbd>",
+]) {
+  if (!calendarKeymap.includes(term)) {
+    fail(`calendar keymap missing ${term}`);
+  }
+}
+if (calendarKeymap.includes("\"BUTTON\"")) {
+  fail("calendar keymap must not bail on BUTTON again: every calendar control is a button");
+}
+
+// --- Mini month navigator ----------------------------------------------------
+const calendarMiniMonth = read("app/src/protyle/render/av/calendar/mini-month.ts");
+for (const term of [
+  "renderCalendarMiniMonth",
+  "bindCalendarMiniMonth",
+  "getCalendarMiniMonthEventDays",
+  "getMiniMonthDays",
+  "av__calendar-mini",
+  "av__calendar-mini-header",
+  "av__calendar-mini-title",
+  "av__calendar-mini-weekdays",
+  "av__calendar-mini-grid",
+  "av__calendar-mini-day",
+  "av__calendar-mini-day--outside",
+  "av__calendar-mini-day--in-range",
+  "av__calendar-mini-day--selected",
+  "av__calendar-mini-day--today",
+  "av__calendar-mini-day--has-events",
+  "av__calendar-mini-day-number",
+  "av__calendar-mini-dot",
+  "calendar-mini-prev",
+  "calendar-mini-next",
+  "calendar-mini-day",
+  // Paging repaints only the navigator; only a day click moves the main view.
+  "handlers.onSelectDate(dayjs(target.dataset.date))",
+  "container.removeEventListener(\"click\", onClick)",
+]) {
+  if (!calendarMiniMonth.includes(term)) {
+    fail(`calendar mini month missing ${term}`);
+  }
+}
+
+// --- Human-readable recurrence summary (wired into the event dialog) ---------
+const calendarRecurrenceSummary = read("app/src/protyle/render/av/calendar/recurrence-summary.ts");
+for (const term of [
+  "describeRecurrence",
+  "detectRecurrencePreset",
+  "getRecurrencePresetRule",
+  "renderRecurrencePresetOptions",
+  "isAdvancedRecurrence",
+  "calendarDoesNotRepeat",
+  "calendarRepeatWeeklyOn",
+  "calendarRepeatUntilSuffix",
+  "calendarRepeatCountSuffix",
+]) {
+  if (!calendarRecurrenceSummary.includes(term)) {
+    fail(`calendar recurrence summary missing ${term}`);
+  }
+}
+for (const term of ["describeRecurrence", "renderRecurrencePresetOptions", "detectRecurrencePreset"]) {
+  if (!read("app/src/protyle/render/av/calendar/event-dialog.ts").includes(term)) {
+    fail(`event dialog must use the human-readable recurrence summary: ${term}`);
   }
 }
 
@@ -419,8 +746,53 @@ for (const term of [
   "&-recurring",
   "&-recurrence",
   "&-week",
-  "&-day-view",
+  // &-day-view is gone: Week and Day are one renderer, so the day view is the
+  // same sticky grid. Its chrome is what the style now has to prove exists.
+  "&-day-header",
+  "&-grid-header",
+  "&-allday-row",
+  "&-time-gutter",
+  "&-time-create",
+  "&-now-indicator",
   "&-list",
+  // Chip anatomy after the inline buttons were removed.
+  "&-event-dot",
+  "&--timed",
+  "&--all-day",
+  "&--month,",
+  // The right-click menu the inline buttons became.
+  "&-menu {",
+  "&-menu-item",
+  "&--separated",
+  "&--danger",
+  // The "?" shortcut sheet.
+  "&-shortcuts",
+  "&-shortcuts-section",
+  "&-shortcuts-title",
+  "&-shortcuts-row",
+  "&-shortcuts-keys",
+  "&-shortcuts-label",
+  "kbd {",
+  // The mini month and the sidebar it lives in.
+  "&-mini {",
+  "&-mini-header",
+  "&-mini-title",
+  "&-mini-weekdays",
+  "&-mini-grid",
+  "&-mini-day",
+  "&--outside",
+  "&--in-range",
+  "&--selected",
+  "&--today",
+  "&-mini-day--has-events",
+  "&-mini-day-number",
+  "&-mini-dot",
+  "&-sidebar",
+  "&-main",
+  // The navigator must not cost the main view its width in a narrow pane; the
+  // pane is what is narrow, so this is a container query, not a media query.
+  "container-type: inline-size",
+  "@container (min-width: 720px)",
 ]) {
   if (!avStyles.includes(term)) {
     fail(`calendar styles missing ${term}`);
@@ -548,6 +920,22 @@ for (const term of [
   "readOnlyDraggable",
   "readOnlyLocalMode",
   "readOnlyRenderedMode",
+  // The inline chip buttons became menu items; the same behavioural guarantees
+  // are now driven through the menu instead of being dropped.
+  "runChipMenuCommand",
+  "av__calendar-menu",
+  "new MouseEvent('contextmenu'",
+  "chipInlineButtonCount",
+  "shiftDraft",
+  "menuDeleteEventID",
+  "readOnlyHasContextMenu",
+  // Mini month + key map coverage.
+  "calendar-mini-month-wrapper",
+  "miniMonthAnchorAfterClick",
+  "miniMonthPagingLeftMainView",
+  "modeAfterKeyW",
+  "modeAfterKeyInSearch",
+  "shortcutSheetCommands",
   "weekMode",
   "scheduleMode",
   "renderedEvents=${renderState.eventCount}",
@@ -604,4 +992,4 @@ for (const [file, term] of [
   }
 }
 
-console.log(`calendar audit passed: 7 frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions/electron render+dialog/document smoke scripts`);
+console.log(`calendar audit passed: ${requiredFiles.filter((file) => file.startsWith("app/src/")).length} frontend files, ${calendarLanguageKeys.size} language keys, ${expectedFeatureTerms.length} feature terms, kernel/recurrence/transactions/electron render+dialog/document smoke scripts`);

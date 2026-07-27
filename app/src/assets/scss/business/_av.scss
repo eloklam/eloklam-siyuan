@@ -1631,6 +1631,48 @@ img.av__cellassetimg {
     padding: 4px 0 12px;
   }
 
+  // ---------------------------------------------------------------------------
+  // Sidebar + main.
+  //
+  // The mini month must never cost the main view its width. The pane, not the
+  // window, is what is narrow here (a calendar lives inside a dock or a split),
+  // so this is a CONTAINER query, not a media query - and it sits on
+  // &-body rather than on .av__calendar, because container-type also makes the
+  // element a containing block for absolutely positioned descendants and
+  // .av__calendar is the offsetParent the toolbar's quick-create popover is
+  // measured against.
+  //
+  // Below the threshold the sidebar is simply not there, which matches the rest
+  // of this file's responsive idiom (min-width floors + the horizontal scroll of
+  // .av__scroll) and leaves the narrow pane exactly as usable as it was before
+  // the navigator existed. Schedule view is the intended narrow-pane view.
+  // ---------------------------------------------------------------------------
+  &-body {
+    align-items: flex-start;
+    container-type: inline-size;
+    display: flex;
+    gap: 12px;
+  }
+
+  &-main {
+    flex: 1 1 auto;
+    // Without this the flex item refuses to go below its content's min-content
+    // width and the sidebar would be squeezed out instead of the grid scrolling.
+    min-width: 0;
+  }
+
+  &-sidebar {
+    display: none;
+    flex: 0 0 var(--calendar-sidebar-width, 196px);
+    width: var(--calendar-sidebar-width, 196px);
+  }
+
+  @container (min-width: 720px) {
+    .av__calendar-sidebar {
+      display: block;
+    }
+  }
+
   &-title {
     flex: 1 1 180px;
     font-weight: 600;
@@ -1767,6 +1809,76 @@ img.av__cellassetimg {
     &--locate {
       box-shadow: 0 0 0 2px var(--b3-theme-primary);
     }
+
+    // The chip carries no permanent buttons any more, so hover and focus are the
+    // only signals that it is a control at all. Elevation rather than a colour
+    // change, so a chip that already paints itself with a mapped colour keeps
+    // saying what colour it is - in both themes.
+    &:hover {
+      box-shadow: 0 1px 3px var(--b3-point-shadow, rgba(0, 0, 0, .18));
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: -1px;
+    }
+
+    // Month and list chips read as a line of text with a leading colour dot;
+    // only the background of the dot carries the colour, so a dense month cell
+    // stays legible.
+    &--month,
+    &--list {
+      background-color: transparent;
+      color: var(--b3-theme-on-background);
+
+      &:hover {
+        background-color: var(--b3-list-hover);
+      }
+    }
+
+    // A timed chip owns a real block of the column: dot, time, title, stacked
+    // from the top so a 15 minute event still shows its start.
+    &--timed {
+      align-items: flex-start;
+      flex-wrap: wrap;
+      padding: 1px 6px;
+      row-gap: 0;
+    }
+
+    // An all-day entry is a filled bar, the way Google draws it - no dot, the
+    // whole bar is the colour.
+    &--all-day {
+      background-color: var(--b3-theme-primary);
+      color: var(--b3-theme-on-primary);
+      font-weight: 500;
+    }
+
+    &--continues-before {
+      border-bottom-left-radius: 0;
+      border-top-left-radius: 0;
+    }
+
+    &--continues-after {
+      border-bottom-right-radius: 0;
+      border-top-right-radius: 0;
+    }
+  }
+
+  // The chip's colour dot. It inherits `color` from the chip, which is the
+  // mapped colour when the entry has one, so light and dark themes both stay
+  // correct without a second palette here.
+  &-event-dot {
+    background-color: currentColor;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    height: 7px;
+    margin-top: 6px;
+    width: 7px;
+  }
+
+  &-event--month &-event-dot,
+  &-event--list &-event-dot {
+    margin-top: 0;
   }
 
   &-event-text {
@@ -1945,42 +2057,209 @@ img.av__cellassetimg {
     gap: 8px;
   }
 
-  &-week-headers {
-    display: grid;
-    gap: 8px;
-    grid-template-columns: repeat(7, minmax(104px, 1fr));
-  }
-
-  &-week-day,
-  &-day-view {
-    border: 1px solid var(--b3-border-color);
-    border-radius: var(--b3-border-radius);
-    min-width: 0;
-    padding: 8px;
-  }
-
+  // ---------------------------------------------------------------------------
+  // Week / Day time grid.
+  //
+  // ONE scroll container. The day-header row, the all-day lane and the body all
+  // use the very same --calendar-grid-columns track, which is the whole point:
+  // the previous markup gave the headers their own grid (repeat(7,...) plus an
+  // 8px gap) while the body was 56px + repeat(7,...), so a header never sat
+  // above its column. Geometry (hour height, day height, ruling spacing,
+  // business-hour percentages) arrives as custom properties written by
+  // time-grid.ts from time-geometry.ts; nothing here re-derives it.
+  // ---------------------------------------------------------------------------
   &-time-grid {
+    --calendar-grid-columns: var(--calendar-gutter-width, 56px) repeat(var(--calendar-day-count, 7), minmax(var(--calendar-day-min-width, 104px), 1fr));
+    --calendar-off-hours-color: rgba(127, 127, 127, .07);
+    --calendar-weekend-tint: rgba(127, 127, 127, .05);
+    --calendar-now-color: var(--b3-theme-error, #d23f31);
     border: 1px solid var(--b3-border-color);
     border-radius: var(--b3-border-radius);
-    display: grid;
-    grid-template-columns: 56px repeat(var(--calendar-day-count), minmax(104px, 1fr));
+    max-height: min(68vh, 720px);
     overflow: auto;
+    position: relative;
   }
 
-  &-time-labels,
-  &-time-slots,
-  &-timed-events {
+  &-grid-header {
+    background-color: var(--b3-theme-background);
+    border-bottom: 1px solid var(--b3-border-color);
     display: grid;
-    grid-template-rows: repeat(48, minmax(24px, auto));
+    grid-template-columns: var(--calendar-grid-columns);
+    height: var(--calendar-header-height, 34px);
+    min-width: min-content;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  &-grid-corner {
+    background-color: var(--b3-theme-background);
+    left: 0;
+    position: sticky;
+    z-index: 1;
+  }
+
+  &-day-header {
+    align-items: center;
+    background-color: var(--b3-theme-background);
+    border-left: 1px solid var(--b3-border-color);
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+
+    &.av__calendar-time-day--weekend {
+      background-color: var(--b3-theme-surface);
+    }
+
+    // The generic today ring would draw a box around the header cell; the day
+    // number badge below is the clearer signal.
+    &.av__calendar-day--today {
+      box-shadow: none;
+    }
+  }
+
+  &-day-header-button {
+    align-items: baseline;
+    background: transparent;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+    font: inherit;
+    gap: 4px;
+    min-width: 0;
+    padding: 2px 8px;
+
+    &:disabled {
+      cursor: default;
+      opacity: .72;
+    }
+
+    &:hover:not(:disabled),
+    &:focus-visible {
+      background-color: var(--b3-list-hover);
+    }
+  }
+
+  &-day-header-weekday {
+    color: var(--b3-theme-on-surface);
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+
+  &-day-header-number {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 22px;
+    min-width: 22px;
+    text-align: center;
+  }
+
+  &-day-header.av__calendar-day--today &-day-header-number {
+    background-color: var(--b3-theme-primary);
+    border-radius: 50%;
+    color: var(--b3-theme-on-primary);
+  }
+
+  // Sticky all-day lane: a Tue-Thu event is ONE bar spanning three columns.
+  &-allday-row {
+    background-color: var(--b3-theme-background);
+    border-bottom: 1px solid var(--b3-border-color);
+    display: grid;
+    grid-template-columns: var(--calendar-grid-columns);
+    min-width: min-content;
+    position: sticky;
+    top: var(--calendar-header-height, 34px);
+    z-index: 4;
+  }
+
+  &-allday-gutter {
+    background-color: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface);
+    font-size: 11px;
+    left: 0;
+    line-height: 22px;
+    overflow: hidden;
+    padding-right: 6px;
+    position: sticky;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    z-index: 1;
+  }
+
+  &-allday-lanes {
+    display: grid;
+    grid-auto-rows: 22px;
+    grid-column: 2 / -1;
+    grid-template-columns: repeat(var(--calendar-day-count, 7), minmax(var(--calendar-day-min-width, 104px), 1fr));
+    min-height: 24px;
+    padding-bottom: 2px;
+  }
+
+  &-allday-cell {
+    border-left: 1px solid var(--b3-border-color);
+    min-width: 0;
+
+    &.av__calendar-time-day--weekend {
+      background-color: var(--calendar-weekend-tint);
+    }
+
+    &.av__calendar-day--today {
+      background-color: var(--b3-theme-primary-lightest, rgba(66, 133, 244, .08));
+      box-shadow: none;
+    }
+  }
+
+  &-allday-bar {
+    display: flex;
+    min-width: 0;
+    padding: 0 2px;
+    z-index: 1;
+
+    .av__calendar-event {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  &-grid-body {
+    display: grid;
+    grid-template-columns: var(--calendar-grid-columns);
+    // Without this the sticky rows would be only as wide as the scrollport and
+    // would clip when the week is scrolled horizontally; with it all three rows
+    // are exactly as wide as the column track they share.
+    min-width: min-content;
+  }
+
+  &-time-gutter {
+    background-color: var(--b3-theme-background);
+    border-right: 1px solid var(--b3-border-color);
+    left: 0;
+    position: sticky;
+    z-index: 3;
   }
 
   &-time-label {
-    border-bottom: 1px solid var(--b3-border-color);
     color: var(--b3-theme-on-surface);
     font-size: 11px;
-    line-height: 24px;
+    line-height: 1;
     padding-right: 6px;
-    text-align: right;
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+    white-space: nowrap;
+
+    &[data-minute="0"] {
+      transform: none;
+    }
+  }
+
+  &-time-columns {
+    display: grid;
+    grid-column: 2 / -1;
+    grid-template-columns: repeat(var(--calendar-day-count, 7), minmax(var(--calendar-day-min-width, 104px), 1fr));
   }
 
   &-quick-create {
@@ -2021,49 +2300,171 @@ img.av__cellassetimg {
     justify-content: flex-end;
   }
 
+  // The 30-minute ruling survives only as background lines; the events on top of
+  // it are absolutely positioned from real minutes (G3/G6).
   &-time-day {
+    background-image:
+      repeating-linear-gradient(to bottom,
+        var(--b3-border-color) 0 1px,
+        transparent 1px var(--calendar-hour-height, 48px)),
+      repeating-linear-gradient(to bottom,
+        var(--b3-border-color-trans, rgba(127, 127, 127, .25)) 0 1px,
+        transparent 1px var(--calendar-ruling-height, 24px)),
+      linear-gradient(to bottom,
+        var(--calendar-off-hours-color) 0 var(--calendar-business-start, 37.5%),
+        transparent var(--calendar-business-start, 37.5%) var(--calendar-business-end, 75%),
+        var(--calendar-off-hours-color) var(--calendar-business-end, 75%) 100%);
     border-left: 1px solid var(--b3-border-color);
-    display: grid;
-    grid-template-columns: 1fr;
     min-width: 0;
     position: relative;
+
+    &--weekend {
+      background-color: var(--calendar-weekend-tint);
+    }
   }
 
-  &-time-slots,
-  &-timed-events {
-    grid-column: 1;
-    grid-row: 1;
-  }
+  // Empty-space create surface: one per day column instead of 48 slot buttons.
+  // It is only rendered for editable calendars, so a read-only / query-embed
+  // calendar has no create gesture at all.
+  &-time-create {
+    cursor: cell;
+    inset: 0 0 auto 0;
+    position: absolute;
+    z-index: 0;
 
-  &-time-slot {
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--b3-border-color);
-    cursor: pointer;
-    min-height: 24px;
-    padding: 0;
+    &:hover {
+      background-color: var(--b3-theme-primary-lightest, rgba(66, 133, 244, .08));
+    }
 
-    &:hover,
     &:focus-visible {
-      background-color: var(--b3-theme-primary-light);
-      outline: 1px solid var(--b3-theme-primary);
-      outline-offset: -1px;
-    }
-
-    &:disabled {
-      cursor: default;
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: -2px;
     }
   }
 
   &-timed-events {
+    inset: 0;
     pointer-events: none;
-    padding: 1px 3px;
+    position: absolute;
+    z-index: 1;
   }
 
+  // top/height/left/width all arrive inline, in exact pixels and percentages.
   &-timed-event {
+    display: flex;
     min-width: 0;
+    padding: 0 2px 1px 0;
     pointer-events: auto;
-    z-index: 1;
+    position: absolute;
+
+    .av__calendar-event {
+      align-items: flex-start;
+      flex: 1;
+      height: 100%;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    &--continues-before .av__calendar-event {
+      border-top-left-radius: 0;
+      border-top-right-radius: 0;
+    }
+
+    &--continues-after .av__calendar-event {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+  }
+
+  // Edge handles replace the old inline -15m/+15m text buttons. They are inert
+  // markup here: the pointer gesture module binds them (see render.ts).
+  &-resize-handle {
+    cursor: ns-resize;
+    height: 7px;
+    left: 0;
+    position: absolute;
+    right: 2px;
+    z-index: 2;
+
+    &--start {
+      top: -3px;
+    }
+
+    &--end {
+      bottom: -2px;
+    }
+
+    &::after {
+      background-color: currentColor;
+      border-radius: 999px;
+      content: "";
+      display: block;
+      height: 3px;
+      margin: 2px auto;
+      opacity: 0;
+      transition: opacity .12s ease;
+      width: 28px;
+    }
+  }
+
+  &-timed-event:hover &-resize-handle::after,
+  &-timed-event:focus-within &-resize-handle::after {
+    opacity: .6;
+  }
+
+  // The block a sweep paints and a drag carries (event-chip.ts buildCalendarGhost,
+  // positioned by interactions.ts inside the timed / all-day ghost layer).
+  &-ghost {
+    background-color: var(--b3-theme-primary-lighter);
+    border: 1px dashed var(--b3-theme-primary);
+    border-radius: var(--b3-border-radius);
+    color: var(--b3-theme-on-background);
+    font-size: 12px;
+    line-height: 15px;
+    overflow: hidden;
+    padding: 1px 5px;
+    pointer-events: none;
+    position: absolute;
+    z-index: 4;
+  }
+
+  &-ghost-label {
+    display: block;
+    font-weight: 600;
+  }
+
+  &-ghost-title {
+    display: block;
+    opacity: .8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &-now-indicator {
+    align-items: center;
+    display: flex;
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+    z-index: 3;
+  }
+
+  &-now-dot {
+    background-color: var(--calendar-now-color, #d23f31);
+    border-radius: 50%;
+    flex: 0 0 auto;
+    height: 9px;
+    margin-left: -4px;
+    width: 9px;
+  }
+
+  &-now-line {
+    background-color: var(--calendar-now-color, #d23f31);
+    flex: 1;
+    height: 2px;
   }
 
   &-all-day,
@@ -2079,12 +2480,6 @@ img.av__cellassetimg {
   &-all-day {
     border-bottom: 1px solid var(--b3-border-color);
     padding-bottom: 6px;
-  }
-
-  &-now {
-    color: var(--b3-theme-primary);
-    font-size: 12px;
-    line-height: 24px;
   }
 
   &-list-day {
@@ -2174,6 +2569,238 @@ img.av__cellassetimg {
 
   &-time-sep {
     line-height: 28px;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mini month navigator (mini-month.ts).
+  //
+  // Deliberately dense: it is a map of the month, not a second calendar. The day
+  // buttons are square-ish cells with a number and an optional dot, so a glance
+  // shows both "where am I" (selected / in-range / today) and "where is there
+  // anything" (has-events).
+  // ---------------------------------------------------------------------------
+  &-mini {
+    font-size: 12px;
+    user-select: none;
+  }
+
+  &-mini-header {
+    align-items: center;
+    display: flex;
+    gap: 2px;
+    justify-content: space-between;
+    padding-bottom: 4px;
+  }
+
+  &-mini-title {
+    flex: 1;
+    font-weight: 600;
+    overflow: hidden;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &-mini-weekdays,
+  &-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+  }
+
+  &-mini-weekdays {
+    color: var(--b3-theme-on-surface);
+    font-size: 10px;
+    text-align: center;
+
+    span {
+      line-height: 18px;
+    }
+  }
+
+  &-mini-grid {
+    gap: 1px;
+  }
+
+  &-mini-day {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    font: inherit;
+    gap: 1px;
+    justify-content: center;
+    line-height: 1;
+    min-height: 24px;
+    padding: 2px 0;
+    position: relative;
+
+    &:hover {
+      background-color: var(--b3-list-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: -2px;
+    }
+
+    &--outside {
+      color: var(--b3-theme-on-surface);
+      opacity: .6;
+    }
+
+    // The span the MAIN view is currently showing. A tint, not a ring: the ring
+    // belongs to today and the fill belongs to the selected day, and all three
+    // states have to be readable at the same time.
+    &--in-range {
+      background-color: var(--b3-theme-primary-lightest, rgba(66, 133, 244, .08));
+      border-radius: 0;
+    }
+
+    &--today {
+      box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
+      color: var(--b3-theme-primary);
+      font-weight: 600;
+    }
+
+    &--selected {
+      background-color: var(--b3-theme-primary);
+      border-radius: 50%;
+      color: var(--b3-theme-on-primary);
+
+      &:hover {
+        background-color: var(--b3-theme-primary);
+      }
+    }
+  }
+
+  &-mini-day-number {
+    line-height: 16px;
+  }
+
+  &-mini-dot {
+    background-color: currentColor;
+    border-radius: 50%;
+    height: 3px;
+    opacity: .8;
+    width: 3px;
+  }
+
+  // A selected day is already filled with the primary colour, so its dot has to
+  // stay currentColor (on-primary) to remain visible.
+  &-mini-day--has-events:not(.av__calendar-mini-day--selected) &-mini-dot {
+    background-color: var(--b3-theme-primary);
+  }
+
+  // ---------------------------------------------------------------------------
+  // The "?" keyboard shortcut sheet (keymap.ts).
+  // ---------------------------------------------------------------------------
+  &-shortcuts {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: 60vh;
+    overflow: auto;
+    padding: 16px;
+  }
+
+  &-shortcuts-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  &-shortcuts-title {
+    color: var(--b3-theme-on-surface);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+
+  &-shortcuts-row {
+    align-items: baseline;
+    display: flex;
+    gap: 12px;
+    line-height: 22px;
+  }
+
+  &-shortcuts-keys {
+    display: flex;
+    flex: 0 0 108px;
+    flex-wrap: wrap;
+    gap: 4px;
+
+    kbd {
+      background-color: var(--b3-theme-surface);
+      border: 1px solid var(--b3-border-color);
+      border-bottom-width: 2px;
+      border-radius: var(--b3-border-radius);
+      color: var(--b3-theme-on-background);
+      font-family: var(--b3-font-family-code);
+      font-size: 11px;
+      line-height: 16px;
+      min-width: 18px;
+      padding: 0 5px;
+      text-align: center;
+    }
+  }
+
+  &-shortcuts-label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chip context menu (context-menu.ts).
+  //
+  // Parented to <body> and positioned inline from the pointer, so only its own
+  // look lives here. It is never built at all on a read-only / query-embed
+  // calendar.
+  // ---------------------------------------------------------------------------
+  &-menu {
+    background-color: var(--b3-menu-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius-b, var(--b3-border-radius));
+    box-shadow: var(--b3-dialog-shadow);
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+    min-width: 184px;
+    overflow: auto;
+    padding: 4px;
+  }
+
+  &-menu-item {
+    background: transparent;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    color: var(--b3-theme-on-background);
+    cursor: pointer;
+    font: inherit;
+    line-height: 24px;
+    padding: 2px 10px;
+    text-align: left;
+    white-space: nowrap;
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--b3-list-hover);
+      outline: none;
+    }
+
+    &--separated {
+      border-top: 1px solid var(--b3-border-color);
+      margin-top: 4px;
+      padding-top: 4px;
+    }
+
+    &--danger {
+      color: var(--b3-theme-error);
+    }
   }
 }
 

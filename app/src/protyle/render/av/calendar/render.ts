@@ -17,7 +17,28 @@ import {getBlockCell, getCellByFieldID, getEventDocumentID, ICalendarEventDraft,
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {CalendarRecurrenceScope, getDisabledRecurrenceScopes, isRecurringSourceEvent, openEventDialog, openRecurrenceScopeDialog} from "./event-dialog";
 import {openQuickCreate} from "./quick-create";
-import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, ICalendarCreateOptions, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
+import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, ICalendarCreateOptions, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
+import {
+    CALENDAR_DEFAULT_EVENT_MINUTES,
+    formatClockLabel,
+    getCalendarTimeGeometry,
+    getEventMinuteRange,
+    ICalendarTimeGeometry,
+    minuteToOffsetPx,
+    offsetPxToMinute,
+    parseClockMinutes,
+    snapMinutes,
+} from "./time-geometry";
+import {CALENDAR_TIME_CREATE_TYPE, renderCalendarTimeGrid} from "./time-grid";
+import {mountCalendarNowIndicator, unmountCalendarNowIndicator} from "./now-indicator";
+import {abortActiveCalendarGesture, bindCalendarPointerInteractions, createCalendarGridAdapter, isCalendarGestureActive} from "./interactions";
+// The chip markup, the right-click menu, the key map and the mini month are all
+// owned by their own modules; this renderer only decides WHEN they appear and
+// routes everything they report back through the same write paths a click uses.
+import {buildOptimisticChip, renderCalendarEventChip} from "./event-chip";
+import {bindCalendarEventContextMenu, closeCalendarEventMenu, ICalendarMenuCommand} from "./context-menu";
+import {bindCalendarKeymap, CALENDAR_ARIA_KEYSHORTCUTS, openCalendarShortcutHelp} from "./keymap";
+import {bindCalendarMiniMonth, getCalendarMiniMonthEventDays} from "./mini-month";
 
 interface IRenderCalendarOptions {
     protyle: IProtyle;
@@ -129,23 +150,16 @@ const getWeekdayLabels = (weekStart = 0) => {
 };
 
 
-const SLOT_MINUTES = 30;
-
-const formatSlotLabel = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-
-const buildTimeSlots = () => {
-    const slots: {minutes: number, start: string, end: string, label: string}[] = [];
-    for (let minutes = 0; minutes < 24 * 60; minutes += SLOT_MINUTES) {
-        slots.push({
-            minutes,
-            start: formatSlotLabel(minutes),
-            end: minutes + SLOT_MINUTES >= 24 * 60 ? "23:59" : formatSlotLabel(minutes + SLOT_MINUTES),
-            label: formatSlotLabel(minutes),
-        });
-    }
-    return slots;
-};
-
+/**
+ * There is no slot constant here any more, on purpose.
+ *
+ * The grid used to be 48 CSS rows of 30 minutes and every time value in this
+ * file was rounded onto that ruling, so a 12:45-13:20 event drew at 12:30-13:30.
+ * All minute<->pixel arithmetic now lives in ./time-geometry.ts and the only
+ * granularity the user ever meets is CALENDAR_SNAP_MINUTES (15), applied to the
+ * value being written rather than to the drawing.
+ * calendar-time-grid-smoke.mjs asserts that the old constant cannot come back.
+ */
 const getCalendarSearch = (blockElement: HTMLElement) => (blockElement.dataset.calendarSearch || "").trim();
 
 const getCalendarFilter = (blockElement: HTMLElement) => {
@@ -203,42 +217,13 @@ const getEventSeekRange = (anchor: dayjs.Dayjs): ICalendarRange => ({
     end: anchor.add(1, "year").endOf("day"),
 });
 
-const getEventDateLabel = (event: ICalendarNormalizedEvent) => {
-    if (event.isAllDay) {
-        return event.end && !event.start.isSame(event.end, "day") ?
-            `${formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {year: "numeric", month: "short", day: "numeric"})}` :
-            formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"});
-    }
-    const dateLabel = event.end && !event.start.isSame(event.end, "day") ?
-        `${formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"})} ${event.start.format("HH:mm")} - ${formatCalendarDate(event.end, {year: "numeric", month: "short", day: "numeric"})} ${event.end.format("HH:mm")}` :
-        `${formatCalendarDate(event.start, {year: "numeric", month: "short", day: "numeric"})} ${event.start.format("HH:mm")} - ${(event.end || event.start.add(1, "hour")).format("HH:mm")}`;
-    return dateLabel;
-};
-
-const getEventTooltip = (event: ICalendarNormalizedEvent) => {
-    return [
-        event.title,
-        getEventDateLabel(event),
-        // Bound entries open their page on a plain click, so say so before the click.
-        getEventDocumentID(event) ? getOpenPageLabel() : "",
-        event.location ? `${window.siyuan.languages.calendarLocation || "Location"}: ${event.location}` : "",
-        event.description ? `${window.siyuan.languages.calendarDescription || "Description"}: ${event.description}` : "",
-        event.recurrenceRaw ? `${window.siyuan.languages.calendarRecurrence || "Recurrence"}: ${event.recurrenceRaw}` : "",
-        event.isOccurrence ? window.siyuan.languages.calendarOccurrence || "Recurring occurrence" : "",
-    ].filter(Boolean).join("\n");
-};
-
-const getOpenPageLabel = () => {
-    if (window.siyuan.languages.openBy && window.siyuan.languages.doc) {
-        return `${window.siyuan.languages.openBy} ${window.siyuan.languages.doc}`;
-    }
-    return window.siyuan.languages.calendarOpenSource || "Open page";
-};
-
-const getOpenScheduleLabel = () => {
-    const scheduleLabel = window.siyuan.languages.calendarSchedule || "Schedule";
-    return window.siyuan.languages.edit ? `${window.siyuan.languages.edit} ${scheduleLabel}` : scheduleLabel;
-};
+/**
+ * The chip anatomy (tooltip, recurrence marker, source/schedule affordances,
+ * colour dot, read-only and draggable attributes) lives in ./event-chip.ts.
+ * The inline -15m/+15m, -1d/+1d and Copy buttons it used to carry are gone: they
+ * are in the right-click menu (./context-menu.ts) and on the drag edges, so the
+ * chip is quiet enough to read at a glance.
+ */
 
 /**
  * Open the page behind a bound entry.
@@ -269,56 +254,16 @@ const openCalendarEventSource = (protyle: IProtyle, blockElement: HTMLElement, e
     });
 };
 
-const eventButtonHTML = (event: ICalendarNormalizedEvent, displayDate?: dayjs.Dayjs, editable = true) => {
-    const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
-    const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ?
-        `${formatCalendarDate(event.start, {month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {month: "short", day: "numeric"})} ` : "";
-    const colorStyle = event.color ? ` style="background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});"` : "";
-    const eventTooltip = getEventTooltip(event);
-    const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence ?
-        `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
-    const documentID = getEventDocumentID(event);
-    const sourceMarker = documentID ?
-        `<span class="av__calendar-source" data-type="calendar-open-source" role="button" tabindex="0" title="${escapeAttr(getOpenPageLabel())}" aria-label="${escapeAttr(getOpenPageLabel())}">↗</span>` : "";
-    // A bound chip opens its page on click, so the scheduling dialog needs its own
-    // labelled entry point: moving an event in time must never require opening the
-    // page first. Detached chips still open the dialog on click, so they do not
-    // carry this affordance.
-    const scheduleLabel = editable ? getOpenScheduleLabel() : (window.siyuan.languages.calendarSchedule || "Schedule");
-    const scheduleMarker = documentID ?
-        `<span class="av__calendar-schedule" data-type="calendar-open-dialog" role="button" tabindex="0" title="${escapeAttr(scheduleLabel)}" aria-label="${escapeAttr(scheduleLabel)}">◷</span>` : "";
-    return `<button class="av__calendar-event${editable ? "" : " av__calendar-event--readonly"}${documentID ? " av__calendar-event--page" : ""}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-page="${escapeAttr(documentID)}" data-date="${displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
-    <span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
-    ${scheduleMarker}
-    ${sourceMarker}
-    ${recurrenceMarker}
-    ${!editable ? "" : (event.isAllDay ?
-        "<span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-days=\"-1\">-1d</span><span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-days=\"1\">+1d</span>" :
-        "<span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-delta=\"-15\">-15m</span><span class=\"av__calendar-resize\" data-type=\"calendar-resize\" data-delta=\"15\">+15m</span>")}
-    ${editable ? `<span class="av__calendar-resize" data-type="calendar-duplicate-next-day">${window.siyuan.languages.copy || "Copy"}</span>` : ""}
-</button>`;
-};
-
 const isDateKey = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
 
-const parseClockMinutes = (value: string) => {
-    const match = /^(\d{1,2}):(\d{2})$/.exec(value || "");
-    if (!match) {
-        return 0;
-    }
-    return Math.min(Math.max(parseInt(match[1], 10) * 60 + parseInt(match[2], 10), 0), 24 * 60);
-};
-
-const buildOptimisticChip = (draft: ICalendarEventDraft) => {
-    const label = `${draft.isAllDay ? "" : `${draft.startTime} `}${draft.title}`;
-    const chip = document.createElement("div");
-    // Not a <button>: this chip has no listeners bound to it (it never went
-    // through a render pass), so it must not look or behave clickable.
-    chip.className = "av__calendar-event av__calendar-event--pending";
-    chip.setAttribute("aria-busy", "true");
-    chip.setAttribute("title", label);
-    chip.innerHTML = `<span class="av__calendar-event-text">${escapeHtml(label)}</span>`;
-    return chip;
+/**
+ * The geometry the currently rendered grid was built from. Reading it back out
+ * of the DOM (rather than recomputing a default) keeps every listener and the
+ * optimistic preview on exactly the same ruler as the markup.
+ */
+const getGridGeometry = (root: HTMLElement | null): ICalendarTimeGeometry => {
+    const gridElement = root?.querySelector(".av__calendar-time-grid") as HTMLElement;
+    return getCalendarTimeGeometry(parseInt(gridElement?.dataset.dayCount || "7", 10) || 7);
 };
 
 /**
@@ -338,19 +283,35 @@ const paintOptimisticEvent = (calendarElement: HTMLElement, draft: ICalendarEven
     if (!calendarElement || !isDateKey(draft.date) || !draft.title) {
         return null;
     }
+    // Read the geometry off the grid the chip is about to land on, so the
+    // preview cannot be positioned with a different hour height than the render.
+    const geometry = getGridGeometry(calendarElement);
     const chip = buildOptimisticChip(draft);
     if (!draft.isAllDay) {
         const timedLayer = calendarElement.querySelector(`.av__calendar-time-day[data-date="${draft.date}"] .av__calendar-timed-events`);
         if (timedLayer) {
-            const startMinutes = parseClockMinutes(draft.startTime);
-            const endMinutes = Math.max(parseClockMinutes(draft.endTime), startMinutes + SLOT_MINUTES);
+            // Same geometry as a real chip, so the preview does not jump when the
+            // kernel answers and the real render replaces it.
+            const range = getEventMinuteRange(parseClockMinutes(draft.startTime), parseClockMinutes(draft.endTime), geometry);
             const wrapper = document.createElement("div");
             wrapper.className = "av__calendar-timed-event";
-            wrapper.style.gridRow = `${Math.floor(startMinutes / SLOT_MINUTES) + 1} / span ${Math.max(Math.ceil((endMinutes - startMinutes) / SLOT_MINUTES), 1)}`;
+            wrapper.style.top = `${range.topPx}px`;
+            wrapper.style.height = `${range.heightPx}px`;
+            wrapper.style.left = "0%";
+            wrapper.style.width = "100%";
             wrapper.appendChild(chip);
             timedLayer.appendChild(wrapper);
             return wrapper;
         }
+    }
+    const allDayCell = calendarElement.querySelector(`.av__calendar-allday-lanes .av__calendar-allday-cell[data-date="${draft.date}"]`);
+    if (allDayCell?.parentElement) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "av__calendar-allday-bar";
+        wrapper.style.gridColumn = `${parseInt(allDayCell.getAttribute("data-day-index") || "0", 10) + 1} / span 1`;
+        wrapper.appendChild(chip);
+        allDayCell.parentElement.appendChild(wrapper);
+        return wrapper;
     }
     const dayElement = calendarElement.querySelector(`[data-type="calendar-drop-day"][data-date="${draft.date}"]`);
     const container = dayElement?.querySelector(".av__calendar-all-day, .av__calendar-events, .av__calendar-list-events");
@@ -419,7 +380,7 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
             `<button class="av__calendar-more" data-type="calendar-more" data-date="${cursor.format("YYYY-MM-DD")}" aria-label="${escapeAttr(`+${hiddenCount} ${window.siyuan.languages.calendarEvents || "Events"}`)}">+${hiddenCount}</button>` : "";
         html += `<div class="av__calendar-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${cursor.isSame(anchor, "day") ? " av__calendar-day--selected" : ""}${cursor.month() !== anchor.month() ? " av__calendar-day--muted" : ""}"${cursor.isSame(dayjs(), "day") ? ' aria-current="date"' : ""} data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-daynum" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${cursor.date()}</button>
-    <div class="av__calendar-events">${visibleEvents.map(event => eventButtonHTML(event, cursor, editable)).join("")}${moreHTML}</div>
+    <div class="av__calendar-events">${visibleEvents.map(event => renderCalendarEventChip({event, variant: "month", displayDate: cursor, editable})).join("")}${moreHTML}</div>
 </div>`;
         cursor = cursor.add(1, "day");
     }
@@ -427,78 +388,34 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
 };
 
 
-const getTimedEventGridRange = (event: ICalendarNormalizedEvent, day: dayjs.Dayjs) => {
-    const dayStart = day.startOf("day");
-    const startMinutes = Math.max(event.start.diff(dayStart, "minute"), 0);
-    const endMinutes = Math.min((event.end || event.start.add(SLOT_MINUTES, "minute")).diff(dayStart, "minute"), 24 * 60);
-    const rowStart = Math.floor(startMinutes / SLOT_MINUTES) + 1;
-    const rowSpan = Math.max(Math.ceil((endMinutes - startMinutes) / SLOT_MINUTES), 1);
-    return {rowStart, rowSpan};
-};
-
-// Partition a day's timed events into overlap clusters and assign each event a
-// column inside its cluster, so simultaneous events sit side by side instead of
-// hiding each other. Events without overlap span the full day-column width.
-const computeTimedEventColumns = (events: ICalendarNormalizedEvent[], day: dayjs.Dayjs) => {
-    const items = events.map(event => ({event, range: getTimedEventGridRange(event, day), column: 0, clusterColumns: 1}));
-    items.sort((a, b) => a.range.rowStart - b.range.rowStart || b.range.rowSpan - a.range.rowSpan);
-    let clusterStart = 0;
-    let clusterEndRow = -1;
-    let columnEndRows: number[] = [];
-    const closeCluster = (endIndex: number) => {
-        for (let i = clusterStart; i < endIndex; i++) {
-            items[i].clusterColumns = columnEndRows.length;
-        }
-    };
-    items.forEach((item, index) => {
-        const rowEnd = item.range.rowStart + item.range.rowSpan;
-        if (item.range.rowStart >= clusterEndRow) {
-            closeCluster(index);
-            clusterStart = index;
-            columnEndRows = [];
-        }
-        let column = columnEndRows.findIndex(end => end <= item.range.rowStart);
-        if (column === -1) {
-            column = columnEndRows.length;
-            columnEndRows.push(rowEnd);
-        } else {
-            columnEndRows[column] = rowEnd;
-        }
-        item.column = column;
-        clusterEndRow = Math.max(clusterEndRow, rowEnd);
+/**
+ * Week and Day are the same grid with a different day list (see ./time-grid.ts).
+ * All the geometry, the overlap packing and the sticky chrome live there; this
+ * file only supplies the chip markup and the locale-aware labels.
+ */
+const renderTimeGridView = (days: dayjs.Dayjs[], events: ICalendarNormalizedEvent[], viewKind: "week" | "day", editable = true) =>
+    renderCalendarTimeGrid({
+        days,
+        events,
+        editable,
+        geometry: getCalendarTimeGeometry(days.length),
+        viewKind,
+        labels: {
+            allDay: window.siyuan.languages.allDay || "All day",
+            createEvent: window.siyuan.languages.newEvent || window.siyuan.languages.newRow || "New",
+        },
+        formatWeekday: (day) => formatCalendarDate(day, {weekday: "short"}),
+        formatFullDate: (day) => formatCalendarDate(day, {weekday: "long", year: "numeric", month: "short", day: "numeric"}),
+        // The grid decides where a chip sits; the chip decides what it looks
+        // like. An all-day entry is a filled bar in the sticky lane, a timed one
+        // is a dot + time + title block in the column.
+        renderEventChip: (event, day, chipEditable) => renderCalendarEventChip({
+            event,
+            variant: event.isAllDay ? "all-day" : "timed",
+            displayDate: day,
+            editable: chipEditable,
+        }),
     });
-    closeCluster(items.length);
-    return {items};
-};
-
-const renderTimedEventLayer = (events: ICalendarNormalizedEvent[], day: dayjs.Dayjs, editable = true) => {
-    const timedEvents = sortCalendarEvents(events.filter(event => !event.isAllDay));
-    const layout = computeTimedEventColumns(timedEvents, day);
-    const eventHTML = layout.items.map(item => {
-        const overlapStyle = item.clusterColumns > 1 ?
-            `;width:calc(${100 / item.clusterColumns}% - 2px);margin-left:${(item.column * 100) / item.clusterColumns}%` : "";
-        return `<div class="av__calendar-timed-event" style="grid-row:${item.range.rowStart} / span ${item.range.rowSpan};grid-column:1 / -1${overlapStyle}">${eventButtonHTML(item.event, day, editable)}</div>`;
-    }).join("");
-    return `<div class="av__calendar-timed-events">${eventHTML}</div>`;
-};
-
-const renderTimeSlotsForDay = (day: dayjs.Dayjs, editable = true) => {
-    return buildTimeSlots().map(slot => `<button class="av__calendar-time-slot" data-type="calendar-time-slot" data-date="${day.format("YYYY-MM-DD")}" data-start="${slot.start}" data-end="${slot.end}" aria-label="${escapeAttr(`${formatCalendarDate(day, {weekday: "short", month: "short", day: "numeric"})} ${slot.start}`)}"${editable ? "" : " disabled"}></button>`).join("");
-};
-
-const renderTimeGrid = (days: dayjs.Dayjs[], events: ICalendarNormalizedEvent[], editable = true) => {
-    const slots = buildTimeSlots();
-    return `<div class="av__calendar-time-grid" style="--calendar-day-count:${days.length}">
-        <div class="av__calendar-time-labels">${slots.map(slot => `<div class="av__calendar-time-label">${escapeHtml(slot.label)}</div>`).join("")}</div>
-        ${days.map(day => {
-        const dayEvents = events.filter(event => eventOverlapsDay(event, day));
-        return `<div class="av__calendar-time-day" data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
-                <div class="av__calendar-time-slots">${renderTimeSlotsForDay(day, editable)}</div>
-                ${renderTimedEventLayer(dayEvents, day, editable)}
-            </div>`;
-    }).join("")}
-    </div>`;
-};
 
 const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], editable = true) => {
     const days: dayjs.Dayjs[] = [];
@@ -507,31 +424,11 @@ const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], e
         days.push(cursor);
         cursor = cursor.add(1, "day");
     }
-    return `<div class="av__calendar-week">
-    <div class="av__calendar-week-headers">
-    ${days.map(day => {
-        const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, day)));
-        const allDayEvents = dayEvents.filter(event => event.isAllDay);
-        return `<div class="av__calendar-week-day${day.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}"${day.isSame(dayjs(), "day") ? ' aria-current="date"' : ""} data-date="${day.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
-            <button class="av__calendar-list-title" data-type="calendar-new" data-date="${day.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(`${formatCalendarDate(day, {weekday: "short"})} ${day.date()}`)}</button>
-            <div class="av__calendar-all-day">${allDayEvents.map(event => eventButtonHTML(event, day, editable)).join("")}</div>
-        </div>`;
-    }).join("")}
-    </div>
-    ${renderTimeGrid(days, events, editable)}
-</div>`;
+    return `<div class="av__calendar-week">${renderTimeGridView(days, events, "week", editable)}</div>`;
 };
 
-const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[], editable = true) => {
-    const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, anchor)));
-    const allDayEvents = dayEvents.filter(event => event.isAllDay);
-    return `<div class="av__calendar-day-view${anchor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}"${anchor.isSame(dayjs(), "day") ? ' aria-current="date"' : ""} data-date="${anchor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
-    <button class="av__calendar-list-title" data-type="calendar-new" data-date="${anchor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(formatCalendarDate(anchor, {weekday: "long", month: "short", day: "numeric"}))}</button>
-    <div class="av__calendar-all-day">${allDayEvents.length > 0 ? allDayEvents.map(event => eventButtonHTML(event, anchor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
-    <div class="av__calendar-now">${dayjs().isSame(anchor, "day") ? dayjs().format("HH:mm") : ""}</div>
-    ${renderTimeGrid([anchor], events, editable)}
-</div>`;
-};
+const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[], editable = true) =>
+    `<div class="av__calendar-week av__calendar-week--single">${renderTimeGridView([anchor.startOf("day")], events, "day", editable)}</div>`;
 
 const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], hideEmpty = false, editable = true) => {
     let cursor = range.start.startOf("day");
@@ -543,7 +440,7 @@ const renderList = (range: ICalendarRange, events: ICalendarNormalizedEvent[], h
             renderedDays++;
             html += `<div class="av__calendar-list-day${cursor.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}"${cursor.isSame(dayjs(), "day") ? ' aria-current="date"' : ""} data-date="${cursor.format("YYYY-MM-DD")}" data-type="calendar-drop-day">
     <button class="av__calendar-list-title" data-type="calendar-new" data-date="${cursor.format("YYYY-MM-DD")}"${editable ? "" : " disabled"}>${escapeHtml(formatCalendarDate(cursor, {weekday: "short", year: "numeric", month: "short", day: "numeric"}))}</button>
-    <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => eventButtonHTML(event, cursor, editable)).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
+    <div class="av__calendar-list-events">${dayEvents.length > 0 ? dayEvents.map(event => renderCalendarEventChip({event, variant: "list", displayDate: cursor, editable})).join("") : `<span class="ft__on-surface">${window.siyuan.languages.emptyContent}</span>`}</div>
 </div>`;
         }
         cursor = cursor.add(1, "day");
@@ -591,7 +488,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true, 
         body = `<div class="av__calendar-empty-hint ft__on-surface">${window.siyuan.languages.calendarEmptyHint || "No calendar items yet — click a day or a time slot to create the first one."}</div>${body}`;
     }
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
-    return `<div class="av__calendar" data-view-mode="${viewMode}" tabindex="0" role="region" aria-label="${escapeAttr(`${window.siyuan.languages.calendar || "Calendar"} ${title}`)}" aria-keyshortcuts="ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4">
+    return `<div class="av__calendar" data-view-mode="${viewMode}" tabindex="0" role="region" aria-label="${escapeAttr(`${window.siyuan.languages.calendar || "Calendar"} ${title}`)}" aria-keyshortcuts="${CALENDAR_ARIA_KEYSHORTCUTS}">
     <div class="av__calendar-toolbar">
         <button class="block__icon block__icon--show" data-type="calendar-prev" aria-keyshortcuts="ArrowLeft"><svg><use xlink:href="#iconLeft"></use></svg></button>
         <button class="b3-button b3-button--outline" data-type="calendar-today" aria-keyshortcuts="T">${window.siyuan.languages.today || "Today"}</button>
@@ -606,12 +503,51 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true, 
         ${renderEventSummary(events)}
         ${renderModeSwitcher(viewMode)}
         ${editable ? `<button class="b3-button b3-button--text" data-type="calendar-new" aria-keyshortcuts="N" data-date="${safeAnchor.format("YYYY-MM-DD")}">${window.siyuan.languages.newEvent || window.siyuan.languages.newRow}</button>` : ""}
+        <button class="block__icon block__icon--show" data-type="calendar-shortcuts" aria-label="${escapeAttr(window.siyuan.languages.calendarShortcuts || "Keyboard shortcuts")}" aria-keyshortcuts="?"><svg><use xlink:href="#iconKeymap"></use></svg></button>
     </div>
-    ${body}
+    <div class="av__calendar-body">
+        <!-- The mini month is bound, not rendered here: mini-month.ts paints
+             itself into this wrapper on the first bind and keeps its own paging
+             cursor, so paging it never moves the main view. -->
+        <aside class="av__calendar-sidebar" data-type="calendar-mini-month-wrapper"></aside>
+        <div class="av__calendar-main">${body}</div>
+    </div>
 </div>`;
 };
 
+/**
+ * Listeners that do NOT die with the markup they were bound to.
+ *
+ * A re-render replaces the calendar's innerHTML, so a listener on a chip or on
+ * the calendar root goes away with it. The key map, the context menu and the
+ * mini month also reach OUTSIDE that subtree (document-level pointer/keydown
+ * listeners, a popover parented to <body>), so each of them hands back an
+ * unbind that has to be called by the render that replaces them - otherwise
+ * every re-render stacks another live listener on top of the last.
+ */
+const calendarTeardowns = new WeakMap<HTMLElement, Array<() => void>>();
+
+const addCalendarTeardown = (blockElement: HTMLElement, teardown: () => void) => {
+    const teardowns = calendarTeardowns.get(blockElement) || [];
+    teardowns.push(teardown);
+    calendarTeardowns.set(blockElement, teardowns);
+};
+
+const runCalendarTeardowns = (blockElement: HTMLElement) => {
+    const teardowns = calendarTeardowns.get(blockElement);
+    calendarTeardowns.delete(blockElement);
+    teardowns?.forEach(teardown => {
+        try {
+            teardown();
+        } catch (error) {
+            console.error("calendar teardown failed", error);
+        }
+    });
+};
+
 const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
+    // Before anything is bound: everything the PREVIOUS render left alive.
+    runCalendarTeardowns(options.blockElement);
     const calendarElement = options.blockElement.querySelector(".av__calendar") as HTMLElement;
     const calendar = data.view as IAVCalendar;
     const viewMode = getCalendarViewMode(calendar, options.blockElement);
@@ -621,6 +557,11 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     // renderer (time slot, day cell, toolbar button, dialog) branches on this one
     // value so they can never diverge.
     const createsDocuments = calendarCreatesDocuments(calendar, options.blockElement);
+    // The grid the listeners below measure against. It must be the same record
+    // the markup was built from, otherwise a click would resolve to a different
+    // minute than the one the user pointed at.
+    const gridElement = calendarElement?.querySelector(".av__calendar-time-grid") as HTMLElement;
+    const gridGeometry = getGridGeometry(calendarElement);
     const rerender = (focusSearch = false, useCurrentData = false) => {
         options.blockElement.removeAttribute("data-render");
         renderCalendar({...options, data: useCurrentData ? data : undefined}).then(() => {
@@ -836,7 +777,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
         item.addEventListener("click", (event: MouseEvent) => {
-            if ((event.target as HTMLElement).closest(".av__calendar-event, .av__calendar-quick-create, button, input, select")) {
+            if ((event.target as HTMLElement).closest(`.av__calendar-event, .av__calendar-quick-create, [data-type="${CALENDAR_TIME_CREATE_TYPE}"], button, input, select`)) {
                 return;
             }
             const date = (item as HTMLElement).dataset.date;
@@ -874,24 +815,52 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             rerender(false, true);
         });
     });
-    calendarElement?.querySelectorAll('[data-type="calendar-time-slot"]').forEach(item => {
-        item.addEventListener("click", () => {
+    // Creating in the timed grid: one create surface per day column instead of
+    // 48 slot buttons. The minute comes from where the pointer actually is,
+    // snapped to CALENDAR_SNAP_MINUTES, so a click at 12:47 creates 12:45 - not
+    // "the half hour this click landed in".
+    const startTimedQuickCreate = (surface: HTMLElement, startMinute: number) => {
+        const date = surface.dataset.date || dayjs().format("YYYY-MM-DD");
+        const start = snapMinutes(startMinute, gridGeometry);
+        const end = Math.min(start + CALENDAR_DEFAULT_EVENT_MINUTES, gridGeometry.dayEndMinute);
+        const draft: ICalendarEventDraft = {
+            title: "",
+            date,
+            endDate: date,
+            isAllDay: false,
+            startTime: formatClockLabel(start),
+            endTime: formatClockLabel(end),
+        };
+        startCalendarQuickCreate(surface, surface.offsetTop + minuteToOffsetPx(start, gridGeometry), draft);
+    };
+    calendarElement?.querySelectorAll(`[data-type="${CALENDAR_TIME_CREATE_TYPE}"]`).forEach(item => {
+        const surface = item as HTMLElement;
+        surface.addEventListener("click", (event: MouseEvent) => {
             if (!editable) {
                 return;
             }
-            const slotElement = item as HTMLElement;
-            const date = slotElement.dataset.date || dayjs().format("YYYY-MM-DD");
-            const draft: ICalendarEventDraft = {
-                title: "",
-                date,
-                endDate: date,
-                isAllDay: false,
-                startTime: slotElement.dataset.start || "09:00",
-                endTime: slotElement.dataset.end || "09:30",
-            };
-            startCalendarQuickCreate(slotElement, slotElement.offsetTop, draft);
+            const rect = surface.getBoundingClientRect();
+            // A keyboard "click" has no coordinates; land on the working morning.
+            const pointerMinute = rect.height > 0 && (event.clientY || 0) > 0 ?
+                offsetPxToMinute(event.clientY - rect.top, gridGeometry) :
+                9 * 60;
+            startTimedQuickCreate(surface, pointerMinute);
+        });
+        surface.addEventListener("keydown", (event: KeyboardEvent) => {
+            if (!editable || (event.key !== "Enter" && event.key !== " ")) {
+                return;
+            }
+            event.preventDefault();
+            startTimedQuickCreate(surface, 9 * 60);
         });
     });
+    // Call site reserved for the pointer gesture module (sweep-to-create,
+    // drag-to-move, edge resize). It binds to the contract this renderer emits:
+    // [data-type="calendar-time-create"] for empty space, .av__calendar-timed-event
+    // (data-start-minute / data-end-minute) for chips and
+    // [data-type="calendar-resize-handle"][data-edge] for the edges. Every write
+    // it performs must go through applyScopedEventDraft below, never straight to
+    // a transaction, and it must no-op when `editable` is false.
     calendarElement?.querySelectorAll('[data-type="calendar-new"]').forEach(item => {
         item.addEventListener("click", () => {
             if (!editable) {
@@ -912,7 +881,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     });
     calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
         item.addEventListener("dblclick", (event: MouseEvent) => {
-            if (!editable || (event.target as HTMLElement).closest(".av__calendar-event, [data-type='calendar-new'], [data-type='calendar-time-slot']")) {
+            if (!editable || (event.target as HTMLElement).closest(".av__calendar-event, [data-type='calendar-new'], [data-type='calendar-time-create']")) {
                 return;
             }
             openCalendarEventDialog({date: (item as HTMLElement).dataset.date || dayjs().format("YYYY-MM-DD"), onSave: rerender});
@@ -949,45 +918,54 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         delete options.blockElement.dataset.calendarFilter;
         rerender(true, !databaseQueryCleared);
     });
-    calendarElement?.addEventListener("keydown", (event: KeyboardEvent) => {
-        if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes((event.target as HTMLElement).tagName)) {
-            return;
+    /**
+     * Back out, in the order a user expects: an in-flight drag/sweep first (it
+     * is the most recent thing they started), then the search/filter. Returns
+     * false when there was nothing to back out, so Escape keeps reaching the
+     * app's own handling instead of being silently swallowed.
+     */
+    const backOutOfCalendar = () => {
+        closeCalendarEventMenu();
+        if (isCalendarGestureActive()) {
+            abortActiveCalendarGesture();
+            return true;
         }
-        if (event.key === "ArrowLeft") {
-            event.preventDefault();
-            setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, -1));
-        } else if (event.key === "ArrowRight") {
-            event.preventDefault();
-            setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, 1));
-        } else if (event.key.toLowerCase() === "t") {
-            event.preventDefault();
-            setCalendarAnchor(dayjs());
-        } else if (event.key.toLowerCase() === "n") {
-            event.preventDefault();
-            if (editable && mapping.hasDateField) {
-                openCalendarEventDialog({date: getCurrentAnchor().format("YYYY-MM-DD"), onSave: rerender});
+        const hasQuery = !!getCalendarSearch(options.blockElement) ||
+            getCalendarFilter(options.blockElement) !== "all" ||
+            !!(options.blockElement.querySelector('[data-type="av-search"]') as HTMLElement)?.textContent;
+        if (!hasQuery) {
+            return false;
+        }
+        clearDatabaseQuery();
+        delete options.blockElement.dataset.calendarSearch;
+        delete options.blockElement.dataset.calendarFilter;
+        rerender();
+        return true;
+    };
+    // The whole key map - the legacy 1-4 / arrows / [ ] / T / N / "/" / Escape
+    // set plus Google Calendar's d w m x a j k p c ? - lives in keymap.ts. The
+    // focus-scope bug this replaces: the old block bailed on BUTTON, and every
+    // interactive element in the calendar is a button, so the shortcuts died the
+    // moment anything was clicked. The unbind is registered so a re-render can
+    // never stack a second listener on the same calendar.
+    addCalendarTeardown(options.blockElement, bindCalendarKeymap(calendarElement, {
+        setViewMode: (mode: number) => setCalendarViewMode(mode),
+        goToRange: (direction) => setCalendarAnchor(getNavDate(getCurrentAnchor(), viewMode, direction)),
+        goToToday: () => setCalendarAnchor(dayjs()),
+        // The one shared create entry point: the same toolbar button a click
+        // uses, so the keyboard can never diverge from the pointer (and it is
+        // simply absent on a read-only calendar).
+        createEvent: () => {
+            if (!(editable && mapping.hasDateField)) {
+                return;
             }
-        } else if (event.key === "/") {
-            event.preventDefault();
-            (calendarElement.querySelector('[data-type="calendar-search"]') as HTMLInputElement)?.focus();
-        } else if (event.key === "[") {
-            event.preventDefault();
-            seekEvent(-1);
-        } else if (event.key === "]") {
-            event.preventDefault();
-            seekEvent(1);
-        } else if (event.key === "Escape" && (getCalendarSearch(options.blockElement) || getCalendarFilter(options.blockElement) !== "all" ||
-            !!(options.blockElement.querySelector('[data-type="av-search"]') as HTMLElement)?.textContent)) {
-            event.preventDefault();
-            clearDatabaseQuery();
-            delete options.blockElement.dataset.calendarSearch;
-            delete options.blockElement.dataset.calendarFilter;
-            rerender();
-        } else if (/^[1-4]$/.test(event.key)) {
-            event.preventDefault();
-            setCalendarViewMode(parseInt(event.key, 10) - 1);
-        }
-    });
+            (calendarElement.querySelector('[data-type="calendar-new"]:not(.av__calendar-daynum)') as HTMLElement)?.click();
+        },
+        focusSearch: () => (calendarElement.querySelector('[data-type="calendar-search"]') as HTMLInputElement)?.focus(),
+        seekEvent: (direction) => seekEvent(direction),
+        escape: backOutOfCalendar,
+    }));
+    calendarElement?.querySelector('[data-type="calendar-shortcuts"]')?.addEventListener("click", () => openCalendarShortcutHelp());
     const emptyDateFieldElement = calendarElement?.querySelector('[data-type="calendar-empty-date-field"]') as HTMLSelectElement;
     emptyDateFieldElement?.addEventListener("change", () => {
         if (!editable) {
@@ -1069,6 +1047,32 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     normalizedForEvents.events.forEach(event => {
         renderedEvents.set(event.occurrenceID || event.id, event);
     });
+    /**
+     * The mini month beside the main view.
+     *
+     * Its dots are computed over the whole anchor MONTH, not over the visible
+     * range: in Week or Day view the visible range is a handful of days, and a
+     * navigator that only dots the week you are already looking at is useless for
+     * the thing it exists for - seeing where the busy days are before you go
+     * there. Paging the navigator repaints only itself; the main view moves only
+     * when a day is clicked.
+     */
+    const miniMonthAnchor = getCurrentAnchor();
+    const miniMonthRange = getVisibleRange(miniMonthAnchor, 0, weekStart);
+    const miniMonthEvents = viewMode === 0 ?
+        normalizedForEvents.events :
+        normalizeCalendarEvents(calendar, mapping, miniMonthRange).events;
+    addCalendarTeardown(options.blockElement, bindCalendarMiniMonth(
+        calendarElement?.querySelector('[data-type="calendar-mini-month-wrapper"]') as HTMLElement,
+        {
+            anchor: miniMonthAnchor,
+            range,
+            weekStart,
+            eventDays: getCalendarMiniMonthEventDays(miniMonthEvents),
+            locale: getCalendarLocale(),
+        },
+        {onSelectDate: (date) => setCalendarAnchor(date)},
+    ));
     const getEditableEvent = (sourceEvent: ICalendarNormalizedEvent) => {
         if (!sourceEvent.isOccurrence || mapping.exceptionFieldID) {
             return sourceEvent;
@@ -1170,92 +1174,223 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             return saved;
         });
     };
+    /**
+     * Change how LONG an entry lasts by moving its end: whole days for an all-day
+     * entry, minutes for a timed one. This is exactly what the chip's inline
+     * -1d/+1d and -15m/+15m buttons did. Those buttons are gone - the same change
+     * is now a menu item (context-menu.ts emits data-type="calendar-resize" with
+     * data-days / data-delta, the same contract) or a drag on the chip's edge -
+     * but the write path is unchanged: applyScopedEventDraft, so a recurring
+     * entry is still asked for scope and a rejected write still rolls back.
+     */
+    const applyCalendarDurationChange = (sourceEvent: ICalendarNormalizedEvent, change: {days?: number, delta?: number}, operationElement: HTMLElement | null) => {
+        if (!editable) {
+            return;
+        }
+        if (sourceEvent.isAllDay) {
+            const deltaDays = change.days || 0;
+            if (!deltaDays) {
+                return;
+            }
+            const sourceEnd = (sourceEvent.end || sourceEvent.start.endOf("day")).add(deltaDays, "day");
+            if (sourceEnd.isBefore(sourceEvent.start, "day")) {
+                return;
+            }
+            const nextDurationDays = Math.max(sourceEnd.startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
+            applyScopedEventDraft(sourceEvent, (target) => ({
+                title: target.title,
+                date: target.start.format("YYYY-MM-DD"),
+                endDate: target.start.startOf("day").add(nextDurationDays, "day").format("YYYY-MM-DD"),
+                isAllDay: true,
+                startTime: target.start.format("HH:mm"),
+                endTime: target.end ? target.end.format("HH:mm") : "23:59",
+                recurrenceRaw: target.recurrenceRaw,
+                location: target.location,
+                description: target.description,
+                colorContent: target.colorContent,
+            }), operationElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.", "resize");
+            return;
+        }
+        const delta = change.delta || 0;
+        const currentEnd = sourceEvent.end || sourceEvent.start.add(1, "hour");
+        const nextEnd = currentEnd.add(delta, "minute");
+        if (!delta || !nextEnd.isAfter(sourceEvent.start)) {
+            return;
+        }
+        const nextDuration = nextEnd.diff(sourceEvent.start, "minute");
+        applyScopedEventDraft(sourceEvent, (target) => {
+            const targetEnd = target.start.add(nextDuration, "minute");
+            return {
+                title: target.title,
+                date: target.start.format("YYYY-MM-DD"),
+                endDate: targetEnd.format("YYYY-MM-DD"),
+                isAllDay: false,
+                startTime: target.start.format("HH:mm"),
+                endTime: targetEnd.format("HH:mm"),
+                recurrenceRaw: target.recurrenceRaw,
+                location: target.location,
+                description: target.description,
+                colorContent: target.colorContent,
+            };
+        }, operationElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.", "resize");
+    };
+    /**
+     * Move the WHOLE entry, keeping its duration. The menu offers this in the
+     * same steps a drag would give you (±15m, ±1d) for the times a drag is not
+     * practical - a chip in a crowded month cell, or no pointer at all.
+     */
+    const shiftCalendarEvent = (sourceEvent: ICalendarNormalizedEvent, shift: {days?: number, minutes?: number}, operationElement: HTMLElement | null) => {
+        if (!editable) {
+            return;
+        }
+        const days = shift.days || 0;
+        const minutes = shift.minutes || 0;
+        if (!days && !minutes) {
+            return;
+        }
+        applyScopedEventDraft(sourceEvent, (target) => {
+            const targetStart = target.start.add(days, "day").add(minutes, "minute");
+            const targetEnd = (target.end || target.start.add(CALENDAR_DEFAULT_EVENT_MINUTES, "minute")).add(days, "day").add(minutes, "minute");
+            return {
+                title: target.title,
+                date: targetStart.format("YYYY-MM-DD"),
+                endDate: targetEnd.format("YYYY-MM-DD"),
+                isAllDay: target.isAllDay,
+                startTime: targetStart.format("HH:mm"),
+                endTime: targetEnd.format("HH:mm"),
+                recurrenceRaw: target.recurrenceRaw,
+                location: target.location,
+                description: target.description,
+                colorContent: target.colorContent,
+            };
+        }, operationElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarMoveFailed || "Move failed.", "move");
+    };
+    /**
+     * Remove an entry from the calendar. This is the row/occurrence removal the
+     * dialog's Delete performs - never the page behind it, which stays a separate
+     * confirm-gated action in the dialog because undo can restore a row but not a
+     * document.
+     */
+    const deleteCalendarEventWithScope = (sourceEvent: ICalendarNormalizedEvent, operationElement: HTMLElement | null, scope: CalendarRecurrenceScope) => {
+        const avID = options.blockElement.getAttribute("data-av-id");
+        const blockID = options.blockElement.getAttribute("data-node-id");
+        const failureMessage = window.siyuan.languages.calendarDeleteFailed || "Delete failed.";
+        if (!avID || !blockID) {
+            showMessage(`${failureMessage} ${window.siyuan.languages.calendarEventRestored || "Event restored."}`);
+            return;
+        }
+        withCalendarOperationFeedback(operationElement, window.siyuan.languages.saved || "Saved", failureMessage, async () => {
+            const removed = await (scope === "occurrence" && sourceEvent.isOccurrence && mapping.exceptionFieldID ?
+                deleteCalendarOccurrence({
+                    protyle: options.protyle,
+                    avID,
+                    blockID,
+                    fields: calendar.fields,
+                    mapping,
+                    event: sourceEvent,
+                    occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
+                    previousUpdated: options.blockElement.getAttribute("updated") || "",
+                }) :
+                deleteCalendarEvent({
+                    protyle: options.protyle,
+                    avID,
+                    blockID,
+                    event: sourceEvent,
+                    previousUpdated: options.blockElement.getAttribute("updated") || "",
+                }));
+            if (removed) {
+                rerender();
+            }
+            return removed;
+        });
+    };
+    // Deleting a recurring series without asking would be data loss, so the menu
+    // uses the very same scope prompt the dialog's Delete uses.
+    const requestCalendarEventDelete = (sourceEvent: ICalendarNormalizedEvent, operationElement: HTMLElement | null) => {
+        if (!editable) {
+            return;
+        }
+        if (!sourceEvent.isOccurrence && !isRecurringSourceEvent(sourceEvent)) {
+            deleteCalendarEventWithScope(sourceEvent, operationElement, "series");
+            return;
+        }
+        openRecurrenceScopeDialog({
+            action: "delete",
+            disabledScopes: getDisabledRecurrenceScopes(mapping, "delete", sourceEvent),
+            onSelect: (scope) => {
+                if (scope === "series") {
+                    const baseEvent = baseEvents.get(sourceEvent.baseEventID || sourceEvent.id) || sourceEvent;
+                    deleteCalendarEventWithScope(baseEvent, operationElement, "series");
+                    return;
+                }
+                deleteCalendarEventWithScope(sourceEvent, operationElement, scope);
+            },
+        });
+    };
+    const resolveCalendarEvent = (element: HTMLElement | null) =>
+        renderedEvents.get(element?.dataset.occurrence || "") || baseEvents.get(element?.dataset.id || "");
+    const openEventSchedulingFor = (calendarEvent?: ICalendarNormalizedEvent) => {
+        if (!calendarEvent) {
+            return;
+        }
+        if (!editable) {
+            openCalendarEventDialog({event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), readOnly: true});
+            return;
+        }
+        const eventForDialog = getEditableEvent(calendarEvent);
+        openCalendarEventDialog({event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
+    };
+    /**
+     * Right-click / long-press on a chip. The menu itself writes nothing: it
+     * reports a command with the same data-type values the old inline buttons
+     * carried, and everything is routed here into the same helpers a click, a
+     * drag or the dialog would use. It is never bound at all on a read-only or
+     * query-embed calendar.
+     */
+    const runCalendarMenuCommand = (command: ICalendarMenuCommand) => {
+        if (!editable) {
+            return;
+        }
+        const sourceEvent = resolveCalendarEvent(command.eventElement) || command.event;
+        if (!sourceEvent) {
+            return;
+        }
+        if (command.type === "calendar-open-source") {
+            if (getEventDocumentID(sourceEvent)) {
+                openCalendarEventSource(options.protyle, options.blockElement, sourceEvent);
+            }
+            return;
+        }
+        if (command.type === "calendar-open-dialog") {
+            openEventSchedulingFor(sourceEvent);
+            return;
+        }
+        if (command.type === "calendar-duplicate-next-day") {
+            duplicateEventToNextDay(sourceEvent, command.eventElement);
+            return;
+        }
+        if (command.type === "calendar-resize") {
+            applyCalendarDurationChange(sourceEvent, {days: command.days, delta: command.delta}, command.eventElement);
+            return;
+        }
+        if (command.type === "calendar-shift") {
+            shiftCalendarEvent(sourceEvent, {days: command.days, minutes: command.minutes}, command.eventElement);
+            return;
+        }
+        if (command.type === "calendar-delete") {
+            requestCalendarEventDelete(sourceEvent, command.eventElement);
+        }
+    };
+    addCalendarTeardown(options.blockElement, bindCalendarEventContextMenu({
+        calendarElement,
+        editable,
+        resolveEvent: (element) => resolveCalendarEvent(element),
+        onCommand: runCalendarMenuCommand,
+    }));
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
         item.addEventListener("click", (event: MouseEvent) => {
-            const resizeElement = (event.target as HTMLElement).closest('[data-type="calendar-resize"]') as HTMLElement;
-            if (resizeElement) {
-                event.preventDefault();
-                event.stopPropagation();
-                if (!editable) {
-                    return;
-                }
-                const sourceEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
-                if (!sourceEvent) {
-                    return;
-                }
-                if (sourceEvent.isAllDay) {
-                    const deltaDays = parseInt(resizeElement.dataset.days || "0", 10);
-                    if (!deltaDays) {
-                        return;
-                    }
-                    const sourceEnd = (sourceEvent.end || sourceEvent.start.endOf("day")).add(deltaDays, "day");
-                    if (sourceEnd.isBefore(sourceEvent.start, "day")) {
-                        return;
-                    }
-                    const nextDurationDays = Math.max(sourceEnd.startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0);
-                    applyScopedEventDraft(sourceEvent, (target) => ({
-                        title: target.title,
-                        date: target.start.format("YYYY-MM-DD"),
-                        endDate: target.start.startOf("day").add(nextDurationDays, "day").format("YYYY-MM-DD"),
-                        isAllDay: true,
-                        startTime: target.start.format("HH:mm"),
-                        endTime: target.end ? target.end.format("HH:mm") : "23:59",
-                        recurrenceRaw: target.recurrenceRaw,
-                        location: target.location,
-                        description: target.description,
-                        colorContent: target.colorContent,
-                    }), item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.", "resize");
-                    return;
-                }
-                const delta = parseInt(resizeElement.dataset.delta || "0", 10);
-                const currentEnd = sourceEvent.end || sourceEvent.start.add(1, "hour");
-                const nextEnd = currentEnd.add(delta, "minute");
-                if (!nextEnd.isAfter(sourceEvent.start)) {
-                    return;
-                }
-                const nextDuration = nextEnd.diff(sourceEvent.start, "minute");
-                applyScopedEventDraft(sourceEvent, (target) => {
-                    const targetEnd = target.start.add(nextDuration, "minute");
-                    return {
-                        title: target.title,
-                        date: target.start.format("YYYY-MM-DD"),
-                        endDate: targetEnd.format("YYYY-MM-DD"),
-                        isAllDay: false,
-                        startTime: target.start.format("HH:mm"),
-                        endTime: targetEnd.format("HH:mm"),
-                        recurrenceRaw: target.recurrenceRaw,
-                        location: target.location,
-                        description: target.description,
-                        colorContent: target.colorContent,
-                    };
-                }, item as HTMLElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarResizeFailed || "Resize failed.", "resize");
-                return;
-            }
-            const duplicateElement = (event.target as HTMLElement).closest('[data-type="calendar-duplicate-next-day"]') as HTMLElement;
-            if (duplicateElement) {
-                event.preventDefault();
-                event.stopPropagation();
-                if (!editable) {
-                    return;
-                }
-                const sourceEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
-                if (sourceEvent) {
-                    duplicateEventToNextDay(sourceEvent, item as HTMLElement);
-                }
-                return;
-            }
-            const calendarEvent = renderedEvents.get((item as HTMLElement).dataset.occurrence || "") || baseEvents.get((item as HTMLElement).dataset.id || "");
-            const openEventScheduling = () => {
-                if (!calendarEvent) {
-                    return;
-                }
-                if (!editable) {
-                    openCalendarEventDialog({event: calendarEvent, date: calendarEvent.start.format("YYYY-MM-DD"), readOnly: true});
-                    return;
-                }
-                const eventForDialog = getEditableEvent(calendarEvent);
-                openCalendarEventDialog({event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
-            };
+            const calendarEvent = resolveCalendarEvent(item as HTMLElement);
+            const openEventScheduling = () => openEventSchedulingFor(calendarEvent);
             const scheduleElement = (event.target as HTMLElement).closest('[data-type="calendar-open-dialog"]') as HTMLElement;
             if (scheduleElement) {
                 event.preventDefault();
@@ -1349,6 +1484,14 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             const dragOffsetDays = displayDate ? Math.max(dayjs(displayDate).startOf("day").diff(sourceEvent.start.startOf("day"), "day"), 0) : 0;
             const draftDate = dayjs(targetDate).subtract(dragOffsetDays, "day").format("YYYY-MM-DD");
             const draggedEventElement = calendarElement?.querySelector(`.av__calendar-event[data-occurrence="${eventID}"], .av__calendar-event[data-id="${eventID}"]`) as HTMLElement;
+            // Dropping into a day COLUMN also moves the event in time: the old
+            // grid could only change the day, because the drop target was the
+            // whole column and nothing read the pointer's minute.
+            const timeColumn = (item as HTMLElement).classList.contains("av__calendar-time-day") ? item as HTMLElement : null;
+            const dropRect = timeColumn?.getBoundingClientRect();
+            const dropStartMinute = timeColumn && !sourceEvent.isAllDay && dropRect && dropRect.height > 0 && event.clientY > 0 ?
+                snapMinutes(offsetPxToMinute(event.clientY - dropRect.top, gridGeometry), gridGeometry) :
+                null;
             applyScopedEventDraft(sourceEvent, (target) => {
                 const dayDelta = dayjs(draftDate).diff(sourceEvent.start.startOf("day"), "day");
                 const targetDraftDate = target === sourceEvent ?
@@ -1358,15 +1501,57 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 if (target.isAllDay && target.end && !target.start.isSame(target.end, "day")) {
                     draft.endTime = target.end?.format("HH:mm") || "23:59";
                 }
+                if (dropStartMinute !== null && !target.isAllDay) {
+                    // Preserve the duration; only the start moves.
+                    const durationMinutes = Math.max((target.end || target.start.add(CALENDAR_DEFAULT_EVENT_MINUTES, "minute")).diff(target.start, "minute"), CALENDAR_DEFAULT_EVENT_MINUTES);
+                    const nextStart = dayjs(targetDraftDate).startOf("day").add(dropStartMinute, "minute");
+                    const nextEnd = nextStart.add(durationMinutes, "minute");
+                    draft.startTime = nextStart.format("HH:mm");
+                    draft.endTime = nextEnd.format("HH:mm");
+                    draft.endDate = nextEnd.format("YYYY-MM-DD");
+                }
                 return draft;
             }, draggedEventElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarMoveFailed || "Move failed.", "move");
         });
+    });
+    // Pointer gestures on the grid: sweep-to-create, drag-to-move (day AND time
+    // together) and edge resize. interactions.ts owns the state machine and
+    // never writes; every result it emits is routed through the same
+    // applyScopedEventDraft / openQuickCreate paths a click uses, so the
+    // recurrence-scope prompt, the pending state and the rollback on failure all
+    // still apply. It binds nothing at all when `editable` is false.
+    abortActiveCalendarGesture();
+    bindCalendarPointerInteractions({
+        calendarElement,
+        editable,
+        adapter: createCalendarGridAdapter(gridElement, gridGeometry),
+        resolveEvent: (element) =>
+            renderedEvents.get(element.dataset.occurrence || "") || baseEvents.get(element.dataset.id || ""),
+        onResult: (result) => {
+            if (!editable) {
+                return;
+            }
+            if (result.type === "create") {
+                startCalendarQuickCreate(result.anchorElement, result.top, result.draft);
+                return;
+            }
+            applyScopedEventDraft(
+                result.event,
+                result.buildDraft,
+                result.eventElement,
+                window.siyuan.languages.saved || "Saved",
+                result.type === "move" ?
+                    (window.siyuan.languages.calendarMoveFailed || "Move failed.") :
+                    (window.siyuan.languages.calendarResizeFailed || "Resize failed."),
+                result.type,
+            );
+        },
     });
 };
 
 // 重渲染会整块替换 HTML，焦点元素随之消失。用这些属性拼一个可复原的选择器，
 // 使新建/移动/缩放事件后焦点仍停在原来的事件或时间格上。
-const CALENDAR_FOCUS_ATTRIBUTES = ["data-id", "data-occurrence", "data-date", "data-start", "data-mode"];
+const CALENDAR_FOCUS_ATTRIBUTES = ["data-id", "data-occurrence", "data-date", "data-day-index", "data-mode"];
 
 const isSelectorSafe = (value: string) => !!value && !/["\\]/.test(value);
 
@@ -1568,6 +1753,21 @@ export const renderCalendar = async (options: IRenderCalendarOptions) => {
     if (newTimeGridElement) {
         newTimeGridElement.scrollTop = resetData.gridScrollTop;
         newTimeGridElement.scrollLeft = resetData.gridScrollLeft;
+    }
+    // The now line is mounted, never rendered: it owns an interval, so it has to
+    // be torn down by the render that replaces it. mountCalendarNowIndicator
+    // unmounts the previous one for this block element first, and it only
+    // auto-scrolls when there was no scroll position to restore - never fight
+    // the user's own scroll.
+    if (newTimeGridElement) {
+        mountCalendarNowIndicator({
+            blockElement: e,
+            gridElement: newTimeGridElement,
+            geometry: getGridGeometry(e),
+            hasRestoredScroll: resetData.gridScrollTop > 0,
+        });
+    } else {
+        unmountCalendarNowIndicator(e);
     }
     restoreCalendarFocus(e, resetData.focusTarget);
     options.cb?.(data);

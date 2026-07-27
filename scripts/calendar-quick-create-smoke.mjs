@@ -95,12 +95,16 @@ if ((render.match(/pendingChip\?\.remove\(\);/g) || []).length < 2) {
   fail("optimistic chip must be removed on both the success and the failure path");
 }
 
-if (!/\[data-type='calendar-time-slot'\]/.test(render)) {
-  fail("drop-day dblclick guard must exclude calendar-time-slot targets");
+// The 30-minute slot buttons became one continuous create surface; the day-cell
+// dblclick guard must still exclude it so a sweep in the time grid does not also
+// fire the day-cell create.
+if (!/\[data-type='calendar-time-create'\]/.test(render)) {
+  fail("drop-day dblclick guard must exclude calendar-time-create targets");
 }
 
-if (!render.includes("startCalendarQuickCreate(slotElement, slotElement.offsetTop, draft)")) {
-  fail("time-slot quick-create must pass slot-relative top position");
+// Position is now minute-exact rather than snapped to a slot element.
+if (!render.includes("startCalendarQuickCreate(surface, surface.offsetTop + minuteToOffsetPx(start, gridGeometry), draft)")) {
+  fail("time-grid quick-create must anchor the popover at the exact clicked minute");
 }
 
 if (!/calendar-new"\]'\)[\s\S]{0,900}startCalendarQuickCreate/.test(render)) {

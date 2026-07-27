@@ -10,6 +10,7 @@ import {openMobileFileById} from "../../../../mobile/editor";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
+import {CalendarRecurrencePreset, describeRecurrence, detectRecurrencePreset, getRecurrencePresetRule, renderRecurrencePresetOptions} from "./recurrence-summary";
 import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventDocument, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 export type CalendarRecurrenceScope = "occurrence" | "future" | "series";
@@ -141,8 +142,9 @@ const parseRecurrenceFormValue = (value?: string): IRecurrenceFormValue => {
     return result;
 };
 
-const renderRecurrenceFields = (event?: ICalendarNormalizedEvent, readOnly = false) => {
-    const recurrence = parseRecurrenceFormValue(event?.recurrenceRaw || event?.recurrence?.freq || "");
+const renderRecurrenceFields = (event: ICalendarNormalizedEvent | undefined, readOnly: boolean, startDate: string) => {
+    const rawRule = event?.recurrenceRaw || event?.recurrence?.freq || "";
+    const recurrence = parseRecurrenceFormValue(rawRule);
     const labels = getWeekdayLabels();
     const weekdays = [
         {value: "SU", label: labels[0]},
@@ -158,8 +160,18 @@ const renderRecurrenceFields = (event?: ICalendarNormalizedEvent, readOnly = fal
 <div class="ft__on-surface ft__smaller">${window.siyuan.languages.calendarRecurringAdvancedReadOnly || "Advanced recurrence is retained (not editable here)."}</div>`;
     }
     const disabledAttr = readOnly ? " disabled" : "";
-    return `<div class="av__calendar-recurrence">
-    <select class="b3-select" id="av-event-recurrence-freq"${disabledAttr}>
+    // The preset menu is the face of recurrence; the FREQ/INTERVAL/COUNT/UNTIL/
+    // BYDAY row below stays as the "Custom" escape hatch and remains the single
+    // source of truth that getRecurrenceFromDialog reads. Choosing a preset only
+    // writes into those controls, so a preset can never store a rule the
+    // detailed controls could not have produced.
+    const preset = detectRecurrencePreset(rawRule, startDate);
+    return `<div class="av__calendar-repeat" data-type="calendar-repeat">
+    <select class="b3-select fn__block" id="av-event-recurrence-preset" data-type="calendar-recurrence-preset" aria-label="${escapeAttr(window.siyuan.languages.calendarRepeat || "Repeat")}"${disabledAttr}>
+        ${renderRecurrencePresetOptions(preset, startDate)}
+    </select>
+    <div class="av__calendar-recurrence" id="av-event-recurrence-custom" data-type="calendar-recurrence-custom"${preset === "custom" ? "" : ' style="display:none"'}>
+    <select class="b3-select" id="av-event-recurrence-freq" aria-label="${escapeAttr(window.siyuan.languages.calendarRecurrence || "Recurrence")}"${disabledAttr}>
         <option value=""${recurrence.freq ? "" : " selected"}>${window.siyuan.languages.none || "None"}</option>
         <option value="DAILY"${recurrence.freq === "DAILY" ? " selected" : ""}>${window.siyuan.languages.calendarDaily || "Daily"}</option>
         <option value="WEEKLY"${recurrence.freq === "WEEKLY" ? " selected" : ""}>${window.siyuan.languages.calendarWeekly || "Weekly"}</option>
@@ -175,7 +187,41 @@ const renderRecurrenceFields = (event?: ICalendarNormalizedEvent, readOnly = fal
             <span>${escapeHtml(day.label)}</span>
         </label>`).join("")}
     </div>
+    </div>
+    <div class="av__calendar-repeat-summary ft__on-surface ft__smaller" id="av-event-recurrence-summary" data-type="calendar-recurrence-summary" aria-live="polite">${escapeHtml(describeRecurrence(rawRule, startDate))}</div>
 </div>`;
+};
+
+const CALENDAR_RECURRENCE_WEEKDAY_SELECTOR = '[data-type="calendar-recurrence-weekday"]';
+
+/**
+ * Pushes a preset's rule down into the detailed controls. The controls stay the
+ * only thing getRecurrenceFromDialog reads, so presets and Custom can never
+ * disagree about what will be saved.
+ */
+const writeRecurrenceRuleToControls = (dialog: Dialog, rule: string) => {
+    const parsed = parseRecurrenceFormValue(rule);
+    const freqSelect = dialog.element.querySelector("#av-event-recurrence-freq") as HTMLSelectElement;
+    if (!freqSelect) {
+        return;
+    }
+    freqSelect.value = parsed.freq;
+    const intervalInput = dialog.element.querySelector("#av-event-recurrence-interval") as HTMLInputElement;
+    if (intervalInput) {
+        intervalInput.value = parsed.interval || "1";
+    }
+    const countInput = dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement;
+    if (countInput) {
+        countInput.value = parsed.count;
+    }
+    const untilInput = dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement;
+    if (untilInput) {
+        untilInput.value = parsed.until;
+    }
+    dialog.element.querySelectorAll(CALENDAR_RECURRENCE_WEEKDAY_SELECTOR).forEach(item => {
+        const checkbox = item as HTMLInputElement;
+        checkbox.checked = parsed.byDay.includes(checkbox.value);
+    });
 };
 
 const renderColorField = (field?: IAVColumn, event?: ICalendarNormalizedEvent, readOnly = false) => {
@@ -273,7 +319,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}"${disabledAttr}>
     </div>` : ""}
     ${mapping.recurrenceFieldID ? `<div class="b3-form__space">
-        ${renderRecurrenceFields(event, readOnly)}
+        ${renderRecurrenceFields(event, readOnly, startDate)}
     </div>` : ""}
     ${mapping.descriptionFieldID ? `<div class="b3-form__space">
         <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}"${disabledAttr}>${escapeHtml(event?.description || "")}</textarea>
@@ -331,6 +377,16 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     });
     const dateInput = dialog.element.querySelector("#av-event-date") as HTMLInputElement;
     const endDateInput = dialog.element.querySelector("#av-event-end-date") as HTMLInputElement;
+    const recurrenceFreq = dialog.element.querySelector("#av-event-recurrence-freq") as HTMLSelectElement;
+    const weekdayRow = dialog.element.querySelector('[data-type="calendar-weekday-row"]') as HTMLElement;
+    const presetSelect = dialog.element.querySelector("#av-event-recurrence-preset") as HTMLSelectElement;
+    const customRow = dialog.element.querySelector("#av-event-recurrence-custom") as HTMLElement;
+    const summaryElement = dialog.element.querySelector("#av-event-recurrence-summary") as HTMLElement;
+    const updateRecurrenceSummary = () => {
+        if (summaryElement) {
+            summaryElement.textContent = describeRecurrence(getRecurrenceFromDialog(dialog), dateInput?.value || options.date);
+        }
+    };
     dateInput?.addEventListener("change", () => {
         if (!endDateInput.value || endDateInput.value < dateInput.value) {
             endDateInput.value = dateInput.value;
@@ -339,9 +395,13 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
         if (recurrenceUntilInput?.value && recurrenceUntilInput.value < dateInput.value) {
             recurrenceUntilInput.value = dateInput.value;
         }
+        // "Weekly on Tue" and "Annually on 5 August" are read off the start
+        // date, so moving the event has to relabel the presets too.
+        if (presetSelect) {
+            presetSelect.innerHTML = renderRecurrencePresetOptions(presetSelect.value as CalendarRecurrencePreset, dateInput.value || options.date);
+        }
+        updateRecurrenceSummary();
     });
-    const recurrenceFreq = dialog.element.querySelector("#av-event-recurrence-freq") as HTMLSelectElement;
-    const weekdayRow = dialog.element.querySelector('[data-type="calendar-weekday-row"]') as HTMLElement;
     const updateWeekdayVisibility = () => {
         if (weekdayRow) {
             weekdayRow.style.display = recurrenceFreq?.value === "WEEKLY" ? "flex" : "none";
@@ -349,6 +409,26 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     };
     recurrenceFreq?.addEventListener("change", updateWeekdayVisibility);
     updateWeekdayVisibility();
+    presetSelect?.addEventListener("change", () => {
+        const preset = presetSelect.value as CalendarRecurrencePreset;
+        if (customRow) {
+            customRow.style.display = preset === "custom" ? "" : "none";
+        }
+        if (preset !== "custom") {
+            writeRecurrenceRuleToControls(dialog, getRecurrencePresetRule(preset));
+        }
+        updateWeekdayVisibility();
+        updateRecurrenceSummary();
+    });
+    // Editing the escape-hatch controls only refreshes the prose; it must never
+    // rewrite them, or the smoke that sets FREQ/INTERVAL/COUNT directly would
+    // have its values clobbered.
+    [recurrenceFreq,
+        dialog.element.querySelector("#av-event-recurrence-interval"),
+        dialog.element.querySelector("#av-event-recurrence-count"),
+        dialog.element.querySelector("#av-event-recurrence-until"),
+        ...Array.from(dialog.element.querySelectorAll(CALENDAR_RECURRENCE_WEEKDAY_SELECTOR)),
+    ].forEach(item => item?.addEventListener("change", updateRecurrenceSummary));
     dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => closeEventDialogSafely(dialog));
     dialog.element.querySelector('[data-type="event-close"]')?.addEventListener("click", () => closeEventDialogSafely(dialog));
     if (options.readOnly) {

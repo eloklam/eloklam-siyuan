@@ -433,6 +433,18 @@ const main = async () => {
   const baseURL = `http://127.0.0.1:${kernelPort}`;
   const hadKernelBinary = fs.existsSync(appKernelBinary);
   const hadAppBuildDir = fs.existsSync(appBuildDir);
+  // A real (non-symlink) stage/build/app left over from `pnpm run build:app`
+  // silently shadows the desktop build this smoke was told to verify: the app
+  // shell then loads a stale base.css, and every assertion about computed style
+  // quietly measures last week's stylesheet. Fail loudly instead.
+  if (hadAppBuildDir && !fs.lstatSync(appBuildDir).isSymbolicLink()) {
+    const appIndex = path.join(appBuildDir, "index.html");
+    const desktopIndex = path.join(desktopBuildDir, "index.html");
+    if (fs.existsSync(desktopIndex) &&
+      (!fs.existsSync(appIndex) || fs.statSync(appIndex).mtimeMs < fs.statSync(desktopIndex).mtimeMs)) {
+      fail(`${appBuildDir} is older than the desktop build and would shadow it; run "cd app && corepack pnpm run build:app" or delete app/stage/build/app`);
+    }
+  }
   let kernel;
   let electron;
 
