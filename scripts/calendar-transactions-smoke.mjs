@@ -371,24 +371,28 @@ exports.__calendarTransactionCalls = calls;
 
   assert(await transactionsModule.updateCalendarEvent({...baseOptions, event: boundEvent, draft}) === true,
     "updating a bound event should succeed");
-  const boundUpdateCall = calls.pop();
-  // Writing the block cell of a bound row makes the kernel persist a per-AV
-  // static anchor override (custom-sy-av-s-text-<avID>) that shadows the document
-  // title forever.
-  assert(!boundUpdateCall.doOperations.some((op) => op.keyID === "block"),
-    "update must never write the block cell of a bound row");
-  assert(boundUpdateCall.doOperations.some((op) => op.keyID === "date"), "update must still write the bound row's cells");
-  const renameCall = apiCalls.pop();
-  assert(renameCall?.url === "/api/filetree/renameDocByID" && renameCall.body.id === documentID && renameCall.body.title === "Updated title",
-    "editing the title of a bound event must rename its page");
-  assert(apiCalls.length === 0, "a bound update should rename exactly once");
+  assert(calls.length === 0,
+    "a bound update must not split the save into a separate /api/transactions write");
+  const atomicUpdateCall = apiCalls.pop();
+  assert(atomicUpdateCall?.url === "/api/av/updateAttributeViewItem",
+    "a bound update must use the kernel atomic item endpoint");
+  assert(atomicUpdateCall.body.itemID === boundEvent.id && atomicUpdateCall.body.blockID === documentID,
+    "the atomic update must identify both the AV item and its bound document");
+  assert(atomicUpdateCall.body.primaryKey === "Updated title",
+    "the document title must travel inside the same atomic request as the fields");
+  assert(atomicUpdateCall.body.fieldValues.date?.date?.content === timestamp("2026-06-07T11:30:00"),
+    "the atomic request must contain the updated date field");
+  assert(!Object.prototype.hasOwnProperty.call(atomicUpdateCall.body.fieldValues, "block"),
+    "a bound update must never persist a static block-cell title override");
+  assert(apiCalls.length === 0, "a bound update should perform exactly one write request");
 
-  fetchStub.__setResponse("/api/filetree/renameDocByID", () => ({code: -1, msg: "rename failed"}));
+  fetchStub.__setResponse("/api/av/updateAttributeViewItem", () => ({code: -1, msg: "field update failed"}));
   assert(await transactionsModule.updateCalendarEvent({...baseOptions, event: boundEvent, draft}) === false,
-    "a failed page rename must fail the save");
-  assert(calls.length === 0, "a failed page rename must not leave the cells half-written");
-  apiCalls.pop();
-  fetchStub.__setResponse("/api/filetree/renameDocByID", undefined);
+    "a failed atomic update must fail the save");
+  assert(calls.length === 0, "a failed atomic update must not fall back to a second transaction");
+  assert(apiCalls.pop()?.url === "/api/av/updateAttributeViewItem",
+    "failure must still be reported by the one atomic endpoint");
+  fetchStub.__setResponse("/api/av/updateAttributeViewItem", undefined);
 
   assert(await transactionsModule.updateCalendarEvent({...baseOptions, event, draft}) === true, "detached update should still succeed");
   calls.pop();
