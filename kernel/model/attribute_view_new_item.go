@@ -446,7 +446,9 @@ func resolveCallerItemFieldValues(attrView *av.AttributeView, fieldValues map[st
 		}
 		if av.KeyTypeRelation == key.Type {
 			filterNewItemTemplateRelationValue(attrView, key, cloned)
-			if nil == cloned.Relation || 0 == len(cloned.Relation.BlockIDs) {
+			// nil means the caller supplied no relation value. A non-nil relation
+			// with zero targets is an explicit clear and must survive undo/replay.
+			if nil == cloned.Relation {
 				continue
 			}
 		}

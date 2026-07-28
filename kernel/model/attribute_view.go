@@ -6519,9 +6519,18 @@ func BatchUpdateAttributeViewCells(tx *Transaction, avID string, values []any) (
 }
 
 func UpdateAttributeViewCell(tx *Transaction, avID, keyID, itemID string, valueData any) (val *av.Value, err error) {
-	attrView, err := av.ParseAttributeView(avID)
-	if err != nil {
-		return
+	var attrView *av.AttributeView
+	if tx != nil && tx.deferAttrViewSave {
+		attrView = tx.deferredAttrViews[avID]
+	}
+	if attrView == nil {
+		attrView, err = av.ParseAttributeView(avID)
+		if err != nil {
+			return
+		}
+		if tx != nil && tx.deferAttrViewSave {
+			tx.deferredAttrViews[avID] = attrView
+		}
 	}
 
 	val, err = updateAttributeViewValue(tx, attrView, keyID, itemID, valueData)
@@ -6586,6 +6595,13 @@ func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID
 	if err != nil {
 		logging.LogErrorf("marshal value [%+v] failed: %s", valueData, err)
 		return
+	}
+	// Decode into a clean value. JSON omits empty slices/pointers, so decoding
+	// directly over the existing cell would preserve stale nested data and make
+	// undoing a first-time field value impossible.
+	*val = av.Value{
+		ID: val.ID, KeyID: keyID, BlockID: itemID, Type: val.Type,
+		CreatedAt: val.CreatedAt, UpdatedAt: val.UpdatedAt,
 	}
 	if err = gulu.JSON.UnmarshalJSON(data, &val); err != nil {
 		logging.LogErrorf("unmarshal data [%s] failed: %s", data, err)
@@ -6712,7 +6728,10 @@ func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID
 	}
 
 	regenAttrViewGroups(attrView)
-	if err = av.SaveAttributeView(attrView); nil != err {
+	if tx != nil && tx.deferAttrViewSave {
+		tx.deferredAttrViews[avID] = attrView
+		tx.relatedAvIDs = append(tx.relatedAvIDs, avID)
+	} else if err = av.SaveAttributeView(attrView); nil != err {
 		return
 	}
 	if 0 != relationChangeMode && nil != key && nil != key.Relation && "" != key.Relation.AvID && key.Relation.AvID != avID {

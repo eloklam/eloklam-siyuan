@@ -991,15 +991,17 @@ func UnlockBox(boxID string, password string, boxEnc *conf.BoxEncryption) error 
 
 	// 持锁保护"开 db + 缓存 DEK"的原子性，避免与并发的 LockBox 导致 db/DEK 不一致
 	cachedDEKsLock.Lock()
-	defer cachedDEKsLock.Unlock()
 	if err = sql.OpenEncryptedDB(boxID, dek); err != nil {
+		cachedDEKsLock.Unlock()
 		return err
 	}
 	if err = treenode.OpenEncryptedBlockTreeDB(boxID, dek); err != nil {
 		sql.RemoveEncryptedDBFile(boxID) // 清理已创建的 content db 文件，避免遗留空加密库
+		cachedDEKsLock.Unlock()
 		return err
 	}
 	cachedDEKs[boxID] = dek
+	cachedDEKsLock.Unlock()
 
 	// 初始化自动锁定访问时间戳，记录解锁时刻
 	newVal := &atomic.Int64{}
@@ -1024,6 +1026,10 @@ func UnlockBox(boxID string, password string, boxEnc *conf.BoxEncryption) error 
 		if err = writeNotebookCryptBackup(boxID, boxEnc); err != nil {
 			logging.LogWarnf("write notebook crypt backup [%s] failed: %s", boxID, err)
 		}
+	}
+	if err = recoverCalendarItemCommitJournal(boxID); err != nil {
+		logging.LogErrorf("recover calendar item transaction after unlocking box [%s] failed: %s", boxID, err)
+		return err
 	}
 	return nil
 }

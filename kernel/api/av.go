@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
@@ -794,6 +795,50 @@ func createAttributeViewItem(c *gin.Context) {
 	if nil != result.Transaction {
 		pushTransactions(app, session, []*model.Transaction{result.Transaction})
 	}
+}
+
+func updateAttributeViewItem(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	var avID, blockID, itemID, boundBlockID, primaryKey, app, session string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("avID", &avID, true, false),
+		util.BindJsonArg("blockID", &blockID, true, false),
+		util.BindJsonArg("itemID", &itemID, true, false),
+		util.BindJsonArg("boundBlockID", &boundBlockID, true, false),
+		util.BindJsonArg("primaryKey", &primaryKey, false, false),
+		util.BindJsonArg("app", &app, false, false),
+		util.BindJsonArg("session", &session, false, false)) {
+		return
+	}
+	fieldValues := map[string]*av.Value{}
+	if raw := arg["fieldValues"]; raw != nil {
+		data, err := gulu.JSON.MarshalJSON(raw)
+		if err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+		if err = gulu.JSON.UnmarshalJSON(data, &fieldValues); err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+	}
+	tx := &model.Transaction{DoOperations: []*model.Operation{{Action: "updateAttributeViewItem", AvID: avID, ID: itemID, Data: &model.AttributeViewItemUpdateData{AvID: avID, ItemID: itemID, BoundBlockID: boundBlockID, PrimaryKey: primaryKey, FieldValues: fieldValues}}}, Timestamp: time.Now().UnixMilli()}
+	tx.MarkFromAPI()
+	if err := model.PerformTxSync(tx); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = map[string]any{"itemID": itemID, "blockID": boundBlockID, "content": primaryKey}
+	model.FlushTxQueue()
+	pushTransactions(app, session, []*model.Transaction{tx})
 }
 
 func searchAttributeView(c *gin.Context) {
