@@ -1,6 +1,5 @@
 import {transaction} from "../../wysiwyg/transaction";
 import {Constants} from "../../../constants";
-import {showMessage} from "../../../dialog/message";
 import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {fetchSyncPost} from "../../../util/fetch";
 import {setPosition} from "../../../util/setPosition";
@@ -27,23 +26,6 @@ const getCalendarNewItemTarget = (calendar: IAVCalendar) =>
 
 const getWeekdayLabel = (day: 0 | 1) => {
     return new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "long"}).format(new Date(2020, 5, 7 + day));
-};
-
-const validateCalendarMetadataMapping = (mapping: Partial<NonNullable<IAVCalendar["fieldMapping"]>>, changedField?: string) => {
-    const names = ["recurrenceFieldID", "exceptionFieldID", "locationFieldID", "descriptionFieldID"];
-    const used = new Set<string>();
-    for (const name of names) {
-        const fieldID = mapping?.[name as keyof NonNullable<IAVCalendar["fieldMapping"]>];
-        if (!fieldID) {
-            continue;
-        }
-        if (used.has(fieldID)) {
-            showMessage((window.siyuan.languages.calendarDuplicateMetadataField || "Please choose different fields for ${x} metadata.").replace("${x}", changedField || ""));
-            return false;
-        }
-        used.add(fieldID);
-    }
-    return true;
 };
 
 export const getLayoutHTML = (data: IAV) => {
@@ -151,26 +133,14 @@ export const getLayoutHTML = (data: IAV) => {
     }
     if (data.viewType === "calendar") {
         const calendarView = data.view as IAVCalendar;
-        const fields = getFieldsByData(data);
-        const mapping = calendarView.fieldMapping || {};
-        // The recurrence / exception / location / description mappings only accept
-        // "text" fields: a template field is computed, so kernel/sql/av.go
-        // fillAttributeViewBaseValue() overwrites the persisted cell with the
-        // field's template expression on every render and every calendar write
-        // into it is silently lost. A database that already has a template field
-        // mapped keeps showing it through the stale-mapping option below, so the
-        // now-invalid choice stays visible instead of looking unset.
-        const buildOptions = (fieldTypes: TAVCol[], selected = "", allowEmpty = true) => {
-            let options = allowEmpty ? `<option value="">${escapeHtml(window.siyuan.languages.calcOperatorNone)}</option>` : "";
-            const matched = fields.filter(field => fieldTypes.includes(field.type));
-            if (selected && !matched.some(field => field.id === selected)) {
-                // The persisted mapping points at a deleted or retyped field:
-                // show that honestly instead of implying "None", so the user can
-                // pick a valid field (or None) to repair it.
-                options += `<option value="${escapeAttr(selected)}" selected disabled>${escapeHtml(window.siyuan.languages.calendarStaleMapping || "Missing or invalid field")}</option>`;
+        const buildDateOptions = () => {
+            let options = `<option value="">${escapeHtml(window.siyuan.languages.calcOperatorNone)}</option>`;
+            const matched = getFieldsByData(data).filter(field => field.type === "date");
+            if (calendarView.dateFieldID && !matched.some(field => field.id === calendarView.dateFieldID)) {
+                options += `<option value="${escapeAttr(calendarView.dateFieldID)}" selected disabled>${escapeHtml(window.siyuan.languages.calendarStaleMapping || "Missing or invalid field")}</option>`;
             }
             matched.forEach(field => {
-                options += `<option value="${escapeAttr(field.id)}"${field.id === selected ? " selected" : ""}>${escapeHtml(field.name)}</option>`;
+                options += `<option value="${escapeAttr(field.id)}"${field.id === calendarView.dateFieldID ? " selected" : ""}>${escapeHtml(field.name)}</option>`;
             });
             return options;
         };
@@ -178,7 +148,7 @@ export const getLayoutHTML = (data: IAV) => {
     <div class="fn__block">
         <label class="ft__on-surface">${window.siyuan.languages.dateField || "Date Field"}</label>
         <select class="b3-select fn__block" data-type="calendar-date-field">
-            ${buildOptions(["date"], calendarView.dateFieldID)}
+            ${buildDateOptions()}
         </select>
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${window.siyuan.languages.calendarWeekStart || "Week starts on"}</label>
@@ -194,31 +164,6 @@ export const getLayoutHTML = (data: IAV) => {
                 <option value="${CALENDAR_NEW_ITEM_TARGET_ROW}"${getCalendarNewItemTarget(calendarView) === CALENDAR_NEW_ITEM_TARGET_DOCUMENT ? "" : " selected"}>${escapeHtml(window.siyuan.languages.row)}</option>
             </select>
         </div>
-        <div class="fn__hr"></div>
-        <label class="ft__on-surface">${window.siyuan.languages.calendarRecurrence || "Recurrence"}</label>
-        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="recurrenceFieldID">
-            ${buildOptions(["text"], mapping.recurrenceFieldID)}
-        </select>
-        <div class="fn__hr"></div>
-        <label class="ft__on-surface">${window.siyuan.languages.calendarExceptions || "Exceptions"}</label>
-        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="exceptionFieldID">
-            ${buildOptions(["text"], mapping.exceptionFieldID)}
-        </select>
-        <div class="fn__hr"></div>
-        <label class="ft__on-surface">${window.siyuan.languages.calendarLocation || "Location"}</label>
-        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="locationFieldID">
-            ${buildOptions(["text"], mapping.locationFieldID)}
-        </select>
-        <div class="fn__hr"></div>
-        <label class="ft__on-surface">${window.siyuan.languages.calendarDescription || "Description"}</label>
-        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="descriptionFieldID">
-            ${buildOptions(["text"], mapping.descriptionFieldID)}
-        </select>
-        <div class="fn__hr"></div>
-        <label class="ft__on-surface">${window.siyuan.languages.color || "Color"}</label>
-        <select class="b3-select fn__block" data-type="calendar-map-field" data-field="colorFieldID">
-            ${buildOptions(["select", "mSelect"], mapping.colorFieldID)}
-        </select>
     </div>
 </div>`;
     }
@@ -452,30 +397,6 @@ const bindCalendarLayoutEvent = (options: {
         // re-rendered it. This override is what calendar/render.ts reads until
         // the kernel confirms the new value.
         options.blockElement.setAttribute("data-calendar-new-item-target", current);
-    });
-    options.menuElement.querySelectorAll('select[data-type="calendar-map-field"]').forEach((item: HTMLSelectElement) => {
-        item.addEventListener("change", () => {
-            const previous = {...(calendarView.fieldMapping || {})};
-            const next = {...previous, [item.dataset.field]: item.value};
-            if (!validateCalendarMetadataMapping(next, item.dataset.field)) {
-                item.value = previous[item.dataset.field as keyof NonNullable<IAVCalendar["fieldMapping"]>] || "";
-                return;
-            }
-            transaction(options.protyle, [{
-                action: "setAttrViewCalendarFieldMapping",
-                avID,
-                blockID,
-                data: {[item.dataset.field]: item.value},
-                viewID
-            }], [{
-                action: "setAttrViewCalendarFieldMapping",
-                avID,
-                blockID,
-                data: {[item.dataset.field]: previous[item.dataset.field as keyof NonNullable<IAVCalendar["fieldMapping"]>] || ""},
-                viewID
-            }]);
-            calendarView.fieldMapping = next;
-        });
     });
 };
 

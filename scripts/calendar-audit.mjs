@@ -650,25 +650,21 @@ for (const term of [
 }
 
 const layoutCode = read("app/src/protyle/render/av/layout.ts");
-for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStart", "setAttrViewCalendarFieldMapping"]) {
+for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStart"]) {
   if (!layoutCode.includes(term)) {
     fail(`layout menu missing ${term}`);
   }
 }
 for (const term of [
-  "validateCalendarMetadataMapping",
-  "calendarDuplicateMetadataField",
-  // Template fields are computed, so a calendar write into them is always lost:
-  // the metadata mappings must only offer text fields.
-  "buildOptions([\"text\"], mapping.recurrenceFieldID)",
-  "buildOptions([\"text\"], mapping.exceptionFieldID)",
-  "buildOptions([\"text\"], mapping.locationFieldID)",
-  "buildOptions([\"text\"], mapping.descriptionFieldID)",
-  "buildOptions([\"select\", \"mSelect\"], mapping.colorFieldID)",
-  "item.value = previous[item.dataset.field",
+  'data-type="calendar-map-field"',
+  "calendarRecurrence",
+  "calendarExceptions",
+  "calendarLocation",
+  "calendarDescription",
+  "colorFieldID",
 ]) {
-  if (!layoutCode.includes(term)) {
-    fail(`layout mapping guard missing ${term}`);
+  if (layoutCode.includes(term)) {
+    fail(`calendar layout must not expose metadata mapping setting: ${term}`);
   }
 }
 
