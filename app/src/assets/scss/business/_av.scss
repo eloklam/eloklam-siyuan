@@ -2412,8 +2412,8 @@ img.av__cellassetimg {
     opacity: .6;
   }
 
-  // The block a sweep paints and a drag carries (event-chip.ts buildCalendarGhost,
-  // positioned by interactions.ts inside the timed / all-day ghost layer).
+  // Empty-space sweep preview (event-chip.ts buildCalendarGhost). Existing timed
+  // event move/resize previews are applied directly to their rendered wrapper.
   &-ghost {
     background-color: var(--b3-theme-primary-lighter);
     border: 1px dashed var(--b3-theme-primary);

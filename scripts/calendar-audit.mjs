@@ -384,6 +384,19 @@ for (const term of [
 // The chip lost its permanent inline buttons. Everything else it carried has to
 // survive byte-for-byte, because the whole app and the smoke suite read the
 // calendar off these attributes.
+const calendarInteractions = read("app/src/protyle/render/av/calendar/interactions.ts");
+for (const term of [
+  "placeTimedEventPreview",
+  "restoreEventPreview",
+  'if (gesture.kind === \"sweep\")',
+  "placeGhost(gesture, \"timed\", rect, label)",
+  "placeTimedEventPreview(gesture, rect)",
+]) {
+  if (!calendarInteractions.includes(term)) {
+    fail(`calendar interaction preview missing ${term}`);
+  }
+}
+
 const calendarEventChip = read("app/src/protyle/render/av/calendar/event-chip.ts");
 for (const term of [
   "renderCalendarEventChip",

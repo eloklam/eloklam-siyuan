@@ -981,6 +981,42 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const overlapSecondTop = overlapSecond?.style.top || '';
     const overlapFirstStartMinute = overlapFirst?.getAttribute('data-start-minute') || '';
     const overlapSecondStartMinute = overlapSecond?.getAttribute('data-start-minute') || '';
+    // Dragging an existing edge previews on the existing wrapper. It must not
+    // paint a full-column ghost next to a half-column overlapping event.
+    const overlapResizeHandle = overlapFirst?.querySelector('[data-type="calendar-resize-handle"][data-edge="end"]');
+    const overlapResizeStyleBefore = overlapFirst?.getAttribute('style') || '';
+    const overlapResizeRectBefore = overlapFirst?.getBoundingClientRect();
+    if (overlapResizeHandle && overlapResizeRectBefore) {
+      const handleRect = overlapResizeHandle.getBoundingClientRect();
+      const pointerId = 91;
+      overlapResizeHandle.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId,
+        button: 0,
+        buttons: 1,
+        clientX: handleRect.left + handleRect.width / 2,
+        clientY: handleRect.top + handleRect.height / 2,
+      }));
+      document.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true,
+        cancelable: true,
+        pointerId,
+        button: 0,
+        buttons: 1,
+        clientX: handleRect.left + handleRect.width / 2,
+        clientY: handleRect.top + handleRect.height / 2 + gridHourHeight,
+      }));
+    }
+    const overlapResizeRectDuring = overlapFirst?.getBoundingClientRect();
+    const overlapResizeGhostCount = host.querySelectorAll('.av__calendar-ghost').length;
+    const overlapResizeWidthDuring = overlapFirst?.style.width || '';
+    const overlapResizeLeftDuring = overlapFirst?.style.left || '';
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true, cancelable: true}));
+    const overlapResizeStyleAfterEscape = overlapFirst?.getAttribute('style') || '';
+    // finishGesture swallows the synthetic click that follows a drag until the
+    // next task. Let that guard expire before the fixture clicks another mode.
+    await new Promise(resolve => setTimeout(resolve, 0));
     const nonOverlapWrapper = host.querySelector('.av__calendar-event[data-id="row-render"]')?.closest('.av__calendar-timed-event');
     const nonOverlapFound = !!nonOverlapWrapper;
     const nonOverlapWidth = nonOverlapWrapper?.style.width || '';
@@ -1306,6 +1342,12 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       overlapSecondTop,
       overlapFirstStartMinute,
       overlapSecondStartMinute,
+      overlapResizeGhostCount,
+      overlapResizeHeightBefore: overlapResizeRectBefore?.height || 0,
+      overlapResizeHeightDuring: overlapResizeRectDuring?.height || 0,
+      overlapResizeWidthDuring,
+      overlapResizeLeftDuring,
+      overlapResizeStyleRestored: overlapResizeStyleAfterEscape === overlapResizeStyleBefore,
       nonOverlapFound,
       nonOverlapWidth,
       nonOverlapLeft,
@@ -1428,6 +1470,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.overlapFirstTop !== "720px" || result.overlapFirstHeight !== "48px" ||
     result.overlapSecondTop !== "744px" ||
     result.overlapFirstStartMinute !== "900" || result.overlapSecondStartMinute !== "930" ||
+    result.overlapResizeGhostCount !== 0 ||
+    result.overlapResizeHeightDuring <= result.overlapResizeHeightBefore ||
+    result.overlapResizeWidthDuring !== "50%" || result.overlapResizeLeftDuring !== "0%" ||
+    !result.overlapResizeStyleRestored ||
     !result.nonOverlapFound || result.nonOverlapWidth !== "100%" ||
     result.nonOverlapLeft !== "0%" || result.nonOverlapTop !== "432px" ||
     result.allDayBarCount !== 2 || result.allDayBarSpan !== "1" ||

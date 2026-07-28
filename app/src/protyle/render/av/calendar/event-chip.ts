@@ -149,9 +149,8 @@ export const buildOptimisticChip = (draft: ICalendarEventDraft) => {
 };
 
 /**
- * The block the pointer state machine drags around, and the block a sweep
- * paints while the range grows. One element type for both, so the grid needs a
- * single style rule.
+ * The block an empty-grid sweep paints while a new range grows. Existing timed
+ * events preview on their own wrapper instead of rendering a second block.
  */
 export const buildCalendarGhost = (label: string, title?: string) => {
     const ghost = document.createElement("div");

@@ -32,8 +32,8 @@ import {CALENDAR_RESIZE_HANDLE_TYPE, CALENDAR_TIME_DAY_CLASS, CALENDAR_TIME_GRID
  * Three gestures, all on Pointer Events with pointer capture so a fast drag that
  * leaves the grid (or the window) does not lose the pointer:
  *   (a) sweep on empty grid  -> ghost block growing in snap steps -> quick create
- *   (b) drag a chip          -> moves across days AND times together
- *   (c) grab a chip edge     -> resizes only that end
+ *   (b) drag a chip          -> previews on that chip, across days and times
+ *   (c) grab a chip edge     -> previews that end on the existing chip
  *
  * Three things this module deliberately does NOT do:
  *   - It never writes. It emits a result and render.ts routes it through
@@ -145,6 +145,8 @@ interface IActiveGesture {
     ghost: HTMLElement | null;
     liveRegion: HTMLElement | null;
     restoreDraggable: HTMLElement | null;
+    previewElement: HTMLElement | null;
+    previewStyle: string | null;
     options: ICalendarInteractionOptions;
     cleanup: () => void;
 }
@@ -174,6 +176,43 @@ const removeGhost = (gesture: IActiveGesture) => {
     gesture.ghost = null;
     gesture.liveRegion?.remove();
     gesture.liveRegion = null;
+};
+
+const restoreEventPreview = (gesture: IActiveGesture) => {
+    if (!gesture.previewElement) {
+        return;
+    }
+    if (gesture.previewStyle === null) {
+        gesture.previewElement.removeAttribute("style");
+    } else {
+        gesture.previewElement.setAttribute("style", gesture.previewStyle);
+    }
+    gesture.previewElement = null;
+    gesture.previewStyle = null;
+};
+
+const placeTimedEventPreview = (gesture: IActiveGesture, rect: ICalendarGhostRect | null) => {
+    const event = gesture.event;
+    const eventElement = gesture.eventElement;
+    if (!event || !eventElement || !rect) {
+        return;
+    }
+    const previewElement = eventElement.closest(".av__calendar-timed-event") as HTMLElement;
+    const sourceRect = gesture.options.adapter.getGhostRect(getEventGridRange(event));
+    if (!previewElement || !sourceRect) {
+        return;
+    }
+    if (!gesture.previewElement) {
+        gesture.previewElement = previewElement;
+        gesture.previewStyle = previewElement.getAttribute("style");
+    }
+    if (gesture.kind === "move") {
+        previewElement.style.transform = `translate(${rect.left - sourceRect.left}px, ${rect.top - sourceRect.top}px)`;
+        return;
+    }
+    const originalTop = parseFloat(/(?:^|;)\s*top:\s*(-?\d+(?:\.\d+)?)px/.exec(gesture.previewStyle || "")?.[1] || "0");
+    previewElement.style.top = `${originalTop + rect.top - sourceRect.top}px`;
+    previewElement.style.height = `${rect.height}px`;
 };
 
 const ensureLiveRegion = (gesture: IActiveGesture) => {
@@ -232,6 +271,7 @@ const swallowNextClick = () => {
 const finishGesture = (gesture: IActiveGesture, commit: boolean) => {
     gesture.cleanup();
     removeGhost(gesture);
+    restoreEventPreview(gesture);
     gesture.eventElement?.classList.remove("av__calendar-event--dragging");
     gesture.options.calendarElement.classList.remove("av__calendar--gesturing");
     if (gesture.restoreDraggable) {
@@ -385,7 +425,12 @@ const updateGesture = (gesture: IActiveGesture, clientX: number, clientY: number
         return;
     }
     const label = describeCalendarRange(range, geometry);
-    placeGhost(gesture, "timed", adapter.getGhostRect(range), label, gesture.kind === "sweep" ? "" : gesture.event?.title);
+    const rect = adapter.getGhostRect(range);
+    if (gesture.kind === "sweep") {
+        placeGhost(gesture, "timed", rect, label);
+    } else {
+        placeTimedEventPreview(gesture, rect);
+    }
     setReadout(gesture, label);
 };
 
@@ -494,6 +539,8 @@ export const bindCalendarPointerInteractions = (options: ICalendarInteractionOpt
             ghost: null,
             liveRegion: null,
             restoreDraggable: null,
+            previewElement: null,
+            previewStyle: null,
             options,
             cleanup: () => {
                 documentListeners.forEach(([type, listener]) => {
