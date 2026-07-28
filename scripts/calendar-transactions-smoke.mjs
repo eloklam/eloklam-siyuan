@@ -198,7 +198,11 @@ exports.fetchSyncPost = async (url, body) => {
     return handler ? handler(body) : {code: 0, data: {}};
   }
   const tx = body.transactions[0];
-  calls.push({doOperations: tx.doOperations, undoOperations: tx.undoOperations});
+  calls.push({
+    doOperations: tx.doOperations,
+    undoOperations: tx.undoOperations,
+    reqId: body.reqId,
+  });
   return {code: 0, data: [{doOperations: tx.doOperations}]};
 };
 exports.__calendarTransactionCalls = calls;
@@ -330,8 +334,9 @@ exports.__calendarTransactionCalls = calls;
     previousUpdated: "20260523000000",
   }) === true, "delete event should succeed");
   const deleteCall = calls.pop();
+  assert(Number.isFinite(deleteCall.reqId), "delete transaction must include reqId");
   assert(deleteCall.doOperations.some((op) => op.action === "removeAttrViewBlock" && op.srcIDs?.[0] === event.id),
-    "delete should remove the event row");
+    "delete should remove the calendar row");
   assert(deleteCall.undoOperations.some((op) => op.action === "insertAttrViewBlock" && op.srcs?.[0]?.id === event.id),
     "delete undo should restore the event row");
   assert(deleteCall.undoOperations.some((op) => op.action === "updateAttrViewCell" && op.keyID === "recurrence"),

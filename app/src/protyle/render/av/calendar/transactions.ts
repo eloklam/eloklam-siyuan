@@ -428,6 +428,7 @@ const executeCalendarOperations = async (protyle: IProtyle, ops: ICalendarOperat
     const response = await fetchSyncPost("/api/transactions", {
         session: protyle?.id || Constants.SIYUAN_APPID,
         app: Constants.SIYUAN_APPID,
+        reqId: Date.now(),
         transactions: [{
             doOperations: ops.doOperations,
             undoOperations: ops.undoOperations,
