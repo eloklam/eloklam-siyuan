@@ -1276,6 +1276,101 @@ const main = async () => {
           `removeCreatedDoc id=${undoDoc?.id} want ${pageDocID}`,
           {file: "kernel/model/attribute_view_new_item.go"});
       }
+
+      // -- atomic bound-item update: document title + AV cells land together --
+      console.log("\n== step: updateAttributeViewItem (bound title + fields) ==");
+      const atomicTitle = "Atomic page title";
+      const atomicStartMs = pageStartMs + 24 * 60 * 60 * 1000;
+      const atomicEndMs = pageEndMs + 24 * 60 * 60 * 1000;
+      const atomicUpdate = await postJSON("/api/av/updateAttributeViewItem", {
+        avID,
+        blockID: avBlockID,
+        viewID: calendarViewID,
+        itemID: pageItemID,
+        boundBlockID: pageDocID,
+        primaryKey: atomicTitle,
+        fieldValues: {
+          [keys.date]: {
+            type: "date", keyID: keys.date,
+            date: {
+              content: atomicStartMs, isNotEmpty: true,
+              content2: atomicEndMs, isNotEmpty2: true,
+              hasEndDate: true, isNotTime: false,
+            },
+          },
+          [keys.location]: {type: "text", keyID: keys.location, text: {content: "Atomic room"}},
+          [keys.description]: {type: "text", keyID: keys.description, text: {content: "First description"}},
+        },
+        app: PUSH_APP,
+        session: PUSH_SESSION,
+      });
+      assertOrDefect(atomicUpdate.code === 0,
+        "updateAttributeViewItem rejected the bound title/field update",
+        `code=${atomicUpdate.code} msg=${atomicUpdate.msg}`,
+        {file: "kernel/api/av.go"});
+      const atomicState = await renderAV();
+      const atomicCard = cardByID(atomicState, pageItemID);
+      const atomicBlock = atomicCard?.values.find(cell => cell.valueType === "block")?.value?.block;
+      const atomicDate = cellValue(atomicCard, keys.date)?.date;
+      assertOrDefect(atomicBlock?.id === pageDocID && atomicBlock?.content === atomicTitle,
+        "atomic update did not persist the bound document title into the AV primary key",
+        `block=${JSON.stringify(atomicBlock)} want id=${pageDocID} content=${atomicTitle}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
+      assertOrDefect(atomicDate?.content === atomicStartMs && atomicDate?.content2 === atomicEndMs,
+        "atomic update did not persist the new calendar date range",
+        `date=${JSON.stringify(atomicDate)}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
+      assertOrDefect(textOf(atomicCard, keys.location) === "Atomic room" &&
+        textOf(atomicCard, keys.description) === "First description",
+        "atomic update did not persist the mapped text fields",
+        `location=${textOf(atomicCard, keys.location)} description=${textOf(atomicCard, keys.description)}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
+      const atomicDocInfo = await postJSON("/api/block/getBlockInfo", {id: pageDocID});
+      assertOrDefect(atomicDocInfo.code === 0 && atomicDocInfo.data?.rootTitle === atomicTitle,
+        "atomic update did not persist the real document title",
+        `code=${atomicDocInfo.code} rootTitle=${JSON.stringify(atomicDocInfo.data?.rootTitle)}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
+
+      // -- the single atomic operation is a real undo/redo unit ---------------
+      const undoState = await postJSON("/api/transactions/undoState", {rootID: pageDocID});
+      assertOrDefect(undoState.code === 0 && undoState.data?.canUndo === true,
+        "atomic bound update was not recorded on the document undo stack",
+        `undoState=${JSON.stringify(undoState.data)}`,
+        {file: "kernel/model/undolog.go"});
+      const undoResult = await postJSON("/api/transactions/undo", {
+        rootID: pageDocID, app: PUSH_APP, session: PUSH_SESSION,
+      });
+      assertOrDefect(undoResult.code === 0 && undoResult.data?.failed !== true,
+        "undoing the atomic bound update failed",
+        `data=${JSON.stringify(undoResult.data)} msg=${undoResult.msg}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
+      const undoneCard = cardByID(await renderAV(), pageItemID);
+      const undoneDocInfo = await postJSON("/api/block/getBlockInfo", {id: pageDocID});
+      assertOrDefect(undoneDocInfo.data?.rootTitle === pageTitle &&
+        undoneCard?.values.find(cell => cell.valueType === "block")?.value?.block?.content === pageTitle &&
+        cellValue(undoneCard, keys.date)?.date?.content === pageStartMs &&
+        textOf(undoneCard, keys.location) === "Page room" &&
+        textOf(undoneCard, keys.description) === "",
+        "atomic undo did not restore the old document title and AV fields together",
+        `title=${JSON.stringify(undoneDocInfo.data?.rootTitle)} card=${JSON.stringify(undoneCard)}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
+      const redoResult = await postJSON("/api/transactions/redo", {
+        rootID: pageDocID, app: PUSH_APP, session: PUSH_SESSION,
+      });
+      assertOrDefect(redoResult.code === 0 && redoResult.data?.failed !== true,
+        "redoing the atomic bound update failed",
+        `data=${JSON.stringify(redoResult.data)} msg=${redoResult.msg}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
+      const redoneCard = cardByID(await renderAV(), pageItemID);
+      const redoneDocInfo = await postJSON("/api/block/getBlockInfo", {id: pageDocID});
+      assertOrDefect(redoneDocInfo.data?.rootTitle === atomicTitle &&
+        redoneCard?.values.find(cell => cell.valueType === "block")?.value?.block?.content === atomicTitle &&
+        cellValue(redoneCard, keys.date)?.date?.content === atomicStartMs &&
+        textOf(redoneCard, keys.location) === "Atomic room" &&
+        textOf(redoneCard, keys.description) === "First description",
+        "atomic redo did not restore the new document title and AV fields together",
+        `title=${JSON.stringify(redoneDocInfo.data?.rootTitle)} card=${JSON.stringify(redoneCard)}`,
+        {file: "kernel/model/attribute_view_update_item.go"});
     }
 
     // -- templateID may be omitted: a document-target calendar view still pages

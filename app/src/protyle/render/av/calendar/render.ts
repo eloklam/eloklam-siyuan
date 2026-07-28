@@ -374,7 +374,7 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
     let cursor = range.start;
     while (!cursor.isAfter(range.end, "day")) {
         const dayEvents = sortCalendarEvents(events.filter(event => eventOverlapsDay(event, cursor)));
-        const visibleEvents = dayEvents.length > MONTH_DAY_EVENT_LIMIT + 1 ? dayEvents.slice(0, MONTH_DAY_EVENT_LIMIT) : dayEvents;
+        const visibleEvents = dayEvents.slice(0, MONTH_DAY_EVENT_LIMIT);
         const hiddenCount = dayEvents.length - visibleEvents.length;
         const moreHTML = hiddenCount > 0 ?
             `<button class="av__calendar-more" data-type="calendar-more" data-date="${cursor.format("YYYY-MM-DD")}" aria-label="${escapeAttr(`+${hiddenCount} ${window.siyuan.languages.calendarEvents || "Events"}`)}">+${hiddenCount}</button>` : "";
@@ -650,6 +650,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             blockElement: options.blockElement,
             data,
             createAsDocument: createsDocuments,
+            templateID: data.defaultTemplateID || "",
             ...dialogOptions,
         });
     };
@@ -669,6 +670,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             fields: calendar.fields,
             mapping: createMapping,
             draft,
+            templateID: data.defaultTemplateID || "",
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         };
     };
@@ -1096,14 +1098,21 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             mapping,
             event: sourceEvent,
             draft,
+            viewID: data.viewID,
             previousUpdated: options.blockElement.getAttribute("updated") || "",
         };
         withCalendarOperationFeedback(operationElement, operationLabel, failureMessage, async () => {
+            const pageOptions = createsDocuments ? {
+                createAsDocument: true,
+                templateID: data.defaultTemplateID || "",
+            } : {};
             const saved = await (scope === "occurrence" ? createCalendarEventReplacingOccurrence({
                 ...transactionOptions,
+                ...pageOptions,
                 occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
             }) : scope === "future" ? updateCalendarEventThisAndFuture({
                 ...transactionOptions,
+                ...pageOptions,
                 occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
             }) : updateCalendarEvent(transactionOptions));
             if (saved) {
@@ -1158,16 +1167,20 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         draft.recurrenceRaw = "";
         draft.recurrenceExceptionRaw = "";
         withCalendarOperationFeedback(operationElement, window.siyuan.languages.saved || "Saved", window.siyuan.languages.calendarCreateFailed || "Create failed.", async () => {
-            const saved = await createCalendarEvent({
+            const createOptions: ICalendarCreateOptions = {
                 protyle: options.protyle,
                 avID,
                 blockID,
+                viewID: data.viewID,
                 dateFieldID: mapping.dateFieldID,
                 fields: calendar.fields,
                 mapping,
                 draft,
                 previousUpdated: options.blockElement.getAttribute("updated") || "",
-            });
+            };
+            const saved = createsDocuments ?
+                Boolean(await createCalendarEventAsDocument({...createOptions, templateID: data.defaultTemplateID || ""})) :
+                await createCalendarEvent(createOptions);
             if (saved) {
                 rerender();
             }
@@ -1415,24 +1428,6 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
                 return;
             }
             openEventScheduling();
-        });
-    });
-    // The chip is a <button>, so Enter/Space on the chip itself already reaches
-    // the click handler. The affordances inside it are role="button" spans, which
-    // get no native activation - without this, a keyboard user could reach the
-    // scheduling dialog of a bound entry only with a mouse.
-    calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {
-        item.addEventListener("keydown", (event: KeyboardEvent) => {
-            if (event.key !== "Enter" && event.key !== " ") {
-                return;
-            }
-            const affordance = (event.target as HTMLElement).closest('[data-type="calendar-open-dialog"], [data-type="calendar-open-source"]') as HTMLElement;
-            if (!affordance || affordance === item) {
-                return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            affordance.click();
         });
     });
     calendarElement?.querySelectorAll(".av__calendar-event").forEach(item => {

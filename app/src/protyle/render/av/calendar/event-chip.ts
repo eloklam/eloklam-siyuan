@@ -113,14 +113,13 @@ export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
         `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
     const documentID = getEventDocumentID(event);
     const sourceMarker = documentID ?
-        `<span class="av__calendar-source" data-type="calendar-open-source" role="button" tabindex="0" title="${escapeAttr(getOpenPageLabel())}" aria-label="${escapeAttr(getOpenPageLabel())}">↗</span>` : "";
+        `<span class="av__calendar-source" data-type="calendar-open-source" aria-hidden="true">↗</span>` : "";
     // A bound chip opens its page on click, so the scheduling dialog needs its own
     // labelled entry point: moving an event in time must never require opening the
     // page first. Detached chips still open the dialog on click, so they do not
     // carry this affordance.
-    const scheduleLabel = editable ? getOpenScheduleLabel() : (window.siyuan.languages.calendarSchedule || "Schedule");
     const scheduleMarker = documentID ?
-        `<span class="av__calendar-schedule" data-type="calendar-open-dialog" role="button" tabindex="0" title="${escapeAttr(scheduleLabel)}" aria-label="${escapeAttr(scheduleLabel)}">◷</span>` : "";
+        `<span class="av__calendar-schedule" data-type="calendar-open-dialog" aria-hidden="true">◷</span>` : "";
     // The all-day shape is a filled bar, so a leading dot would be noise on it.
     const dotMarker = variant === "all-day" ? "" : '<span class="av__calendar-event-dot" aria-hidden="true"></span>';
     const variantClass = ` av__calendar-event--${variant === "all-day" ? "all-day" : variant}`;

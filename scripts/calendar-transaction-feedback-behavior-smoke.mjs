@@ -34,7 +34,7 @@ assertRegex(transactions, /export const deleteCalendarEvent = async/, 'delete he
 
 assertRegex(render, /withCalendarOperationFeedback = async[\s\S]*await callback\(\)/, 'render feedback awaits operation');
 assertRegex(render, /const saved = await \(scope === \"occurrence\"[\s\S]*updateCalendarEvent/, 'drag resize/move await backend truth');
-assertRegex(render, /const saved = await createCalendarEvent/, 'create/duplicate awaits backend truth');
+assertRegex(render, /const saved = createsDocuments \?[\s\S]*createCalendarEventAsDocument[\s\S]*await createCalendarEvent\(createOptions\)/, 'create/duplicate awaits the selected backend path');
 assertRegex(render, /const draggedEventElement = calendarElement\?\.querySelector\(`\.av__calendar-event\[data-(?:occurrence|id)=/, 'drop finds dragged event element');
 assertRegex(render, /applyScopedEventDraft\(sourceEvent, \(target\) => \{[\s\S]*?draggedEventElement/, 'drop passes operation element for pending guard');
 assertRegex(render, /operationElement\?\.dataset\.calendarOperation === "pending"/, 'render duplicate pending guard');

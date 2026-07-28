@@ -376,7 +376,7 @@ exports.__calendarTransactionCalls = calls;
   const atomicUpdateCall = apiCalls.pop();
   assert(atomicUpdateCall?.url === "/api/av/updateAttributeViewItem",
     "a bound update must use the kernel atomic item endpoint");
-  assert(atomicUpdateCall.body.itemID === boundEvent.id && atomicUpdateCall.body.blockID === documentID,
+  assert(atomicUpdateCall.body.itemID === boundEvent.id && atomicUpdateCall.body.boundBlockID === documentID,
     "the atomic update must identify both the AV item and its bound document");
   assert(atomicUpdateCall.body.primaryKey === "Updated title",
     "the document title must travel inside the same atomic request as the fields");

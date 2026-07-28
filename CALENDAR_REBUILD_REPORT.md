@@ -1,10 +1,19 @@
 # SiYuan AV Calendar Rebuild Report
 
-Date: 2026-05-25
+Date: 2026-07-28
 
 ## Scope
 
 Rebuilt and strengthened the Attribute View Calendar work from the curated recovery bundle intent. This report covers the current branch state and the automated evidence gathered so far. Raw recovery disks and the note vault were not accessed.
+
+The final integration additionally replaces the bound-event two-request
+rename/field update with `/api/av/updateAttributeViewItem`. The kernel now
+validates the item/document binding, updates the document title and AV values
+from one deferred snapshot, and protects the two-file commit with a persistent
+old-state journal. Recovery runs on startup or encrypted-notebook unlock;
+encrypted journals use a DEK-derived key. The journal is cleared only after the
+document, AV and SQL index queue are committed. Real-kernel coverage confirms
+the title, primary key, date/text fields and undo/redo remain consistent.
 
 ## Applied / Rebuilt Patch Areas
 
@@ -101,15 +110,28 @@ Passed:
 
 ```sh
 git diff --check
-cd kernel && go test -vet=off ./av ./model ./sql
-cd app && corepack pnpm run build:desktop
+cd app && ./node_modules/.bin/tsc -p tsconfig.typecheck.json
+cd kernel && go test ./api ./av && go test -vet=off ./sql
+cd app && ./node_modules/.bin/webpack --mode production --config webpack.desktop.js
+cd app && ./node_modules/.bin/webpack --mode production
 node scripts/calendar-audit.mjs
 node scripts/calendar-kernel-smoke.mjs
+node scripts/calendar-backend-contract-smoke.mjs
 node scripts/calendar-recurrence-smoke.mjs
 node scripts/calendar-transactions-smoke.mjs
 node scripts/calendar-electron-launch-smoke.mjs
 node scripts/calendar-electron-document-flow-smoke.mjs
 ```
+
+The complete `go test ./model -count=1` run has exactly three known,
+environment-specific Obsidian failures on this machine:
+
+- `TestAnalyzeObsidianVault`
+- `TestRevalidateObsidianVaultDetectsAttachmentListChanges`
+- `TestObsidianVaultValidationErrors`
+
+All three report `Obsidian Vault path is unsafe: selected Vault path is
+sensitive`; no Calendar or transaction test fails.
 
 Also passed:
 

@@ -404,6 +404,23 @@ const verifyCalendarWrite = async (target: ICalendarWriteTarget, doOperations: I
     return checks.every(check => check(readBack.cards, readBack.mayHideItems));
 };
 
+const verifyBoundCalendarItemUpdate = async (target: ICalendarWriteTarget, itemID: string, boundBlockID: string, primaryKey: string, fieldValues: { [keyID: string]: IAVCellValue }) => {
+    const readBack = await readCalendarCards(target);
+    if (!readBack) {
+        return true;
+    }
+    const card = findCardByID(readBack.cards, itemID);
+    if (!card) {
+        return readBack.mayHideItems;
+    }
+    const block = card.values?.find(cell => cell.valueType === "block")?.value?.block;
+    if (block?.id !== boundBlockID || block.content !== primaryKey) {
+        return false;
+    }
+    const operations = buildCellOperations(target.avID, itemID, fieldValues);
+    return buildWriteChecks(operations).every(check => check(readBack.cards, readBack.mayHideItems));
+};
+
 const executeCalendarOperations = async (protyle: IProtyle, ops: ICalendarOperationSet, target?: ICalendarWriteTarget) => {
     if (ops.doOperations.length === 0) {
         return false;
@@ -960,19 +977,6 @@ export const createCalendarEventAsDocument = async (options: ICalendarCreateOpti
     return {itemID, blockID: documentID === itemID ? "" : documentID};
 };
 
-/**
- * The DOCUMENT title wins for a bound row, so editing the title renames the page.
- * Endpoint verified against kernel/api/router.go:148 ->
- * kernel/api/filetree.go:696 renameDocByID, which takes {id, title}.
- */
-export const renameCalendarEventDocument = async (documentID: string, title: string) => {
-    const response = await fetchSyncPost("/api/filetree/renameDocByID", {id: documentID, title});
-    if (response?.code !== 0) {
-        showMessage(response?.msg || window.siyuan.languages.calendarRenamePageFailed || "Renaming the event page failed.");
-        return false;
-    }
-    return true;
-};
 
 /**
  * Deleting the page behind an entry. Confirm-gated by the caller: the calendar's
@@ -1083,15 +1087,34 @@ export const updateCalendarEvent = async (options: {
     if (!isRealDateInputValue(options.draft.date)) {
         return false;
     }
-    // For a bound row the document title is authoritative, so the title edit is a
-    // page rename, not a cell write. Rename FIRST: if it fails nothing else has
-    // been written yet, so the save surfaces as a plain failure instead of leaving
-    // the cells updated against an old page name.
     const documentID = getEventDocumentID(options.event);
     const currentTitle = options.event.isTitleFallback ? "" : (options.event.title || "");
     const nextTitle = (options.draft.title || "").trim();
-    if (documentID && nextTitle && nextTitle !== currentTitle && !await renameCalendarEventDocument(documentID, nextTitle)) {
-        return false;
+    if (documentID) {
+        const fieldValues = buildCalendarFieldValues(options);
+        if (!fieldValues) {
+            return false;
+        }
+        const response = await fetchSyncPost("/api/av/updateAttributeViewItem", {
+            avID: options.avID,
+            blockID: options.blockID,
+            viewID: options.viewID || "",
+            itemID: options.event.id,
+            boundBlockID: documentID,
+            primaryKey: nextTitle || currentTitle,
+            fieldValues,
+            app: options.protyle?.app?.appId || Constants.SIYUAN_APPID,
+            session: options.protyle?.id || Constants.SIYUAN_APPID,
+        });
+        if (response?.code !== 0) {
+            showMessage(response?.msg || window.siyuan.languages.calendarUpdateFailed || "Updating the calendar event failed.");
+            return false;
+        }
+        if (options.viewID && !await verifyBoundCalendarItemUpdate(options, options.event.id, documentID, nextTitle || currentTitle, fieldValues)) {
+            showMessage(window.siyuan.languages.calendarUpdateFailed || "The calendar update could not be confirmed.");
+            return false;
+        }
+        return true;
     }
     const ops = buildUpdateEventOperations(options);
     if (ops.doOperations.length > 0) {

@@ -316,6 +316,19 @@ export const bindCalendarEventContextMenu = (options: ICalendarContextMenuOption
         cancelLongPress();
         openFor(chip, event.clientX, event.clientY);
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
+            return;
+        }
+        const chip = (event.target as HTMLElement)?.closest(".av__calendar-event") as HTMLElement;
+        if (!chip || chip.classList.contains("av__calendar-event--pending")) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = chip.getBoundingClientRect();
+        openFor(chip, rect.left + Math.min(rect.width / 2, 24), rect.top + Math.min(rect.height, 24));
+    };
     const onPointerDown = (event: PointerEvent) => {
         if (event.pointerType === "mouse") {
             return;
@@ -342,6 +355,7 @@ export const bindCalendarEventContextMenu = (options: ICalendarContextMenuOption
         }
     };
     calendarElement.addEventListener("contextmenu", onContextMenu);
+    calendarElement.addEventListener("keydown", onKeyDown);
     calendarElement.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerup", cancelLongPress);
@@ -349,6 +363,7 @@ export const bindCalendarEventContextMenu = (options: ICalendarContextMenuOption
     return () => {
         cancelLongPress();
         calendarElement.removeEventListener("contextmenu", onContextMenu);
+        calendarElement.removeEventListener("keydown", onKeyDown);
         calendarElement.removeEventListener("pointerdown", onPointerDown);
         document.removeEventListener("pointermove", onPointerMove);
         document.removeEventListener("pointerup", cancelLongPress);

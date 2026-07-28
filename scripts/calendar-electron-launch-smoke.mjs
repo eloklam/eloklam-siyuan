@@ -353,6 +353,10 @@ const record = (type, payload) => {
   return true;
 };
 exports.createCalendarEvent = (payload) => record('create', payload);
+exports.createCalendarEventAsDocument = (payload) => {
+  record('create-document', payload);
+  return {itemID: 'created-item', blockID: 'created-document'};
+};
 exports.createCalendarEventReplacingOccurrence = (payload) => record('replace-occurrence', payload);
 exports.updateCalendarEvent = (payload) => record('update', payload);
 exports.updateCalendarEventThisAndFuture = (payload) => record('future', payload);
@@ -685,6 +689,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       dateFieldID: 'date',
       viewMode: 0,
       weekStart: 0,
+      newItemTarget: 'document',
       fields: [
         field('date', 'date'),
         field('recurrence', 'text'),
@@ -720,12 +725,12 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       ],
       cardCount: 7,
     };
-    globalThis.__calendarRenderFetchResponse = {data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'}};
+    globalThis.__calendarRenderFetchResponse = {data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar', defaultTemplateID: 'template-smoke'}};
     await renderModule.renderCalendar({
       protyle: {disabled: false, block: {action: []}, options: {}},
       blockElement: host,
       renderAll: true,
-      data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar'},
+      data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar', defaultTemplateID: 'template-smoke'},
     });
     const calendarElement = host.querySelector('.av__calendar');
     const initialEventText = Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n');
@@ -811,9 +816,14 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     document.querySelector('.av__calendar-menu [data-type="calendar-open-dialog"]').click();
     const chipMenuClosedAfterCommand = !document.querySelector('.av__calendar-menu');
     const chipMenuDialogEventID = globalThis.__calendarRenderDialogs.at(-1)?.event?.id || '';
+    const keyboardMenuChip = host.querySelector('.av__calendar-event[data-id="row-render"]');
+    keyboardMenuChip.focus();
+    keyboardMenuChip.dispatchEvent(new KeyboardEvent('keydown', {key: 'F10', shiftKey: true, bubbles: true, cancelable: true}));
+    const chipKeyboardMenuOpened = !!document.querySelector('.av__calendar-menu');
+    document.querySelector('.av__calendar-menu [data-type="calendar-open-dialog"]')?.click();
     runChipMenuCommand('.av__calendar-event[data-id="row-render"]', '[data-type="calendar-duplicate-next-day"]');
     await new Promise(resolve => setTimeout(resolve, 100));
-    const duplicateCall = globalThis.__calendarRenderTxCalls.find(call => call.type === 'create');
+    const duplicateCall = globalThis.__calendarRenderTxCalls.find(call => call.type === 'create-document');
     runChipMenuCommand('.av__calendar-event[data-id="row-render"]', '[data-type="calendar-resize"][data-delta="15"]');
     await new Promise(resolve => setTimeout(resolve, 100));
     const resizeCall = globalThis.__calendarRenderTxCalls.find(call => call.type === 'update');
@@ -887,7 +897,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     slotQuickTitle.value = 'Quick slot smoke';
     host.querySelector('[data-type="calendar-quick-create-save"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
-    const slotCreateCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'create').find(call => call.payload?.draft?.title === 'Quick slot smoke');
+    const slotCreateCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'create-document').find(call => call.payload?.draft?.title === 'Quick slot smoke');
     host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const dayMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
@@ -1262,12 +1272,14 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       detachedClickOpenedPage,
       detachedHasSourceAffordance,
       chipMenuOpened,
+      chipKeyboardMenuOpened,
       chipMenuItemTypes,
       chipMenuClosedAfterCommand,
       chipMenuDialogEventID,
       chipInlineButtonCount: host.querySelectorAll('.av__calendar-event [data-type="calendar-resize"], .av__calendar-event [data-type="calendar-duplicate-next-day"]').length,
       chipDotCount: host.querySelectorAll('.av__calendar-event .av__calendar-event-dot').length,
       duplicateDraft: duplicateCall?.payload?.draft,
+      duplicateTemplateID: duplicateCall?.payload?.templateID || '',
       resizeDraft: resizeCall?.payload?.draft,
       shiftDraft: shiftCall?.payload?.draft,
       menuDeleteEventID: menuDeleteCall?.payload?.event?.id || '',
@@ -1331,6 +1343,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       offRangeEventCount,
       slotDblclickDialogBlocked,
       slotCreateDraft: slotCreateCall?.payload?.draft,
+      slotCreateTemplateID: slotCreateCall?.payload?.templateID || '',
       dayMode,
       scheduleMode,
       modeAfterKeyboard,
@@ -1389,10 +1402,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     !result.boundClickOpenedPage || result.boundClickOpenedDialog ||
     result.detachedDialogEventID !== "row-detached" || !result.detachedClickOpenedDialog ||
     result.detachedClickOpenedPage || result.detachedHasSourceAffordance ||
-    result.duplicateDraft?.date !== "2026-05-25" || result.duplicateDraft?.recurrenceRaw !== "" ||
+    result.duplicateDraft?.date !== "2026-05-25" || result.duplicateDraft?.recurrenceRaw !== "" || result.duplicateTemplateID !== "template-smoke" ||
     result.resizeDraft?.endTime !== "10:15" || result.persistedModeOperation !== "setAttrViewCalendarViewMode" ||
     // The chip is quiet; the menu carries the actions it used to carry inline.
-    !result.chipMenuOpened || !result.chipMenuClosedAfterCommand ||
+    !result.chipMenuOpened || !result.chipKeyboardMenuOpened || !result.chipMenuClosedAfterCommand ||
     result.chipMenuDialogEventID !== "row-render" ||
     result.chipInlineButtonCount !== 0 || result.chipDotCount < 1 ||
     result.chipMenuItemTypes !== "calendar-open-source,calendar-open-dialog,calendar-duplicate-next-day,calendar-resize,calendar-resize,calendar-shift,calendar-shift,calendar-shift,calendar-shift,calendar-delete" ||
@@ -1437,7 +1450,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.offRangeHintExists || result.offRangeEventCount !== 0 ||
     !result.slotDblclickDialogBlocked || result.slotCreateDraft?.date !== "2026-05-26" ||
     result.slotCreateDraft?.startTime !== "09:00" || result.slotCreateDraft?.endTime !== "09:30" ||
-    result.slotCreateDraft?.isAllDay !== false ||
+    result.slotCreateDraft?.isAllDay !== false || result.slotCreateTemplateID !== "template-smoke" ||
     result.dayMode !== "2" ||
     result.scheduleMode !== "3" || result.modeAfterKeyboard !== "0" ||
     result.selectedDateAfterClick !== "2026-05-27" || !result.selectedClassApplied ||

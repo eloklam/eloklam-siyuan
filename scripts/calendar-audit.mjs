@@ -268,7 +268,10 @@ for (const term of [
   "draft.recurrenceRaw = \"\"",
   "draft.recurrenceExceptionRaw = \"\"",
   // The Copy label moved with the action into context-menu.ts (asserted below).
-  "createCalendarEvent({",
+  // Duplication must await whichever creation route the view selects.
+  "const saved = createsDocuments ?",
+  "createCalendarEventAsDocument({...createOptions",
+  "await createCalendarEvent(createOptions)",
   "getEditableEvent",
   "readOnly: true",
   ".av__calendar-event, [data-type='calendar-new']",
