@@ -321,6 +321,8 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 			groupView.Gallery.CardFields = nil
 		case av.LayoutTypeKanban:
 			groupView.Kanban.Fields = nil
+		case av.LayoutTypeCalendar:
+			groupView.Calendar.Fields = nil
 		}
 	}
 	viewable.SetGroups(groups)

@@ -36,7 +36,14 @@ import (
 
 func RenderGroupView(attrView *av.AttributeView, view, groupView *av.View, query string) (ret av.Viewable) {
 	var err error
-	switch groupView.LayoutType {
+	// Group layout follows the parent view. Older Calendar groups were generated
+	// as tables before Calendar grouping existed, which made the API return rows
+	// instead of cards and left every grouped Calendar visually empty.
+	if view.LayoutType == av.LayoutTypeCalendar && groupView.LayoutType != av.LayoutTypeCalendar {
+		groupView.LayoutType = av.LayoutTypeCalendar
+		groupView.Calendar = av.NewLayoutCalendar()
+	}
+	switch view.LayoutType {
 	case av.LayoutTypeTable:
 		// 这里需要使用深拷贝，因为字段上可能会带有计算（FieldCalc），每个分组视图的计算结果都需要分别存储在不同的字段实例上
 		err = copier.CopyWithOption(&groupView.Table.Columns, &view.Table.Columns, copier.Option{DeepCopy: true})
@@ -65,6 +72,18 @@ func RenderGroupView(attrView *av.AttributeView, view, groupView *av.View, query
 		groupView.Kanban.FitImage = view.Kanban.FitImage
 		groupView.Kanban.DisplayFieldName = view.Kanban.DisplayFieldName
 		groupView.Kanban.FillColBackgroundColor = view.Kanban.FillColBackgroundColor
+	case av.LayoutTypeCalendar:
+		err = copier.CopyWithOption(&groupView.Calendar.Fields, &view.Calendar.Fields, copier.Option{DeepCopy: true})
+		groupView.Calendar.ShowIcon = view.Calendar.ShowIcon
+		groupView.Calendar.WrapField = view.Calendar.WrapField
+		groupView.Calendar.DateFieldID = view.Calendar.DateFieldID
+		groupView.Calendar.ViewMode = view.Calendar.ViewMode
+		groupView.Calendar.WeekStart = view.Calendar.WeekStart
+		groupView.Calendar.NewItemTarget = view.Calendar.NewItemTarget
+		if nil != view.Calendar.FieldMapping {
+			mapping := *view.Calendar.FieldMapping
+			groupView.Calendar.FieldMapping = &mapping
+		}
 	}
 	if nil != err {
 		logging.LogErrorf("copy view fields [%s] to group [%s] failed: %s", view.ID, groupView.ID, err)
@@ -75,6 +94,8 @@ func RenderGroupView(attrView *av.AttributeView, view, groupView *av.View, query
 			groupView.Gallery.CardFields = view.Gallery.CardFields
 		case av.LayoutTypeKanban:
 			groupView.Kanban.Fields = view.Kanban.Fields
+		case av.LayoutTypeCalendar:
+			groupView.Calendar.Fields = view.Calendar.Fields
 		}
 	}
 

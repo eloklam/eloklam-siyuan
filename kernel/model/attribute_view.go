@@ -3172,6 +3172,9 @@ func genAttrViewGroups(view *av.View, attrView *av.AttributeView) {
 		case av.LayoutTypeKanban:
 			v = av.NewKanbanView()
 			v.Kanban = av.NewLayoutKanban()
+		case av.LayoutTypeCalendar:
+			v = av.NewCalendarView()
+			v.Calendar = av.NewLayoutCalendar()
 		default:
 			logging.LogWarnf("unknown layout type [%s] for group view", view.LayoutType)
 			return
