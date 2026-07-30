@@ -185,7 +185,7 @@ const getCalendarSearch = (blockElement: HTMLElement) => (blockElement.dataset.c
 
 const getCalendarFilter = (blockElement: HTMLElement) => {
     const filter = blockElement.dataset.calendarFilter || "all";
-    return ["all", "timed", "all-day", "recurring"].includes(filter) ? filter : "all";
+    return ["all", "timed", "all-day"].includes(filter) ? filter : "all";
 };
 
 const eventMatchesSearch = (event: ICalendarNormalizedEvent, query: string) => {
@@ -213,9 +213,6 @@ const eventMatchesCalendarFilter = (event: ICalendarNormalizedEvent, filter: str
     }
     if (filter === "all-day") {
         return event.isAllDay;
-    }
-    if (filter === "recurring") {
-        return !!(event.recurrenceRaw || event.recurrence || event.isOccurrence);
     }
     return true;
 };
@@ -394,7 +391,6 @@ const renderCalendarFilter = (filter: string, panelID: string) => {
         {value: "all", label: window.siyuan.languages.all || "All"},
         {value: "timed", label: window.siyuan.languages.calendarTimed || "Timed"},
         {value: "all-day", label: window.siyuan.languages.allDay || "All day"},
-        {value: "recurring", label: window.siyuan.languages.calendarRecurrence || "Recurring"},
     ];
     return `<div class="av__calendar-search-dropdown fn__none" data-type="calendar-search-dropdown" id="${escapeAttr(panelID)}" role="menu" aria-label="${window.siyuan.languages.filter || "Filter"}">
         ${options.map(item => `<button class="b3-menu__item${filter === item.value ? " b3-menu__item--selected" : ""}" data-type="calendar-filter-option" data-filter="${item.value}" role="menuitemradio" aria-checked="${filter === item.value}">

@@ -14,6 +14,11 @@ const findTextFieldByName = (calendarData: IAVCalendar, names: string[], used: S
     )?.id;
 };
 
+const recurrenceFieldNames = new Set(["repeat", "recurrence", "recurring", "wiederholen", "wiederholung", "__calendar_recurrence", "__calendar_recurrence_exceptions"]);
+
+export const isCalendarRecurrenceStorageField = (field: IAVColumn) =>
+    field.type === "text" && recurrenceFieldNames.has(field.name.trim().toLocaleLowerCase());
+
 export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFieldMapping => {
     const persistedDateFieldID = calendarData.dateFieldID || "";
     const persisted = calendarData.fieldMapping || {};
@@ -31,7 +36,7 @@ export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFie
         }
         return inferred;
     };
-    const recurrenceFieldID = takeTextField(persisted.recurrenceFieldID, ["repeat", "recurrence", "wiederholen", "wiederholung"]);
+    const recurrenceFieldID = takeTextField(persisted.recurrenceFieldID, ["repeat", "recurrence", "recurring", "wiederholen", "wiederholung", "__calendar_recurrence"]);
     const exceptionFieldID = takeTextField(persisted.exceptionFieldID, ["exception", "ausnahme"]);
     const locationFieldID = takeTextField(persisted.locationFieldID, ["place", "location", "ort"]);
     const descriptionFieldID = takeTextField(persisted.descriptionFieldID, ["description", "beschreibung"]);

@@ -9,7 +9,7 @@ import {openMobileFileById} from "../../../../mobile/editor";
 /// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {fetchSyncPost} from "../../../../util/fetch";
-import {getCalendarFieldMapping} from "./mapped-fields";
+import {getCalendarFieldMapping, isCalendarRecurrenceStorageField} from "./mapped-fields";
 import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
 import {CalendarRecurrencePreset, describeRecurrence, detectRecurrencePreset, getRecurrencePresetRule, renderRecurrencePresetOptions} from "./recurrence-summary";
 import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventDocument, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
@@ -175,7 +175,7 @@ const renderRecurrenceFields = (event: ICalendarNormalizedEvent | undefined, rea
         <div class="av__calendar-recurrence-row">
             <label for="av-event-recurrence-interval">${escapeHtml(window.siyuan.languages.calendarRepeatEvery || "Repeat every")}</label>
             <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-interval" aria-label="${window.siyuan.languages.calendarInterval || "Interval"}" value="${escapeAttr(recurrence.interval || "1")}"${disabledAttr}>
-            <select class="b3-select" id="av-event-recurrence-freq" aria-label="${escapeAttr(window.siyuan.languages.calendarRecurrence || "Recurrence")}"${disabledAttr}>
+            <select class="b3-select" id="av-event-recurrence-freq" aria-label="${escapeAttr(window.siyuan.languages.calendarRepeat || "Repeat")}"${disabledAttr}>
                 <option value="DAILY"${recurrence.freq === "DAILY" ? " selected" : ""}>${window.siyuan.languages.calendarDay || "Day"}</option>
                 <option value="WEEKLY"${recurrence.freq === "WEEKLY" || !recurrence.freq ? " selected" : ""}>${window.siyuan.languages.calendarWeek || "Week"}</option>
                 <option value="MONTHLY"${recurrence.freq === "MONTHLY" ? " selected" : ""}>${window.siyuan.languages.calendarMonth || "Month"}</option>
@@ -299,7 +299,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const calendarView = options.data.view as IAVCalendar;
     const colorField = calendarView.fields.find((field) => field.id === mapping.colorFieldID);
     const internalFieldIDs = new Set([mapping.recurrenceFieldID, mapping.exceptionFieldID].filter(Boolean));
-    const visibleTextFields = calendarView.fields.filter(field => field.type === "text" && !field.hidden && !internalFieldIDs.has(field.id));
+    const visibleTextFields = calendarView.fields.filter(field => field.type === "text" && !field.hidden && !internalFieldIDs.has(field.id) && !isCalendarRecurrenceStorageField(field));
     const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID;
     const deleteLabel = event?.isOccurrence ?
         (window.siyuan.languages.calendarDeleteRecurring || "Delete recurring item") :

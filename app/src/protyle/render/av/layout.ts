@@ -5,7 +5,7 @@ import {fetchSyncPost} from "../../../util/fetch";
 import {setPosition} from "../../../util/setPosition";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
-import {getCalendarFieldMapping} from "./calendar/mapped-fields";
+import {getCalendarFieldMapping, isCalendarRecurrenceStorageField} from "./calendar/mapped-fields";
 
 const getCalendarLocale = () => window.siyuan.config.lang;
 
@@ -173,7 +173,7 @@ export const getLayoutHTML = (data: IAV) => {
         <div class="fn__hr"></div>
         <label class="ft__on-surface">${escapeHtml(window.siyuan.languages.fields || "Fields")}</label>
         <div class="av__calendar-visible-fields">
-            ${textFields.filter(field => ![effectiveMapping.recurrenceFieldID, effectiveMapping.exceptionFieldID].includes(field.id)).map(field => `<label class="b3-list-item b3-list-item--narrow"><input type="checkbox" data-type="calendar-visible-field" data-field-id="${escapeAttr(field.id)}"${field.hidden ? "" : " checked"}><span class="b3-list-item__text">${escapeHtml(field.name)}</span></label>`).join("")}
+            ${textFields.filter(field => ![effectiveMapping.recurrenceFieldID, effectiveMapping.exceptionFieldID].includes(field.id) && !isCalendarRecurrenceStorageField(field)).map(field => `<label class="b3-list-item b3-list-item--narrow"><input type="checkbox" data-type="calendar-visible-field" data-field-id="${escapeAttr(field.id)}"${field.hidden ? "" : " checked"}><span class="b3-list-item__text">${escapeHtml(field.name)}</span></label>`).join("")}
         </div>
         <div class="fn__flex av__calendar-add-field">
             <input class="b3-text-field fn__flex-1" data-type="calendar-new-field-name" placeholder="${escapeAttr(window.siyuan.languages.addField || window.siyuan.languages.fields || "Add field")}">

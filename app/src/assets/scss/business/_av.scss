@@ -1946,18 +1946,8 @@ img.av__cellassetimg {
     }
 
     &--today {
-      background-color: transparent;
-      color: inherit;
-
-      &::after {
-        background-color: var(--b3-theme-primary);
-        border-radius: 50%;
-        bottom: 1px;
-        content: "";
-        height: 4px;
-        position: absolute;
-        width: 4px;
-      }
+      background-color: var(--b3-theme-primary);
+      color: var(--b3-theme-on-primary);
     }
 
     &--selected:not(.av__calendar-year-day--today) {
@@ -2026,23 +2016,12 @@ img.av__cellassetimg {
       box-shadow: none;
 
       .av__calendar-daynum {
-        background-color: transparent;
-        color: inherit;
+        background-color: var(--b3-theme-primary);
+        border-radius: 50%;
+        color: var(--b3-theme-on-primary);
+        height: 24px;
         min-width: 24px;
-        position: relative;
         text-align: center;
-
-        &::after {
-          background-color: var(--b3-theme-primary);
-          border-radius: 50%;
-          bottom: -1px;
-          content: "";
-          height: 4px;
-          left: 50%;
-          position: absolute;
-          transform: translateX(-50%);
-          width: 4px;
-        }
       }
     }
 
@@ -2406,7 +2385,7 @@ img.av__cellassetimg {
     padding: 5px 0;
 
     &.av__calendar-day--today {
-      background-color: var(--b3-theme-primary-lightest, rgba(66, 133, 244, .06));
+      background-color: transparent;
       box-shadow: none;
     }
 
@@ -2538,21 +2517,9 @@ img.av__cellassetimg {
   }
 
   &-day-header.av__calendar-day--today &-day-header-number {
-    background-color: transparent;
-    color: inherit;
-    position: relative;
-
-    &::after {
-      background-color: var(--b3-theme-primary);
-      border-radius: 50%;
-      bottom: -1px;
-      content: "";
-      height: 4px;
-      left: 50%;
-      position: absolute;
-      transform: translateX(-50%);
-      width: 4px;
-    }
+    background-color: var(--b3-theme-primary);
+    border-radius: 50%;
+    color: var(--b3-theme-on-primary);
   }
 
   // Sticky all-day lane: a Tue-Thu event is ONE bar spanning three columns.
@@ -2599,7 +2566,7 @@ img.av__cellassetimg {
     }
 
     &.av__calendar-day--today {
-      background-color: var(--b3-theme-primary-lightest, rgba(66, 133, 244, .08));
+      background-color: transparent;
       box-shadow: none;
     }
   }
@@ -2729,7 +2696,7 @@ img.av__cellassetimg {
     }
 
     &.av__calendar-day--today {
-      background-color: var(--b3-theme-primary-lightest, rgba(66, 133, 244, .05));
+      background-color: transparent;
       box-shadow: none;
     }
   }
