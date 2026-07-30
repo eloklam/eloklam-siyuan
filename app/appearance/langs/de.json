@@ -2331,5 +2331,18 @@
 	"calendarRepeatUntilSuffix": ", bis ${x}",
 	"calendarRepeatCountSuffix": ", ${x}-mal",
 	"calendarRepeatEveryWeekday": "Jeden Wochentag (Montag bis Freitag)",
-	"calendarRepeatCustom": "Benutzerdefiniert…"
+	"calendarRepeatCustom": "Benutzerdefiniert…",
+	"calendarMapLocationHint": "Map a text field in Calendar settings to save this field.",
+	"calendarMapRecurrenceHint": "Map a text field in Calendar settings to save recurring events.",
+	"calendarRepeatEvery": "Wiederholen alle",
+	"calendarDay": "Tag",
+	"calendarWeek": "Woche",
+	"calendarMonth": "Monat",
+	"calendarYear": "Jahr",
+	"calendarRepeatOn": "Wiederholen am",
+	"calendarEnd": "Ende",
+	"calendarNever": "Nie",
+	"calendarOn": "Am",
+	"calendarAfter": "Nach",
+	"calendarOccurrences": "Terminen"
 	}

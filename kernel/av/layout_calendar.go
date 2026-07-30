@@ -25,6 +25,8 @@ const (
 	ViewModeWeek
 	ViewModeDay
 	ViewModeSchedule
+	ViewModeYear
+	ViewModeFiveDay
 )
 
 type WeekStart int

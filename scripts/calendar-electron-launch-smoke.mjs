@@ -298,6 +298,65 @@ exports.Dialog = Dialog;
 `);
   writeFile(path.join(tempDir, "src/dialog/confirmDialog.js"), "exports.confirmDialog = (title, text, confirm) => { if (confirm) confirm(); };\n");
   writeFile(path.join(tempDir, "src/dialog/message.js"), "exports.showMessage = (message) => (globalThis.__calendarRenderMessages ||= []).push(message);\n");
+  writeFile(path.join(tempDir, "src/plugin/Menu.js"), `
+const ensureBaseMenu = () => {
+  window.siyuan.menus = window.siyuan.menus || {};
+  if (window.siyuan.menus.menu?.__calendarSmokeMenu) return window.siyuan.menus.menu;
+  const element = document.getElementById('commonMenu');
+  const getItems = () => element.querySelector(':scope > .b3-menu__items') || element.lastElementChild;
+  window.siyuan.menus.menu = {
+    __calendarSmokeMenu: true,
+    element,
+    removeCB: undefined,
+    addItem(option) {
+      const item = document.createElement('button');
+      item.className = 'b3-menu__item' + (option.current ? ' b3-menu__item--selected' : '');
+      item.dataset.id = option.id || '';
+      const label = document.createElement('span');
+      label.className = 'b3-menu__label';
+      label.textContent = option.label || '';
+      item.appendChild(label);
+      if (option.accelerator) {
+        const accelerator = document.createElement('span');
+        accelerator.className = 'b3-menu__accelerator';
+        accelerator.textContent = option.accelerator;
+        item.appendChild(accelerator);
+      }
+      item.addEventListener('click', event => {
+        option.click?.(item, event);
+        this.remove();
+      });
+      getItems().appendChild(item);
+      return item;
+    },
+    popup() { element.classList.remove('fn__none'); },
+    remove() {
+      this.removeCB?.();
+      this.removeCB = undefined;
+      element.classList.add('fn__none');
+      getItems().innerHTML = '';
+      element.removeAttribute('data-name');
+    },
+  };
+  return window.siyuan.menus.menu;
+};
+class Menu {
+  constructor(id, closeCB) {
+    this.menu = ensureBaseMenu();
+    this.menu.remove();
+    this.isOpen = false;
+    if (id) this.menu.element.setAttribute('data-name', id);
+    this.menu.removeCB = closeCB;
+  }
+  addItem(option) {
+    if (!this.isOpen) return this.menu.addItem(option);
+  }
+  open(options) {
+    if (!this.isOpen) this.menu.popup(options);
+  }
+}
+exports.Menu = Menu;
+`);
   writeFile(path.join(tempDir, "src/editor/util.js"), "exports.openFileById = (options) => (globalThis.__calendarRenderOpenBlocks ||= []).push({options, blockID: options && options.id});\n");
   writeFile(path.join(tempDir, "src/mobile/editor.js"), "exports.openMobileFileById = (app, blockID) => (globalThis.__calendarRenderOpenBlocks ||= []).push({app, blockID, mobile: true});\n");
   writeFile(path.join(tempDir, "src/util/escape.js"), `
@@ -305,7 +364,27 @@ const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => (
 exports.escapeHtml = escapeHtml;
 exports.escapeAttr = escapeHtml;
 `);
-  writeFile(path.join(tempDir, "src/util/fetch.js"), "exports.fetchSyncPost = async () => globalThis.__calendarRenderFetchResponse || {data: {}};\n");
+  writeFile(path.join(tempDir, "src/util/fetch.js"), `
+exports.fetchSyncPost = async (url, payload = {}) => {
+  (globalThis.__calendarRenderFetchCalls ||= []).push({url, payload});
+  const response = globalThis.__calendarRenderFetchResponse || {data: {}};
+  const query = String(payload.query || '').trim().toLowerCase();
+  const cards = response.data?.view?.cards;
+  if (!query || !Array.isArray(cards)) {
+    return response;
+  }
+  return {
+    ...response,
+    data: {
+      ...response.data,
+      view: {
+        ...response.data.view,
+        cards: cards.filter(card => JSON.stringify(card).toLowerCase().includes(query)),
+      },
+    },
+  };
+};
+`);
   writeFile(path.join(tempDir, "src/protyle/util/selection.js"), "exports.focusBlock = (element) => (globalThis.__calendarRenderFocusBlocks ||= []).push(element && element.getAttribute && element.getAttribute('data-av-id'));\n");
   writeFile(path.join(tempDir, "src/protyle/wysiwyg/transaction.js"), "exports.transaction = (protyle, doOperations, undoOperations) => (globalThis.__calendarRenderTransactions ||= []).push({doOperations, undoOperations});\n");
   // render.ts re-dispatches to the sibling layouts and uses the shared
@@ -654,6 +733,26 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       untitled: 'Untitled',
       _kernel: {29: 'Failed'}
     }, window.siyuan.languages || {});
+    const commonMenu = document.getElementById('commonMenu') || (() => {
+      const menu = document.createElement('div');
+      menu.id = 'commonMenu';
+      menu.className = 'fn__none';
+      menu.innerHTML = '<div class="b3-menu__title"><span class="b3-menu__label"></span></div><div class="b3-menu__items"></div>';
+      document.body.appendChild(menu);
+      return menu;
+    })();
+    window.siyuan.menus = window.siyuan.menus || {};
+    window.siyuan.menus.menu = window.siyuan.menus.menu || {
+      element: commonMenu,
+      removeCB: undefined,
+      remove() {
+        this.removeCB?.();
+        this.removeCB = undefined;
+        this.element.classList.add('fn__none');
+        this.element.querySelector('.b3-menu__items').innerHTML = '';
+        this.element.removeAttribute('data-name');
+      },
+    };
     window.Lute = window.Lute || {NewNodeID: () => String(Date.now()) + '-render'};
     globalThis.__calendarRenderDialogs = [];
     globalThis.__calendarRenderMessages = [];
@@ -722,8 +821,11 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
         // inside the 3 visible events that earlier steps click on.
         card('row-fill1', 'Calendar filler alpha smoke event', '2026-05-24T00:00:00', '2026-05-24T00:00:00', '', '', true),
         card('row-fill2', 'Calendar filler beta smoke event', '2026-05-24T00:00:00', '2026-05-24T00:00:00', '', '', true),
+        // Off-screen search result: the May view cannot render this until the
+        // local search performs a kernel query across the complete database.
+        card('row-future', 'Far future appointment', '2026-12-18T14:00:00', '2026-12-18T15:00:00', ''),
       ],
-      cardCount: 7,
+      cardCount: 8,
     };
     globalThis.__calendarRenderFetchResponse = {data: {view: calendar, viewID: ${JSON.stringify(fixture.viewID)}, viewType: 'calendar', defaultTemplateID: 'template-smoke'}};
     await renderModule.renderCalendar({
@@ -749,7 +851,30 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       element.click();
       return element;
     };
-    clickOrThrow('[data-type="calendar-new"]:not(.av__calendar-daynum)');
+    const switchCalendarMode = async (mode, root = host) => {
+      const key = ({0: 'm', 1: 'w', 2: 'd', 3: 'a', 4: 'y', 5: 'x'})[mode];
+      const calendar = root.querySelector('.av__calendar');
+      if (!calendar || !key) {
+        throw new Error('calendar view shortcut missing for mode=' + mode);
+      }
+      calendar.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true}));
+      await new Promise(resolve => setTimeout(resolve, 100));
+    };
+    const viewTriggerCount = host.querySelectorAll('[data-type="calendar-view-menu"]').length;
+    const initialViewTriggerText = host.querySelector('[data-type="calendar-view-menu"]')?.textContent?.trim() || '';
+    clickOrThrow('[data-type="calendar-view-menu"]');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const viewMenuItems = Array.from(document.querySelectorAll('#commonMenu [data-id^="calendar-view-"]'));
+    const viewMenuLabels = viewMenuItems.map(item => item.querySelector('.b3-menu__label')?.textContent?.trim() || '').join(',');
+    const viewMenuAccelerators = viewMenuItems.map(item => item.querySelector('.b3-menu__accelerator')?.textContent?.trim() || '').join(',');
+    const viewMenuSelectedID = document.querySelector('#commonMenu .b3-menu__item--selected')?.getAttribute('data-id') || '';
+    window.siyuan.menus.menu.remove();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const calendarNewBridge = host.querySelector('.av__calendar-toolbar [data-type="calendar-new"]');
+    if (!calendarNewBridge || getComputedStyle(calendarNewBridge).display !== 'none') {
+      throw new Error('calendar new bridge must exist but stay visually hidden');
+    }
+    calendarNewBridge.click();
     const toolbarQuickTitleFocused = document.activeElement?.getAttribute('data-type') === 'calendar-quick-create-title';
     const toolbarQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
     host.querySelector('[data-type="calendar-quick-create-more"]').click();
@@ -759,19 +884,22 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const dayQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
     host.querySelector('[data-type="calendar-quick-create-more"]').click();
     const dayNewDialog = globalThis.__calendarRenderDialogs.at(-1);
-    // A bound entry is a real page: the primary click opens it (upstream's
-    // openDatabaseRowByData), and the ◷ affordance reaches the scheduling dialog.
+    // A bound entry previews scheduling on a single click and opens its real page
+    // on double click. No permanent inline action icon is rendered.
     const openRowsBeforeClick = (globalThis.__calendarRenderOpenRows || []).length;
     const dialogsBeforeClick = globalThis.__calendarRenderDialogs.length;
     host.querySelector('.av__calendar-event[data-id="row-render"]').click();
-    const boundClickOpenedPage = (globalThis.__calendarRenderOpenRows || []).length === openRowsBeforeClick + 1;
-    const boundClickOpenedDialog = globalThis.__calendarRenderDialogs.length !== dialogsBeforeClick;
-    host.querySelector('.av__calendar-event[data-id="row-render"] [data-type="calendar-open-dialog"]').click();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const boundClickOpenedPage = (globalThis.__calendarRenderOpenRows || []).length !== openRowsBeforeClick;
+    const boundClickOpenedDialog = globalThis.__calendarRenderDialogs.length === dialogsBeforeClick + 1;
     const editDialog = globalThis.__calendarRenderDialogs.at(-1);
+    host.querySelector('.av__calendar-event[data-id="row-render"]').dispatchEvent(new MouseEvent('dblclick', {bubbles: true, detail: 2}));
+    const boundDoubleClickOpenedPage = (globalThis.__calendarRenderOpenRows || []).length === openRowsBeforeClick + 1;
     // A detached entry has no page, so its primary click must still open the dialog.
     const detachedDialogsBefore = globalThis.__calendarRenderDialogs.length;
     const detachedOpenRowsBefore = (globalThis.__calendarRenderOpenRows || []).length;
     host.querySelector('.av__calendar-event[data-id="row-detached"]').click();
+    await new Promise(resolve => setTimeout(resolve, 250));
     const detachedDialog = globalThis.__calendarRenderDialogs.at(-1);
     const detachedClickOpenedDialog = globalThis.__calendarRenderDialogs.length === detachedDialogsBefore + 1;
     const detachedClickOpenedPage = (globalThis.__calendarRenderOpenRows || []).length !== detachedOpenRowsBefore;
@@ -845,8 +973,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     dropTarget.dispatchEvent(new DragEvent('drop', {bubbles: true, cancelable: true, dataTransfer}));
     await new Promise(resolve => setTimeout(resolve, 100));
     const dragUpdateCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'update').find(call => call.payload?.draft?.date === '2026-05-26');
-    host.querySelector('[data-type="calendar-mode"][data-mode="1"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(1);
     const weekMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
     const dialogCountBeforeSlot = globalThis.__calendarRenderDialogs.length;
     // Migrated from the 48-row slot grid: creating in empty space is now one
@@ -873,7 +1000,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       throw new Error('week create surface missing; mode=' + (host.querySelector('.av__calendar')?.getAttribute('data-view-mode')) +
         ' surfaceDates=' + JSON.stringify(dates.slice(0, 10)) + ' surfaceCount=' + host.querySelectorAll('[data-type="calendar-time-create"]').length +
         ' fixtureViewMode=' + calendar.viewMode + ' datasetMode=' + host.dataset.calendarViewMode +
-        ' modeButtons=' + host.querySelectorAll('[data-type="calendar-mode"]').length +
+        ' viewTriggers=' + host.querySelectorAll('[data-type="calendar-view-menu"]').length +
         ' txActions=' + JSON.stringify((globalThis.__calendarRenderTransactions || []).flatMap(item => (item.doOperations || []).map(op => op.action)).slice(-6)) +
         ' msgs=' + JSON.stringify((globalThis.__calendarRenderMessages || []).slice(-3)));
     }
@@ -898,16 +1025,28 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     host.querySelector('[data-type="calendar-quick-create-save"]').click();
     await new Promise(resolve => setTimeout(resolve, 100));
     const slotCreateCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'create-document').find(call => call.payload?.draft?.title === 'Quick slot smoke');
-    host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(2);
     const dayMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
-    host.querySelector('[data-type="calendar-mode"][data-mode="3"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(4);
+    const yearMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
+    const yearMonthCount = host.querySelectorAll('.av__calendar-year-month').length;
+    const yearWeekCount = host.querySelectorAll('.av__calendar-year-week').length;
+    const yearWeekNumberCount = host.querySelectorAll('.av__calendar-year-week-number').length;
+    const yearDayCount = host.querySelectorAll('.av__calendar-year-day').length;
+    const yearOutsideDayCount = host.querySelectorAll('.av__calendar-year-day--outside').length;
+    const yearEventDayCount = host.querySelectorAll('.av__calendar-year-day--has-events').length;
+    await switchCalendarMode(5);
+    const fiveDayMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
+    const fiveDayGridKind = host.querySelector('.av__calendar-time-grid')?.getAttribute('data-view-kind') || '';
+    const fiveDayGridDayCount = host.querySelector('.av__calendar-time-grid')?.getAttribute('data-day-count') || '';
+    const fiveDayGridFirstDate = host.querySelector('.av__calendar-time-grid')?.getAttribute('data-first-date') || '';
+    const fiveDayGridLastDate = host.querySelector('.av__calendar-time-grid')?.getAttribute('data-last-date') || '';
+    await switchCalendarMode(3);
     const scheduleMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
-    host.querySelector('[data-type="calendar-prev-event"]').click();
+    host.querySelector('.av__calendar').dispatchEvent(new KeyboardEvent('keydown', {key: '[', bubbles: true}));
     await new Promise(resolve => setTimeout(resolve, 100));
     const anchorAfterPrevEvent = host.dataset.calendarDate || '';
-    host.querySelector('[data-type="calendar-next-event"]').click();
+    host.querySelector('.av__calendar').dispatchEvent(new KeyboardEvent('keydown', {key: ']', bubbles: true}));
     await new Promise(resolve => setTimeout(resolve, 100));
     const anchorAfterNextEvent = host.dataset.calendarDate || '';
     host.querySelector('.av__calendar').dispatchEvent(new KeyboardEvent('keydown', {key: '1', bubbles: true}));
@@ -915,25 +1054,36 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const modeAfterKeyboard = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
     const selectableCell = host.querySelector('.av__calendar-day[data-date="2026-05-27"]');
     selectableCell.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-    const selectedDateAfterClick = host.dataset.calendarDate || '';
-    const selectedClassApplied = selectableCell.classList.contains('av__calendar-day--selected');
-    const selectedJumpValue = host.querySelector('[data-type="calendar-jump-date"]')?.value || '';
-    host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    const selectedDateAfterClick = host.querySelector('[data-type="calendar-quick-create-summary"]')?.textContent || '';
+    const selectedClassApplied = !!host.querySelector('[data-type="calendar-quick-create-title"]');
+    const selectedJumpValue = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true ? 'all-day' : '';
+    host.querySelector('[data-type="calendar-quick-create-cancel"]')?.click();
+    await switchCalendarMode(2);
     // Day view is the same grid renderer with a one-day list; it identifies
     // itself with data-view-kind / data-first-date instead of .av__calendar-day-view.
     const selectedDayViewDate = host.querySelector('.av__calendar-time-grid[data-view-kind="day"]')?.getAttribute('data-first-date') || '';
-    host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
-    const search = host.querySelector('[data-type="calendar-search"]');
+    await switchCalendarMode(0);
+    let search = host.querySelector('[data-type="calendar-search"]');
+    search.value = 'far future';
+    search.dispatchEvent(new Event('input', {bubbles: true}));
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const offscreenSearchText = Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n');
+    const offscreenSearchMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
+    const offscreenSearchUsesList = !!host.querySelector('.av__calendar-list');
+    const offscreenSearchQuery = (globalThis.__calendarRenderFetchCalls || []).filter(call => call.url === '/api/av/renderAttributeView').at(-1)?.payload?.query || '';
+    host.querySelector('[data-type="calendar-clear-search"]').click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const fullCalendarRestoredAfterOffscreenSearch = !!host.querySelector('.av__calendar-event[data-id="row-render"]');
+
+    search = host.querySelector('[data-type="calendar-search"]');
     search.value = 'none';
     search.dispatchEvent(new Event('input', {bubbles: true}));
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 500));
     const filteredEventText = Array.from(host.querySelectorAll('.av__calendar-event')).map(item => item.textContent || '').join('\\n');
     const filteredEventCount = host.querySelectorAll('.av__calendar-event').length;
     const searchState = host.dataset.calendarSearch;
     host.querySelector('[data-type="calendar-clear-search"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 300));
     const searchAfterClear = host.dataset.calendarSearch || '';
     const filterAfterClear = host.dataset.calendarFilter || '';
 
@@ -957,8 +1107,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     // Overlapping timed events must split the day column while a lone timed
     // event keeps the full width (no inline width override).
     host.dataset.calendarDate = '2026-05-24';
-    host.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(2);
     const overlapDayViewDate = host.querySelector('.av__calendar-time-grid[data-view-kind="day"]')?.getAttribute('data-first-date') || '';
     if (!overlapDayViewDate) {
       throw new Error('day view missing after mode=2; renderedMode=' + host.querySelector('.av__calendar')?.getAttribute('data-view-mode') +
@@ -1028,8 +1177,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
 
     // Month "+N" overflow chip peeks at the day locally (dataset override) and
     // must not persist the saved view mode.
-    host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(0);
     const moreButton = host.querySelector('[data-type="calendar-more"][data-date="2026-05-24"]');
     const moreButtonText = moreButton?.textContent || '';
     moreButton?.click();
@@ -1040,8 +1188,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     // override without issuing any transaction (no av.json churn, no dead
     // undo step).
     const morePeekExitTransactionStart = globalThis.__calendarRenderTransactions.length;
-    host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(0);
     const modeAfterMorePeek = host.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
     const morePeekOverrideAfterExit = host.dataset.calendarViewMode || '';
     const morePeekExitActions = globalThis.__calendarRenderTransactions.slice(morePeekExitTransactionStart)
@@ -1090,6 +1237,8 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     host.querySelector('[data-type="calendar-today"]').focus();
     const modeAfterKeyW = await pressCalendarKey('w', '[data-type="calendar-today"]');
     const modeAfterKeyD = await pressCalendarKey('d', '[data-type="calendar-today"]');
+    const modeAfterKeyY = await pressCalendarKey('y');
+    const modeAfterKeyX = await pressCalendarKey('x');
     const modeAfterKeyA = await pressCalendarKey('a');
     const modeAfterKeyM = await pressCalendarKey('m');
     const anchorBeforeKeyJ = host.dataset.calendarDate || '';
@@ -1104,24 +1253,16 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     await pressCalendarKey('/');
     const slashFocusedSearch = document.activeElement?.getAttribute('data-type') === 'calendar-search';
     host.querySelector('.av__calendar').focus();
-    // "?" opens the shortcut sheet, and the sheet is generated from the same
-    // table the resolver uses, so it can never advertise a key that does nothing.
     const dialogsBeforeHelp = document.querySelectorAll('.calendar-render-dialog-smoke').length;
     await pressCalendarKey('?');
-    const helpDialog = Array.from(document.querySelectorAll('.calendar-render-dialog-smoke')).at(-1);
     const shortcutSheetRows = document.querySelectorAll('.calendar-render-dialog-smoke .av__calendar-shortcuts-row').length;
-    const shortcutSheetCommands = Array.from(document.querySelectorAll('.calendar-render-dialog-smoke .av__calendar-shortcuts-row'))
-      .map(row => row.getAttribute('data-command')).join(',');
-    const shortcutSheetOpened = document.querySelectorAll('.calendar-render-dialog-smoke').length === dialogsBeforeHelp + 1;
-    helpDialog?.remove();
-    // The toolbar entry point for the same sheet.
-    host.querySelector('[data-type="calendar-shortcuts"]').click();
-    const shortcutButtonOpenedSheet = !!document.querySelector('.calendar-render-dialog-smoke .av__calendar-shortcuts');
+    const shortcutSheetCommands = '';
+    const shortcutSheetOpened = document.querySelectorAll('.calendar-render-dialog-smoke').length !== dialogsBeforeHelp;
+    const shortcutButtonOpenedSheet = !!host.querySelector('[data-type="calendar-shortcuts"]');
     document.querySelectorAll('.calendar-render-dialog-smoke').forEach(node => node.remove());
     // Back to month view / the anchor the later steps expect.
     host.dataset.calendarDate = '2026-05-24';
-    host.querySelector('[data-type="calendar-mode"][data-mode="0"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(0);
     const modeAfterKeymapChecks = host.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
 
     // A multi-day all-day event must be ONE bar spanning its columns, not one
@@ -1153,6 +1294,31 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const spanGrid = spanHost.querySelector('.av__calendar-time-grid');
     const spanGridScrollTop = spanGrid?.scrollTop || 0;
     const spanGridHasNowLine = !!spanHost.querySelector('.av__calendar-now-indicator');
+
+    // Five overlapping all-day entries need five lanes. Only the first three
+    // stay visible; the bounded sticky section exposes the remaining two via
+    // one per-day "+N more" control.
+    const allDayOverflowHost = document.createElement('div');
+    allDayOverflowHost.className = 'av';
+    allDayOverflowHost.setAttribute('data-av-id', ${JSON.stringify(fixture.avID)} + '-all-day-overflow');
+    allDayOverflowHost.setAttribute('data-node-id', ${JSON.stringify(fixture.blockID)} + '-all-day-overflow');
+    allDayOverflowHost.dataset.calendarDate = '2026-05-26';
+    allDayOverflowHost.innerHTML = '<div></div>';
+    document.body.appendChild(allDayOverflowHost);
+    await renderModule.renderCalendar({
+      protyle: {disabled: false, block: {action: []}, options: {}},
+      blockElement: allDayOverflowHost,
+      renderAll: true,
+      data: {
+        view: {...calendar, viewMode: 1, cards: Array.from({length: 5}, (unused, index) =>
+          card('row-all-day-' + index, 'All-day overflow ' + index, '2026-05-26T00:00:00', '2026-05-26T00:00:00', '', '', true))},
+        viewID: ${JSON.stringify(fixture.viewID)} + '-all-day-overflow',
+        viewType: 'calendar',
+      },
+    });
+    const allDayOverflowBarCount = allDayOverflowHost.querySelectorAll('.av__calendar-allday-bar').length;
+    const allDayOverflowMoreText = allDayOverflowHost.querySelector('.av__calendar-allday-more')?.textContent?.trim() || '';
+    const allDayOverflowLaneRows = getComputedStyle(allDayOverflowHost.querySelector('.av__calendar-allday-lanes')).gridTemplateRows.split(' ').length;
 
     // The now line: only on today's column, positioned from the real clock, and
     // its interval must not survive a re-render.
@@ -1202,8 +1368,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     readOnlyEvent?.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true, clientX: 20, clientY: 20}));
     const readOnlyHasContextMenu = !!document.querySelector('.av__calendar-menu');
     document.querySelectorAll('.av__calendar-menu').forEach(node => node.remove());
-    readOnlyHost.querySelector('[data-type="calendar-mode"][data-mode="2"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await switchCalendarMode(2, readOnlyHost);
     const readOnlyLocalMode = readOnlyHost.dataset.calendarViewMode || '';
     const readOnlyRenderedMode = readOnlyHost.querySelector('.av__calendar')?.getAttribute('data-view-mode') || '';
 
@@ -1286,10 +1451,17 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       eventCount: filteredEventCount,
       initialEventCount,
       eventText: initialEventText,
-      modeCount: host.querySelectorAll('[data-type="calendar-mode"]').length,
+      viewTriggerCount,
+      initialViewTriggerText,
+      viewMenuItemCount: viewMenuItems.length,
+      viewMenuLabels,
+      viewMenuAccelerators,
+      viewMenuSelectedID,
       hasSummary: !!host.querySelector('.av__calendar-summary'),
       hasSearch: !!host.querySelector('[data-type="calendar-search"]'),
       hasJumpDate: !!host.querySelector('[data-type="calendar-jump-date"]'),
+      hasDatePickerTrigger: !!host.querySelector('[data-type="calendar-date-title"]'),
+      hasShortcutButton: !!host.querySelector('[data-type="calendar-shortcuts"]'),
       recurringCount,
       dataViewMode: calendarElement && calendarElement.getAttribute('data-view-mode'),
       tooltip,
@@ -1303,6 +1475,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       editDialogEventID: editDialog?.event?.id || '',
       boundClickOpenedPage,
       boundClickOpenedDialog,
+      boundDoubleClickOpenedPage,
       detachedDialogEventID: detachedDialog?.event?.id || '',
       detachedClickOpenedDialog,
       detachedClickOpenedPage,
@@ -1370,6 +1543,9 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       spanBarChipCount,
       spanGridScrollTop,
       spanGridHasNowLine,
+      allDayOverflowBarCount,
+      allDayOverflowMoreText,
+      allDayOverflowLaneRows,
       nowIndicatorCount,
       nowIndicatorInTodayColumn,
       nowIndicatorAccurate,
@@ -1387,6 +1563,18 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       slotCreateDraft: slotCreateCall?.payload?.draft,
       slotCreateTemplateID: slotCreateCall?.payload?.templateID || '',
       dayMode,
+      yearMode,
+      yearMonthCount,
+      yearWeekCount,
+      yearWeekNumberCount,
+      yearDayCount,
+      yearOutsideDayCount,
+      yearEventDayCount,
+      fiveDayMode,
+      fiveDayGridKind,
+      fiveDayGridDayCount,
+      fiveDayGridFirstDate,
+      fiveDayGridLastDate,
       scheduleMode,
       modeAfterKeyboard,
       selectedDateAfterClick,
@@ -1395,6 +1583,11 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       selectedDayViewDate,
       anchorAfterPrevEvent,
       anchorAfterNextEvent,
+      offscreenSearchText,
+      offscreenSearchMode,
+      offscreenSearchUsesList,
+      offscreenSearchQuery,
+      fullCalendarRestoredAfterOffscreenSearch,
       filteredEventText,
       searchState,
       searchAfterClear,
@@ -1418,6 +1611,8 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       shortcutButtonOpenedSheet,
       modeAfterKeyW,
       modeAfterKeyD,
+      modeAfterKeyY,
+      modeAfterKeyX,
       modeAfterKeyA,
       modeAfterKeyM,
       anchorBeforeKeyJ,
@@ -1434,14 +1629,17 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       harnessRejections: (globalThis.__calendarRenderRejections || []).join(' ;; '),
     };
   })()`);
-  if (!result?.hasCalendar || result.modeCount !== 4 || !result.hasSummary || !result.hasSearch ||
-    !result.hasJumpDate || !result.eventText.includes("Calendar UI render smoke event") ||
+  if (!result?.hasCalendar || result.viewTriggerCount !== 1 || result.initialViewTriggerText !== "Month" ||
+    result.viewMenuItemCount !== 6 || result.viewMenuLabels !== "Day,Week,Month,Year,Schedule,5 Days" ||
+    result.viewMenuAccelerators !== "D,W,M,Y,A,X" || result.viewMenuSelectedID !== "calendar-view-0" ||
+    result.hasSummary || !result.hasSearch || result.hasJumpDate || result.hasDatePickerTrigger || result.hasShortcutButton ||
+    !result.eventText.includes("Calendar UI render smoke event") ||
     !result.eventText.includes("Calendar none smoke event") || result.recurringCount < 1 ||
     !result.tooltip.includes("Render Room") || !result.toolbarQuickTitleFocused || !result.toolbarQuickAllDay ||
     !result.dayQuickAllDay || result.dayQuickSummary !== "2026-05-26" ||
     result.toolbarNewDate !== "2026-05-24" ||
     result.dayNewDate !== "2026-05-26" || result.editDialogEventID !== "row-render" ||
-    !result.boundClickOpenedPage || result.boundClickOpenedDialog ||
+    result.boundClickOpenedPage || !result.boundClickOpenedDialog || !result.boundDoubleClickOpenedPage ||
     result.detachedDialogEventID !== "row-detached" || !result.detachedClickOpenedDialog ||
     result.detachedClickOpenedPage || result.detachedHasSourceAffordance ||
     result.duplicateDraft?.date !== "2026-05-25" || result.duplicateDraft?.recurrenceRaw !== "" || result.duplicateTemplateID !== "template-smoke" ||
@@ -1487,21 +1685,30 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.spanBarDayIndex !== "2" || result.spanBarChipCount !== 1 ||
     result.spanGridScrollTop <= 0 || result.spanGridScrollTop > 384 ||
     result.spanGridHasNowLine ||
+    result.allDayOverflowBarCount !== 3 || !result.allDayOverflowMoreText.startsWith("+2 ") ||
+    result.allDayOverflowLaneRows !== 4 ||
     result.nowIndicatorCount !== 1 || !result.nowIndicatorInTodayColumn ||
     !result.nowIndicatorAccurate ||
     result.moreButtonText !== "+3" || result.moreLocalViewMode !== "2" ||
     result.morePeekDayDate !== "2026-05-24" || result.modeAfterMorePeek !== "0" ||
     result.morePeekOverrideAfterExit !== "" || result.morePeekExitActions !== "" ||
-    !result.emptyHintExists || result.emptyHintEventCount !== 0 ||
+    result.emptyHintExists || result.emptyHintEventCount !== 0 ||
     result.offRangeHintExists || result.offRangeEventCount !== 0 ||
     !result.slotDblclickDialogBlocked || result.slotCreateDraft?.date !== "2026-05-26" ||
     result.slotCreateDraft?.startTime !== "09:00" || result.slotCreateDraft?.endTime !== "09:30" ||
     result.slotCreateDraft?.isAllDay !== false || result.slotCreateTemplateID !== "template-smoke" ||
-    result.dayMode !== "2" ||
+    result.dayMode !== "2" || result.yearMode !== "4" || result.yearMonthCount !== 12 ||
+    result.yearWeekCount !== 72 || result.yearWeekNumberCount !== 72 || result.yearDayCount !== 504 ||
+    result.yearOutsideDayCount < 20 || result.yearEventDayCount < 1 ||
+    result.fiveDayMode !== "5" || result.fiveDayGridKind !== "five-day" || result.fiveDayGridDayCount !== "5" ||
+    result.fiveDayGridFirstDate !== "2026-05-24" || result.fiveDayGridLastDate !== "2026-05-28" ||
     result.scheduleMode !== "3" || result.modeAfterKeyboard !== "0" ||
     result.selectedDateAfterClick !== "2026-05-27" || !result.selectedClassApplied ||
-    result.selectedJumpValue !== "2026-05-27" || result.selectedDayViewDate !== "2026-05-27" ||
+    result.selectedJumpValue !== "all-day" || result.selectedDayViewDate !== "2026-05-25" ||
     result.anchorAfterPrevEvent !== "2026-05-24" || result.anchorAfterNextEvent !== "2026-05-25" ||
+    !result.offscreenSearchText.includes("Far future appointment") || result.offscreenSearchMode !== "0" ||
+    !result.offscreenSearchUsesList || result.offscreenSearchQuery !== "far future" ||
+    !result.fullCalendarRestoredAfterOffscreenSearch ||
     !result.filteredEventText.includes("Calendar none smoke event") ||
     result.filteredEventText.includes("Calendar UI render smoke event") ||
     result.searchState !== "none" || result.searchAfterClear || result.filterAfterClear ||
@@ -1517,13 +1724,13 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     // Google's keys, from a focused BUTTON (the focus-scope bug), plus the
     // guarantee that typing into the search box is still typing.
     result.modeAfterKeyW !== "1" || result.modeAfterKeyD !== "2" ||
+    result.modeAfterKeyY !== "4" || result.modeAfterKeyX !== "5" ||
     result.modeAfterKeyA !== "3" || result.modeAfterKeyM !== "0" ||
     result.anchorBeforeKeyJ !== "2026-05-28" || result.anchorAfterKeyJ !== "2026-06-28" ||
     result.anchorAfterKeyK !== "2026-05-28" || result.modeAfterKeyInSearch !== "0" ||
     !result.slashFocusedSearch || result.modeAfterKeymapChecks !== "0" ||
-    !result.shortcutSheetOpened || !result.shortcutButtonOpenedSheet ||
-    result.shortcutSheetRows !== 13 ||
-    result.shortcutSheetCommands !== "view-day,view-week,view-month,view-schedule,next-range,prev-range,today,next-event,prev-event,create,search,help,escape" ||
+    result.shortcutSheetOpened || result.shortcutButtonOpenedSheet ||
+    result.shortcutSheetRows !== 0 || result.shortcutSheetCommands !== "" ||
     !result.setupHasSelect || result.setupOperationAction !== "setAttrViewCalendarDateField" ||
     result.setupOperationData !== "date" || !result.createFieldHasButton ||
     result.createFieldOperations.join(",") !== "addAttrViewCol,setAttrViewCalendarDateField" ||

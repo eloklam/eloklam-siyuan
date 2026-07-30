@@ -47,7 +47,7 @@ export interface ICalendarTimeGridOptions {
     events: ICalendarNormalizedEvent[];
     editable: boolean;
     geometry: ICalendarTimeGeometry;
-    viewKind: "week" | "day";
+    viewKind: "week" | "day" | "five-day";
     labels: ICalendarTimeGridLabels;
     /** Locale-aware short header, e.g. "Tue". */
     formatWeekday: (day: dayjs.Dayjs) => string;
@@ -63,6 +63,7 @@ export const CALENDAR_TIME_DAY_CLASS = "av__calendar-time-day";
 export const CALENDAR_TIMED_EVENT_CLASS = "av__calendar-timed-event";
 export const CALENDAR_TIME_CREATE_TYPE = "calendar-time-create";
 export const CALENDAR_RESIZE_HANDLE_TYPE = "calendar-resize-handle";
+export const CALENDAR_ALL_DAY_VISIBLE_LANES = 3;
 
 const isWeekend = (day: dayjs.Dayjs) => day.day() === 0 || day.day() === 6;
 
@@ -149,10 +150,13 @@ const renderAllDayRow = (options: ICalendarTimeGridOptions) => {
         laneItems.push({key, startIndex: covered[0], endIndex: covered[covered.length - 1]});
     });
     const {bars, laneCount} = packAllDayLanes(laneItems);
-    const visibleLaneCount = Math.max(laneCount, 1);
+    const visibleLaneCount = Math.max(Math.min(laneCount, CALENDAR_ALL_DAY_VISIBLE_LANES), 1);
+    const hiddenByDay = days.map((unused, index) => bars.filter(bar => bar.lane >= CALENDAR_ALL_DAY_VISIBLE_LANES && bar.startIndex <= index && bar.startIndex + bar.spanCount > index).length);
+    const hasHiddenLanes = hiddenByDay.some(count => count > 0);
+    const renderedLaneCount = visibleLaneCount + (hasHiddenLanes ? 1 : 0);
     const cells = days.map((day, index) =>
         `<div class="av__calendar-allday-cell${day.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${isWeekend(day) ? " av__calendar-time-day--weekend" : ""}" data-date="${dayKey(day)}" data-day-index="${index}" data-type="calendar-drop-day" style="grid-column:${index + 1} / span 1;grid-row:1 / -1"></div>`).join("");
-    const barHTML = bars.map(bar => {
+    const barHTML = bars.filter(bar => bar.lane < CALENDAR_ALL_DAY_VISIBLE_LANES).map(bar => {
         const event = eventByKey.get(bar.key);
         if (!event) {
             return "";
@@ -160,11 +164,13 @@ const renderAllDayRow = (options: ICalendarTimeGridOptions) => {
         const barDay = days[bar.startIndex];
         return `<div class="av__calendar-allday-bar" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${dayKey(barDay)}" data-day-index="${bar.startIndex}" data-span-count="${bar.spanCount}" data-lane="${bar.lane}" style="grid-column:${bar.startIndex + 1} / span ${bar.spanCount};grid-row:${bar.lane + 1}">${options.renderEventChip(event, barDay, options.editable)}</div>`;
     }).join("");
+    const moreHTML = hasHiddenLanes ? hiddenByDay.map((count, index) => count > 0 ?
+        `<button class="av__calendar-allday-more" data-type="calendar-more" data-date="${dayKey(days[index])}" style="grid-column:${index + 1};grid-row:${renderedLaneCount}" aria-label="+${count} ${escapeAttr(window.siyuan.languages.calendarEvents || "Events")}">+${count} ${escapeHtml(window.siyuan.languages.more || "more")}</button>` : "").join("") : "";
     return {
-        laneCount: visibleLaneCount,
+        laneCount: renderedLaneCount,
         html: `<div class="av__calendar-allday-row">
         <div class="av__calendar-allday-gutter">${escapeHtml(options.labels.allDay)}</div>
-        <div class="av__calendar-allday-lanes" style="grid-template-rows:repeat(${visibleLaneCount}, ${CALENDAR_ALL_DAY_LANE_HEIGHT_PX}px)">${cells}${barHTML}</div>
+        <div class="av__calendar-allday-lanes" style="grid-template-rows:repeat(${renderedLaneCount}, ${CALENDAR_ALL_DAY_LANE_HEIGHT_PX}px)">${cells}${barHTML}${moreHTML}</div>
     </div>`,
     };
 };

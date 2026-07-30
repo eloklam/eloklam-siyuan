@@ -42,12 +42,12 @@ export const CALENDAR_DAY_END_MINUTE = CALENDAR_MINUTES_PER_DAY;
 export const CALENDAR_BUSINESS_START_MINUTE = 9 * CALENDAR_MINUTES_PER_HOUR;
 export const CALENDAR_BUSINESS_END_MINUTE = 18 * CALENDAR_MINUTES_PER_HOUR;
 /** Hour gutter width; the sticky day headers share this track. */
-export const CALENDAR_GUTTER_WIDTH_PX = 56;
+export const CALENDAR_GUTTER_WIDTH_PX = 72;
 export const CALENDAR_DAY_MIN_WIDTH_PX = 104;
 export const CALENDAR_ALL_DAY_LANE_HEIGHT_PX = 22;
 export const CALENDAR_HEADER_HEIGHT_PX = 34;
 /** Where the grid scrolls to when "now" is not on screen at all. */
-export const CALENDAR_FALLBACK_SCROLL_MINUTE = 8 * CALENDAR_MINUTES_PER_HOUR;
+export const CALENDAR_FALLBACK_SCROLL_MINUTE = 6 * CALENDAR_MINUTES_PER_HOUR;
 
 export interface ICalendarTimeGeometry {
     /** CSS pixels per hour. */

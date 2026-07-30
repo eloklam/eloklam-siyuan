@@ -7,18 +7,42 @@ const getMappedFieldID = (calendarData: IAVCalendar, fieldID: string | undefined
     return calendarData.fields.some(field => field.id === fieldID && allowedTypes.includes(field.type)) ? fieldID : undefined;
 };
 
+const findTextFieldByName = (calendarData: IAVCalendar, names: string[], used: Set<string>) => {
+    const normalise = (value: string) => value.trim().toLocaleLowerCase();
+    return calendarData.fields.find(field =>
+        field.type === "text" && !used.has(field.id) && names.includes(normalise(field.name))
+    )?.id;
+};
+
 export const getCalendarFieldMapping = (calendarData: IAVCalendar): ICalendarFieldMapping => {
     const persistedDateFieldID = calendarData.dateFieldID || "";
     const persisted = calendarData.fieldMapping || {};
     const hasDateField = !!persistedDateFieldID && calendarData.fields.some(field => field.id === persistedDateFieldID && field.type === "date");
+    const used = new Set<string>();
+    const takeTextField = (persistedID: string | undefined, names: string[]) => {
+        const mapped = getMappedFieldID(calendarData, persistedID, ["text"]);
+        if (mapped) {
+            used.add(mapped);
+            return mapped;
+        }
+        const inferred = findTextFieldByName(calendarData, names, used);
+        if (inferred) {
+            used.add(inferred);
+        }
+        return inferred;
+    };
+    const recurrenceFieldID = takeTextField(persisted.recurrenceFieldID, ["repeat", "recurrence", "wiederholen", "wiederholung"]);
+    const exceptionFieldID = takeTextField(persisted.exceptionFieldID, ["exception", "ausnahme"]);
+    const locationFieldID = takeTextField(persisted.locationFieldID, ["place", "location", "ort"]);
+    const descriptionFieldID = takeTextField(persisted.descriptionFieldID, ["description", "beschreibung"]);
     return {
         // A stale or wrong-typed persisted date field must not satisfy the
         // write-path guards, so only expose it when it is actually usable.
         dateFieldID: hasDateField ? persistedDateFieldID : "",
-        recurrenceFieldID: getMappedFieldID(calendarData, persisted.recurrenceFieldID, ["text"]),
-        exceptionFieldID: getMappedFieldID(calendarData, persisted.exceptionFieldID, ["text"]),
-        locationFieldID: getMappedFieldID(calendarData, persisted.locationFieldID, ["text"]),
-        descriptionFieldID: getMappedFieldID(calendarData, persisted.descriptionFieldID, ["text"]),
+        recurrenceFieldID,
+        exceptionFieldID,
+        locationFieldID,
+        descriptionFieldID,
         colorFieldID: getMappedFieldID(calendarData, persisted.colorFieldID, ["select", "mSelect"]),
         hasDateField,
     };

@@ -2331,5 +2331,18 @@
 	"calendarRepeatUntilSuffix": ", ${x} तक",
 	"calendarRepeatCountSuffix": ", ${x} बार",
 	"calendarRepeatEveryWeekday": "हर कार्यदिवस (सोमवार से शुक्रवार)",
-	"calendarRepeatCustom": "कस्टम…"
+	"calendarRepeatCustom": "कस्टम…",
+	"calendarMapLocationHint": "Map a text field in Calendar settings to save this field.",
+	"calendarMapRecurrenceHint": "Map a text field in Calendar settings to save recurring events.",
+	"calendarRepeatEvery": "Repeat every",
+	"calendarDay": "Day",
+	"calendarWeek": "Week",
+	"calendarMonth": "Month",
+	"calendarYear": "Year",
+	"calendarRepeatOn": "Repeat on",
+	"calendarEnd": "End",
+	"calendarNever": "Never",
+	"calendarOn": "On",
+	"calendarAfter": "After",
+	"calendarOccurrences": "occurrences"
 	}

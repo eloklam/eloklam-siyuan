@@ -1588,7 +1588,8 @@ func calendarViewModeFromOperationData(data any) (viewMode av.ViewMode, err erro
 		return
 	}
 	viewMode = av.ViewMode(number)
-	if av.ViewModeMonth != viewMode && av.ViewModeWeek != viewMode && av.ViewModeDay != viewMode && av.ViewModeSchedule != viewMode {
+	if av.ViewModeMonth != viewMode && av.ViewModeWeek != viewMode && av.ViewModeDay != viewMode && av.ViewModeSchedule != viewMode &&
+		av.ViewModeYear != viewMode && av.ViewModeFiveDay != viewMode {
 		return viewMode, fmt.Errorf("calendar view mode [%d] is invalid", viewMode)
 	}
 	return

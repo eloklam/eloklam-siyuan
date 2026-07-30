@@ -480,6 +480,26 @@ const addMetadataUpdate = (ops: ICalendarOperationSet, options: {
     });
 };
 
+const addDraftFieldUpdates = (ops: ICalendarOperationSet, options: {
+    avID: string;
+    rowID: string;
+    fields: IAVColumn[];
+    values?: { [fieldID: string]: string };
+    sourceCard?: IAVGalleryItem;
+}) => {
+    Object.entries(options.values || {}).forEach(([fieldID, value]) => {
+        addMetadataUpdate(ops, {
+            avID: options.avID,
+            rowID: options.rowID,
+            fields: options.fields,
+            fieldID,
+            value,
+            oldCell: options.sourceCard ? getCellByFieldID(options.sourceCard, fieldID) : undefined,
+            undoEmptyWhenMissing: !!options.sourceCard,
+        });
+    });
+};
+
 export const buildOccurrenceExceptionOperations = (options: {
     avID: string;
     blockID: string;
@@ -667,6 +687,12 @@ export const buildCreateEventOperations = (options: {
         fieldID: options.mapping.colorFieldID,
         value: options.draft.colorContent,
     });
+    addDraftFieldUpdates(ops, {
+        avID: options.avID,
+        rowID,
+        fields: options.fields,
+        values: options.draft.fieldValues,
+    });
     ops.undoOperations.push({action: "removeAttrViewBlock", srcIDs: [rowID], avID: options.avID});
     pushUpdated(ops, options.blockID, options.previousUpdated);
     return ops;
@@ -744,6 +770,13 @@ export const buildUpdateEventOperations = (options: {
         value: options.draft.colorContent,
         oldCell: getCellByFieldID(options.event.sourceCard, options.mapping.colorFieldID),
         undoEmptyWhenMissing: true,
+    });
+    addDraftFieldUpdates(ops, {
+        avID: options.avID,
+        rowID: options.event.id,
+        fields: options.fields,
+        values: options.draft.fieldValues,
+        sourceCard: options.event.sourceCard,
     });
     if (ops.doOperations.length > 0) {
         pushUpdated(ops, options.blockID, options.previousUpdated);
@@ -875,6 +908,7 @@ const buildCalendarFieldValues = (options: {
     addTextValue(options.mapping.exceptionFieldID, options.draft.recurrenceExceptionRaw);
     addTextValue(options.mapping.locationFieldID, options.draft.location);
     addTextValue(options.mapping.descriptionFieldID, options.draft.description);
+    Object.entries(options.draft.fieldValues || {}).forEach(([fieldID, value]) => addTextValue(fieldID, value));
     const colorField = getFieldByID(options.fields, options.mapping.colorFieldID);
     if (colorField && ["select", "mSelect"].includes(colorField.type)) {
         const colorValue = buildSelectValue(colorField, options.draft.colorContent);

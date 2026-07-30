@@ -1,7 +1,7 @@
 type TPluginDockPosition = "LeftTop" | "LeftBottom" | "RightTop" | "RightBottom" | "BottomLeft" | "BottomRight"
 type TDockPosition = "Left" | "Right" | "Bottom"
-type TWS = "main" | "filetree" | "protyle" | "backlink" | "bookmark" | "graph" | "outline" | "tag" | "agentChat"
-type TDock = "file" | "outline" | "inbox" | "bookmark" | "tag" | "graph" | "globalGraph" | "backlink" | "agentChat"
+type TWS = "main" | "filetree" | "protyle" | "backlink" | "bookmark" | "graph" | "outline" | "tag" | "agentChat" | "calendar"
+type TDock = "file" | "outline" | "inbox" | "bookmark" | "tag" | "graph" | "globalGraph" | "backlink" | "agentChat" | "calendar"
 type TTab = "Outline" | "Graph" | "Backlink" | "Asset" | "Editor" | "Search" | "siyuan-card"
 type TOperation =
     "insert"
@@ -1091,7 +1091,7 @@ interface IAVKanban extends IAVView {
 
 interface IAVCalendar extends IAVView {
     dateFieldID: string;
-    viewMode: number; // 0: month, 1: week, 2: day, 3: schedule
+    viewMode: number; // 0: month, 1: week, 2: day, 3: schedule, 4: year, 5: five days
     weekStart: number; // 0: Sunday, 1: Monday
     // "" (absent) keeps the legacy row-only behaviour; "document" creates a page per entry
     newItemTarget?: "" | "row" | "document";

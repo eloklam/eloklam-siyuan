@@ -137,8 +137,9 @@ requireTerms("now-indicator.ts", nowIndicator, [
   "window.setInterval",
   "window.clearInterval",
   "hasRestoredScroll",
-  "getCenteredScrollTopPx",
   "CALENDAR_FALLBACK_SCROLL_MINUTE",
+  "Math.min(...starts) - 60",
+  ".av__calendar-timed-event[data-start-minute]",
   "unmountCalendarNowIndicator(options.blockElement)",
   "teardowns.set(options.blockElement, teardown)",
 ]);
@@ -153,7 +154,8 @@ requireTerms("render.ts", render, [
   "snapMinutes(",
   "offsetPxToMinute",
   "getEventMinuteRange",
-  "hasRestoredScroll: resetData.gridScrollTop > 0",
+  "hadTimeGrid: !!timeGridElement",
+  "hasRestoredScroll: resetData.hadTimeGrid",
   "viewKind",
 ]);
 rejectTerms("render.ts", render, [
@@ -190,6 +192,8 @@ requireTerms("_av.scss", scss, [
   "--calendar-business-start",
   "--calendar-weekend-tint",
   "var(--calendar-ruling-height, 24px)",
+  "overscroll-behavior: contain",
+  "height: clamp(420px, calc(100vh - 230px), 760px)",
 ]);
 rejectTerms("_av.scss", scss, [
   "grid-template-rows: repeat(48, minmax(24px, auto))",

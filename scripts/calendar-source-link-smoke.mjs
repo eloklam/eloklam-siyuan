@@ -16,26 +16,25 @@ const checks = [
   // The bound document id is derived from the block VALUE id, never from
   // value.isDetached (omitempty, so absent on bound rows) - see getBoundBlockID.
   [normalize.includes('blockID: getBoundBlockID(card)'), 'normalize keeps the bound document id on events'],
-  [eventChip.includes('calendar-open-source') && render.includes('calendar-open-source'), 'event chips expose first-class open-source affordance'],
-  [render.includes('openCalendarEventSource'), 'renderer can open source directly from chip'],
-  [render.includes('getEventDocumentID(calendarEvent)') && render.includes('event.stopPropagation()'), 'source affordance stops chip dialog and opens source'],
-  [eventChip.includes('calendarOpenSource') || eventChip.includes('Source'), 'event chip labels source affordance'],
+  [!eventChip.includes('calendar-open-source') && !eventChip.includes('>↗</span>'), 'event chips omit the redundant inline open-source affordance'],
+  [render.includes('openCalendarEventSource'), 'renderer can open source from a bound Termin'],
+  [render.includes('eventElement.addEventListener("click"') && render.includes('openEventSchedulingFor(calendarEvent)'), 'single Termin activation opens scheduling preview'],
+  [render.includes('eventElement.addEventListener("dblclick"') && /if \(calendarEvent && getEventDocumentID\(calendarEvent\)\) \{\s*\n\s*openCalendarEventSource/.test(render), 'double Termin activation opens the bound page'],
   [dialog.includes('calendarSource') && dialog.includes('event-source'), 'dialog shows explicit source note/block context'],
   [dialog.includes('event-open-block') && dialog.includes('calendarOpenSource'), 'dialog has obvious Open source action'],
-  [scss.includes('&-source') && scss.includes('&-event-source'), 'source affordance styled in calendar SCSS'],
+  [scss.includes('&-source') && scss.includes('&-event-source'), 'dialog source note remains styled in calendar SCSS'],
 
-  // Page-per-entry: a BOUND chip opens its page on a plain click, through
-  // upstream's openDatabaseRowByData (tab reuse + expanded attribute panel),
-  // and keeps a separate labelled way into the scheduling dialog.
+  // Page-per-entry: a BOUND chip opens its page on double click through
+  // upstream's openDatabaseRowByData. Plain activation opens scheduling preview.
   [render.includes('import {openDatabaseRowByData} from "../openDatabaseRow";'), 'calendar opens pages through the shared database-row opener'],
   [render.includes('openDatabaseRowByData(protyle, {') && render.includes('boundBlockID: documentID') && render.includes('isDetached: false'), 'bound entries open as a real database row/page'],
-  [/if \(calendarEvent && getEventDocumentID\(calendarEvent\)\) \{\s*\n\s*openCalendarEventSource/.test(render), 'primary chip click opens the page for bound entries'],
-  [render.includes('calendar-open-dialog') && eventChip.includes('av__calendar-schedule'), 'bound chips keep a labelled scheduling-dialog affordance'],
+  [render.includes('eventOpenTimers') && render.includes('openEventSchedulingFor(calendarEvent)'), 'single-click scheduling is separated from double-click page opening'],
+  [!eventChip.includes('av__calendar-schedule') && !eventChip.includes('calendar-open-dialog'), 'event chips hide permanent action affordances'],
   // The chip lost its inline buttons; the right-click menu is where those actions
   // went, and it must still reach the page and the scheduling dialog by name.
   [contextMenu.includes('data-type="calendar-open-source"') && contextMenu.includes('data-type="calendar-open-dialog"'), 'context menu keeps the open-page and scheduling entry points'],
   [render.includes('command.type === "calendar-open-source"') && render.includes('command.type === "calendar-open-dialog"'), 'renderer routes the menu open-page/scheduling commands'],
-  [scss.includes('&-schedule {'), 'scheduling affordance styled in calendar SCSS'],
+  [!scss.includes('&-schedule {'), 'retired scheduling affordance has no stale calendar SCSS'],
   [!/openFileById\(/.test(render) && !/openMobileFileById\(/.test(render), 'calendar no longer bypasses the database-row opener with a bare openFileById'],
 
   // The per-view "new entries" target that decides whether a page exists at all.

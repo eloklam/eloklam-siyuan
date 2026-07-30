@@ -2331,5 +2331,18 @@
 	"calendarRepeatUntilSuffix": ", до ${x}",
 	"calendarRepeatCountSuffix": ", ${x} раз",
 	"calendarRepeatEveryWeekday": "По будням (с понедельника по пятницу)",
-	"calendarRepeatCustom": "Другое…"
+	"calendarRepeatCustom": "Другое…",
+	"calendarMapLocationHint": "Map a text field in Calendar settings to save this field.",
+	"calendarMapRecurrenceHint": "Map a text field in Calendar settings to save recurring events.",
+	"calendarRepeatEvery": "Repeat every",
+	"calendarDay": "Day",
+	"calendarWeek": "Week",
+	"calendarMonth": "Month",
+	"calendarYear": "Year",
+	"calendarRepeatOn": "Repeat on",
+	"calendarEnd": "End",
+	"calendarNever": "Never",
+	"calendarOn": "On",
+	"calendarAfter": "After",
+	"calendarOccurrences": "occurrences"
 	}

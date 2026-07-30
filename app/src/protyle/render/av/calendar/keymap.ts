@@ -1,5 +1,4 @@
-import {Dialog} from "../../../../dialog";
-import {escapeAttr, escapeHtml} from "../../../../util/escape";
+
 
 /**
  * The calendar key map.
@@ -28,12 +27,14 @@ export type CalendarCommand =
     | "view-week"
     | "view-day"
     | "view-schedule"
+    | "view-year"
+    | "view-five-day"
     | "next-range"
     | "prev-range"
     | "today"
     | "create"
     | "search"
-    | "help"
+
     | "next-event"
     | "prev-event"
     | "escape";
@@ -57,21 +58,23 @@ export interface ICalendarKeymapOptions {
     nextRangeOnN?: boolean;
 }
 
-/** view mode indices as used by render.ts: 0 month, 1 week, 2 day, 3 schedule. */
-export const CALENDAR_VIEW_MODE_COMMANDS: CalendarCommand[] = ["view-month", "view-week", "view-day", "view-schedule"];
+/** view mode indices as used by render.ts: 0 month, 1 week, 2 day, 3 schedule, 4 year, 5 five days. */
+export const CALENDAR_VIEW_MODE_COMMANDS: CalendarCommand[] = ["view-month", "view-week", "view-day", "view-schedule", "view-year", "view-five-day"];
 
 export const CALENDAR_VIEW_MODE_BY_COMMAND: { [key: string]: number } = {
     "view-month": 0,
     "view-week": 1,
     "view-day": 2,
     "view-schedule": 3,
+    "view-year": 4,
+    "view-five-day": 5,
 };
 
 /**
  * Advertised on the calendar region. Keep the legacy prefix intact - it is the
  * string the audit greps for.
  */
-export const CALENDAR_ARIA_KEYSHORTCUTS = "ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 D W M X A J K P C ?";
+export const CALENDAR_ARIA_KEYSHORTCUTS = "ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 5 6 D W M Y A X J K P C";
 
 export const resolveCalendarCommand = (event: ICalendarKeyEvent, options: ICalendarKeymapOptions = {}): CalendarCommand | undefined => {
     if (!event || typeof event.key !== "string" || !event.key) {
@@ -96,13 +99,11 @@ export const resolveCalendarCommand = (event: ICalendarKeyEvent, options: ICalen
     if (event.key === "/") {
         return "search";
     }
-    if (event.key === "?") {
-        return "help";
-    }
+
     if (event.key === "Escape") {
         return "escape";
     }
-    if (/^[1-4]$/.test(event.key)) {
+    if (/^[1-6]$/.test(event.key)) {
         return CALENDAR_VIEW_MODE_COMMANDS[parseInt(event.key, 10) - 1];
     }
     if (event.key.toLowerCase() === "t") {
@@ -123,8 +124,14 @@ export const resolveCalendarCommand = (event: ICalendarKeyEvent, options: ICalen
     if (event.key.toLowerCase() === "m") {
         return "view-month";
     }
-    if (event.key.toLowerCase() === "x" || event.key.toLowerCase() === "a") {
+    if (event.key.toLowerCase() === "a") {
         return "view-schedule";
+    }
+    if (event.key.toLowerCase() === "y") {
+        return "view-year";
+    }
+    if (event.key.toLowerCase() === "x") {
+        return "view-five-day";
     }
     if (event.key.toLowerCase() === "j") {
         return "next-range";
@@ -164,7 +171,7 @@ const isCalendarModalOpen = (ownerDocument?: Document): boolean => {
 };
 
 export interface ICalendarKeymapHandlers {
-    /** 0 month, 1 week, 2 day, 3 schedule. */
+    /** 0 month, 1 week, 2 day, 3 schedule, 4 year, 5 five days. */
     setViewMode: (mode: number) => void;
     /** Page the main view by one visible range. */
     goToRange: (direction: 1 | -1) => void;
@@ -180,8 +187,7 @@ export interface ICalendarKeymapHandlers {
      * key is only swallowed when it did something.
      */
     escape: () => boolean;
-    /** Defaults to the built-in shortcut sheet. */
-    showHelp?: () => void;
+
 }
 
 /**
@@ -248,79 +254,8 @@ export const runCalendarCommand = (command: CalendarCommand, handlers: ICalendar
         handlers.seekEvent(-1);
         return true;
     }
-    if (command === "help") {
-        (handlers.showHelp || openCalendarShortcutHelp)();
-        return true;
-    }
+
     // Escape only swallows the key when it really backed something out;
     // otherwise the app's own Escape handling must still run.
     return handlers.escape();
 };
-
-// --- the "?" sheet -----------------------------------------------------------
-
-export interface ICalendarShortcutEntry {
-    keys: string[];
-    command: CalendarCommand;
-    /** Resolved at call time so a language switch is picked up. */
-    getLabel: () => string;
-}
-
-export interface ICalendarShortcutSection {
-    getTitle: () => string;
-    entries: ICalendarShortcutEntry[];
-}
-
-const lang = (key: string, fallback: string) => (typeof window === "undefined" ? fallback : (window.siyuan?.languages?.[key] || fallback));
-
-/**
- * The data behind the "?" sheet. Also the single source of truth for what the
- * map claims to support, so the sheet can never drift from the resolver: every
- * entry below is asserted against `resolveCalendarCommand` by the smoke.
- */
-export const getCalendarShortcutSections = (): ICalendarShortcutSection[] => [
-    {
-        getTitle: () => lang("calendarShortcutsViews", "Views"),
-        entries: [
-            {keys: ["d", "3"], command: "view-day", getLabel: () => lang("calendarDayView", "Day view")},
-            {keys: ["w", "2"], command: "view-week", getLabel: () => lang("calendarWeekView", "Week view")},
-            {keys: ["m", "1"], command: "view-month", getLabel: () => lang("calendarMonthView", "Month view")},
-            {keys: ["x", "a", "4"], command: "view-schedule", getLabel: () => lang("calendarScheduleView", "Schedule view")},
-        ],
-    },
-    {
-        getTitle: () => lang("calendarShortcutsNavigation", "Navigation"),
-        entries: [
-            {keys: ["j", "→"], command: "next-range", getLabel: () => lang("calendarNextRange", "Next period")},
-            {keys: ["k", "p", "←"], command: "prev-range", getLabel: () => lang("calendarPreviousRange", "Previous period")},
-            {keys: ["t"], command: "today", getLabel: () => lang("calendarJumpToToday", "Go to today")},
-            {keys: ["]"], command: "next-event", getLabel: () => lang("calendarNextEvent", "Next event")},
-            {keys: ["["], command: "prev-event", getLabel: () => lang("calendarPreviousEvent", "Previous event")},
-        ],
-    },
-    {
-        getTitle: () => lang("calendarShortcutsActions", "Actions"),
-        entries: [
-            {keys: ["c", "n"], command: "create", getLabel: () => lang("calendarCreateEvent", "Create event")},
-            {keys: ["/"], command: "search", getLabel: () => lang("calendarFocusSearch", "Search")},
-            {keys: ["?"], command: "help", getLabel: () => lang("calendarShowShortcuts", "Keyboard shortcut help")},
-            {keys: ["Esc"], command: "escape", getLabel: () => lang("calendarBackOut", "Cancel the current gesture, then clear the search")},
-        ],
-    },
-];
-
-export const renderCalendarShortcutHelp = (): string => `<div class="b3-dialog__content av__calendar-shortcuts">
-    ${getCalendarShortcutSections().map(section => `<div class="av__calendar-shortcuts-section">
-        <div class="av__calendar-shortcuts-title">${escapeHtml(section.getTitle())}</div>
-        ${section.entries.map(entry => `<div class="av__calendar-shortcuts-row" data-command="${escapeAttr(entry.command)}">
-            <span class="av__calendar-shortcuts-keys">${entry.keys.map(key => `<kbd>${escapeHtml(key)}</kbd>`).join("")}</span>
-            <span class="av__calendar-shortcuts-label">${escapeHtml(entry.getLabel())}</span>
-        </div>`).join("")}
-    </div>`).join("")}
-</div>`;
-
-export const openCalendarShortcutHelp = (): Dialog => new Dialog({
-    title: lang("calendarShortcuts", "Keyboard shortcuts"),
-    width: "480px",
-    content: renderCalendarShortcutHelp(),
-});

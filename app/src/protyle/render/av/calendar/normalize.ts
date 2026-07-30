@@ -12,6 +12,13 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
     const blockCell = getBlockCell(card);
     const blockValue = blockCell?.value?.block;
     const metadata = getMappedMetadata(card, mapping);
+    const fieldValues: { [fieldID: string]: string } = {};
+    card.values.forEach(cell => {
+        const fieldID = cell.value?.keyID;
+        if (fieldID) {
+            fieldValues[fieldID] = getTextFromCell(cell);
+        }
+    });
     const start = dayjs(dateValue.content);
     if (!start.isValid()) {
         return undefined;
@@ -42,6 +49,7 @@ const normalizeCard = (card: IAVGalleryItem, mapping: ICalendarFieldMapping): IC
         description: metadata.description,
         color: metadata.color,
         colorContent: metadata.colorContent,
+        fieldValues,
         sourceCard: card,
     };
 };
@@ -75,11 +83,19 @@ export const normalizeCalendarEvents = (
     mapping: ICalendarFieldMapping,
     range: ICalendarRange
 ): { events: ICalendarNormalizedEvent[]; baseEventsByID: Map<string, ICalendarNormalizedEvent> } => {
-    if (!mapping.hasDateField || !calendarData.cards) {
+    if (!mapping.hasDateField) {
         return {events: [], baseEventsByID: new Map()};
     }
+    // Grouped AVs deliberately clear the top-level cards after rendering and put
+    // every row under view.groups[].cards. Reading only calendarData.cards makes
+    // a grouped calendar look completely empty even though the rows were saved.
+    const cards = [...(calendarData.cards || [])];
+    (calendarData.groups || []).forEach(group => {
+        ((group as unknown as IAVCalendar).cards || []).forEach(card => cards.push(card));
+    });
+    const uniqueCards = Array.from(new Map(cards.map(card => [card.id, card])).values());
     const baseEvents: ICalendarNormalizedEvent[] = [];
-    calendarData.cards.forEach(card => {
+    uniqueCards.forEach(card => {
         const event = normalizeCard(card, mapping);
         if (event) {
             baseEvents.push(event);

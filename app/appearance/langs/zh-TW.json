@@ -2331,5 +2331,18 @@
 	"calendarRepeatUntilSuffix": "，截至 ${x}",
 	"calendarRepeatCountSuffix": "，共 ${x} 次",
 	"calendarRepeatEveryWeekday": "每個工作日（週一至週五）",
-	"calendarRepeatCustom": "自訂…"
+	"calendarRepeatCustom": "自訂…",
+	"calendarMapLocationHint": "Map a text field in Calendar settings to save this field.",
+	"calendarMapRecurrenceHint": "Map a text field in Calendar settings to save recurring events.",
+	"calendarRepeatEvery": "每隔",
+	"calendarDay": "日",
+	"calendarWeek": "週",
+	"calendarMonth": "月",
+	"calendarYear": "年",
+	"calendarRepeatOn": "重複於",
+	"calendarEnd": "結束",
+	"calendarNever": "永不",
+	"calendarOn": "於",
+	"calendarAfter": "在",
+	"calendarOccurrences": "次後"
 	}

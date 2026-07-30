@@ -151,6 +151,9 @@ try {
       descriptionFieldID: "description",
       colorFieldID: "color",
     },
+    groups: [{
+      cards: [card("CC-FFrien", "CC-FFrien", "2026-07-24T00:00:00", "2026-10-12T23:59:59", {isAllDay: true})],
+    }],
     cards: [
       card("weekly", "Weekly smoke", "2026-05-24T09:00:00", "2026-05-24T10:00:00", {
         recurrence: "FREQ=WEEKLY;COUNT=3",
@@ -205,7 +208,13 @@ try {
     fail("base event did not retain parsed recurrence exceptions");
   }
 
-  console.log(`calendar recurrence smoke passed: ${events.length} normalized events across weekly, BYDAY, and None rules`);
+  const autumnRange = {start: dayjs("2026-09-01"), end: dayjs("2026-09-30").endOf("day")};
+  const grouped = normalizeCalendarEvents(calendar, mapping, autumnRange).events.find(event => event.id === "CC-FFrien");
+  if (!grouped || grouped.start.format("YYYY-MM-DD") !== "2026-07-24" || grouped.end?.format("YYYY-MM-DD") !== "2026-10-12") {
+    fail("grouped multi-day CC-FFrien event was not visible across its saved date range");
+  }
+
+  console.log(`calendar recurrence smoke passed: ${events.length} normalized events plus grouped multi-day visibility`);
 } finally {
   fs.rmSync(tempDir, {recursive: true, force: true, maxRetries: 3});
 }

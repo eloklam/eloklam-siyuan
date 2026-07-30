@@ -10,8 +10,7 @@ import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from 
  * (context-menu.ts), and duration is now changed by dragging the chip's edges
  * (interactions.ts). What must NOT change is everything the rest of the app and
  * the smoke suite reads off a chip - the class list, the data attributes, the
- * tooltip/aria-label text, the recurring/occurrence marker, the source and
- * scheduling affordances, the pending class and the draggable/read-only
+ * tooltip/aria-label text, the recurring/occurrence marker, the pending class and the draggable/read-only
  * attributes. Those are reproduced here exactly as render.ts emitted them.
  */
 
@@ -87,48 +86,52 @@ export interface ICalendarChipOptions {
  * The colour a chip paints itself with, as the inline style render.ts produced.
  * Also drives the timed variant's leading dot.
  */
-const getChipColorStyle = (event: ICalendarNormalizedEvent) =>
-    event.color ? `background-color:var(--b3-font-background${escapeAttr(event.color)});color:var(--b3-font-color${escapeAttr(event.color)});` : "";
+const getChipColorStyle = (event: ICalendarNormalizedEvent, variant: CalendarChipVariant) => {
+    if (!event.color) {
+        return "";
+    }
+    const background = `var(--b3-font-background${escapeAttr(event.color)})`;
+    const foreground = `var(--b3-font-color${escapeAttr(event.color)})`;
+    return `--calendar-event-accent:${foreground};--calendar-event-fill:${background};`;
+};
 
 /**
  * One chip, in one of four shapes.
  *
- * The visible text is intentionally byte-identical to what render.ts produced
- * (time prefix, multi-day prefix, title in a single .av__calendar-event-text),
- * so anything reading textContent keeps reading the same string; the removed
- * inline buttons are the only difference. The timed variant additionally
- * carries a colour dot and exposes the start clock as data-time, so the grid can
- * style the time without duplicating it into the accessible name.
+ * Month, list and timed surfaces use the same semantic parts but arrange them
+ * differently: month is compact time + title, agenda gets separate time/title
+ * columns, and a timed block puts title before time. The accessible name remains
+ * the complete tooltip, independently of how much a short block can display.
  */
 export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
     const {event, variant} = options;
     const editable = options.editable !== false;
-    const timePrefix = event.isAllDay ? "" : `${event.start.format("HH:mm")} `;
     const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ?
         `${formatCalendarDate(event.start, {month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {month: "short", day: "numeric"})} ` : "";
-    const inlineStyle = `${getChipColorStyle(event)}${options.style || ""}`;
+    const inlineStyle = `${getChipColorStyle(event, variant)}${options.style || ""}`;
     const colorStyle = inlineStyle ? ` style="${inlineStyle}"` : "";
     const eventTooltip = getEventTooltip(event);
     const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence ?
         `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
     const documentID = getEventDocumentID(event);
-    const sourceMarker = documentID ?
-        `<span class="av__calendar-source" data-type="calendar-open-source" aria-hidden="true">↗</span>` : "";
-    // A bound chip opens its page on click, so the scheduling dialog needs its own
-    // labelled entry point: moving an event in time must never require opening the
-    // page first. Detached chips still open the dialog on click, so they do not
-    // carry this affordance.
-    const scheduleMarker = documentID ?
-        `<span class="av__calendar-schedule" data-type="calendar-open-dialog" aria-hidden="true">◷</span>` : "";
+
     // The all-day shape is a filled bar, so a leading dot would be noise on it.
     const dotMarker = variant === "all-day" ? "" : '<span class="av__calendar-event-dot" aria-hidden="true"></span>';
     const variantClass = ` av__calendar-event--${variant === "all-day" ? "all-day" : variant}`;
     const continuationClass = `${options.continuesBefore ? " av__calendar-event--continues-before" : ""}${options.continuesAfter ? " av__calendar-event--continues-after" : ""}`;
-    return `<button class="av__calendar-event${variantClass}${continuationClass}${editable ? "" : " av__calendar-event--readonly"}${documentID ? " av__calendar-event--page" : ""}${options.className ? ` ${options.className}` : ""}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-page="${escapeAttr(documentID)}" data-date="${options.displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" data-variant="${variant}" data-all-day="${event.isAllDay ? "true" : "false"}" data-time="${escapeAttr(event.isAllDay ? "" : event.start.format("HH:mm"))}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
-    ${dotMarker}<span class="av__calendar-event-text">${escapeHtml(`${timePrefix}${multiDayPrefix}${event.title}`)}</span>
-    ${scheduleMarker}
-    ${sourceMarker}
-    ${recurrenceMarker}
+    const durationMinutes = event.isAllDay ? 24 * 60 : Math.max((event.end || event.start.add(30, "minute")).diff(event.start, "minute"), 0);
+    const densityClass = durationMinutes < 45 ? " av__calendar-event--short" : durationMinutes >= 90 ? " av__calendar-event--tall" : "";
+    const timeRange = event.isAllDay ?
+        (window.siyuan.languages.allDay || "All day") :
+        `${event.start.format("HH:mm")}–${(event.end || event.start.add(30, "minute")).format("HH:mm")}`;
+    const secondary = event.location ? `<span class="av__calendar-event-meta">${escapeHtml(event.location)}</span>` : "";
+    const content = variant === "month" ?
+        `${dotMarker}${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(`${multiDayPrefix}${event.title}`)}</span>` :
+        variant === "list" ?
+            `${dotMarker}<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.end && !event.start.isSame(event.end, "day") ? `<span class="av__calendar-event-meta">${escapeHtml(getEventDateLabel(event))}</span>` : secondary}` :
+            `${dotMarker}<span class="av__calendar-event-content"><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}${secondary}</span>`;
+    return `<button class="av__calendar-event${variantClass}${densityClass}${continuationClass}${editable ? "" : " av__calendar-event--readonly"}${documentID ? " av__calendar-event--page" : ""}${options.className ? ` ${options.className}` : ""}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-page="${escapeAttr(documentID)}" data-date="${options.displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" data-variant="${variant}" data-all-day="${event.isAllDay ? "true" : "false"}" data-time="${escapeAttr(event.isAllDay ? "" : event.start.format("HH:mm"))}" data-duration-minutes="${durationMinutes}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
+    ${content}${recurrenceMarker}
 </button>`;
 };
 

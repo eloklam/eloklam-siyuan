@@ -37,6 +37,9 @@ const requiredFiles = [
   "app/src/protyle/render/av/calendar/keymap.ts",
   "app/src/protyle/render/av/calendar/mini-month.ts",
   "app/src/protyle/render/av/calendar/recurrence-summary.ts",
+  "app/src/layout/dock/Calendar.ts",
+  "app/src/layout/dock/index.ts",
+  "app/src/layout/util.ts",
   "scripts/calendar-kernel-smoke.mjs",
   "scripts/calendar-recurrence-smoke.mjs",
   "scripts/calendar-transactions-smoke.mjs",
@@ -51,6 +54,16 @@ for (const file of requiredFiles) {
 }
 
 const frontendCode = Object.fromEntries(requiredFiles.map((file) => [file, read(file)]));
+for (const term of ["searchAttributeView", "renderAttributeView", "normalizeCalendarEvents", "LOCAL_CALENDAR_DOCK", "select-source"]) {
+  if (!frontendCode["app/src/layout/dock/Calendar.ts"].includes(term)) {
+    fail(`calendar dock missing ${term}`);
+  }
+}
+for (const [file, term] of [["app/src/layout/dock/index.ts", 'case "calendar"'], ["app/src/layout/util.ts", "ensureCalendarDock"], ["app/src/layout/dock/Calendar.ts", "setStorageVal"]]) {
+  if (!frontendCode[file].includes(term)) {
+    fail(`calendar dock registry missing ${term}`);
+  }
+}
 const joinedFrontendCode = requiredFiles
   .filter((file) => file.startsWith("app/src/"))
   .map((file) => frontendCode[file])
@@ -68,16 +81,13 @@ const expectedFeatureTerms = [
   "calendar-search",
   "calendar-filter",
   "calendar-clear-search",
-  "calendar-jump-date",
-  "calendar-prev-event",
-  "calendar-next-event",
-  "av__calendar-summary",
+
   "tabindex=\"0\"",
-  // The legacy set is still in there verbatim; the Google keys are appended, so
-  // this term proves the old shortcuts were extended and never replaced.
-  "\"ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 D W M X A J K P C ?\"",
+  // Existing navigation/action shortcuts stay available while all six view
+  // shortcuts are advertised on the calendar region.
+  "\"ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 5 6 D W M Y A X J K P C\"",
   "role=\"region\"",
-  "calendar-mode",
+  "calendar-view-menu",
   "calendar-drop-day",
   "dblclick",
   "calendar-resize",
@@ -97,7 +107,6 @@ const expectedFeatureTerms = [
   "calendar-time-create",
   "calendar-resize-handle",
   "calendar-more",
-  "av__calendar-empty-hint",
   "isTitleFallback",
   "av__calendar-day--selected",
 ];
@@ -189,10 +198,14 @@ for (const term of [
   "renderWeek",
   "renderDay",
   "renderList",
+  "getAgendaRange",
+  "calendar-list-more",
+  "dataset.calendarAgendaDays",
+  "anchor.add(29, \"day\")",
   // The week/day "today" markers moved into time-grid.ts with the grid itself;
   // they are asserted against that file below (calendarTimeGrid).
   "av__calendar-list-day${cursor.isSame(dayjs(), \"day\") ? \" av__calendar-day--today\" : \"\"}",
-  "renderEventSummary",
+
   "data-date=\"${cursor.format(\"YYYY-MM-DD\")}\" data-type=\"calendar-drop-day\"",
   "getSafeViewMode",
   "getCalendarViewMode",
@@ -207,24 +220,28 @@ for (const term of [
   "showMessage(window.siyuan.languages.calendarNoMatchingEvent",
   // getEventDateLabel / the tooltip attributes / the recurrence marker moved
   // into event-chip.ts with the chip markup (calendarEventChip block below).
-  "jumpDateInput",
   "setCalendarAnchor",
   "getCurrentAnchor",
   "setCalendarViewMode",
   "options.blockElement.dataset.calendarViewMode = String(mode)",
   "delete options.blockElement.dataset.calendarViewMode",
-  "aria-keyshortcuts=\"${mode + 1}\"",
+  "data-type=\"calendar-view-menu\"",
+  "aria-haspopup=\"menu\"",
+  "CALENDAR_VIEW_MENU_ITEMS",
+  "accelerator: \"D\"",
+  "accelerator: \"W\"",
+  "accelerator: \"M\"",
+  "accelerator: \"Y\"",
+  "accelerator: \"A\"",
+  "accelerator: \"X\"",
   "aria-keyshortcuts=\"ArrowLeft\"",
   "aria-keyshortcuts=\"ArrowRight\"",
-  "aria-keyshortcuts=\"[\"",
-  "aria-keyshortcuts=\"]\"",
   "aria-keyshortcuts=\"T\"",
   "aria-keyshortcuts=\"N\"",
   "aria-keyshortcuts=\"/\"",
   "aria-keyshortcuts=\"Escape\"",
   "aria-label=\"${escapeAttr(`${window.siyuan.languages.calendar || \"Calendar\"} ${title}`)}\"",
-  "av__calendar-title\" aria-live=\"polite\"",
-  "av__calendar-summary\" aria-live=\"polite\"",
+
   // The keydown block itself moved into keymap.ts; what render.ts still owns is
   // the binding and the handler wiring. Every key literal that used to be
   // asserted here is asserted against keymap.ts below (calendarKeymap).
@@ -245,17 +262,21 @@ for (const term of [
   "const filteredEvents = normalized.events.filter(event => eventMatchesCalendarFilter(event, filter))",
   "const totalEventCount = normalized.events.length",
   "const hasActiveQuery = !!search || filter !== \"all\"",
-  "renderCalendarFilter(filter)",
-  "options.blockElement.dataset.calendarFilter = filterSelect.value",
+  "renderCalendarFilter(filter, searchFilterID)",
+  "data-type=\"calendar-search-dropdown\"",
+  "data-type=\"calendar-filter-option\"",
+  "role=\"menuitemradio\"",
+  "searchInput?.addEventListener(\"click\", openSearchDropdown)",
+  "setSearchDropdownOpen(false)",
+  "options.blockElement.dataset.calendarFilter = filter",
   "delete options.blockElement.dataset.calendarFilter",
   "av__calendar-search-count",
-  "const allDayCount = events.filter(event => event.isAllDay).length",
-  "const timedCount = events.length - allDayCount",
-  "const eventsLabel = window.siyuan.languages.calendarEvents || \"Events\"",
-  "const timedLabel = window.siyuan.languages.calendarTimed || \"Timed\"",
-  "${renderEventSummary(events)}",
+  "const totalEventCount = normalized.events.length",
   "delete options.blockElement.dataset.calendarSearch",
-  "rerender(true, true)",
+  "getCalendarSearchResultRange",
+  "const hasSearchQuery = !!search || !!databaseQuery.trim()",
+  "hasSearchQuery ? renderList(range, events, true, editable)",
+  "window.setTimeout(() => rerender(true), Constants.TIMEOUT_INPUT)",
   "calendarSearch",
   "getSafeWeekStart",
   "startOfCalendarWeek",
@@ -411,15 +432,14 @@ for (const term of [
   "event.isOccurrence ? \"O\" : \"R\"",
   "${recurrenceMarker}",
   "av__calendar-recurring",
-  "av__calendar-source",
-  "av__calendar-schedule",
-  "calendar-open-source",
-  "calendar-open-dialog",
   "draggable=\"${editable ? \"true\" : \"false\"}\"",
   "av__calendar-event--readonly",
   "av__calendar-event--page",
   "av__calendar-event-dot",
-  "av__calendar-event-text",
+  "av__calendar-event-title",
+  "av__calendar-event-time",
+  "av__calendar-event-meta",
+  "data-duration-minutes",
   "buildOptimisticChip",
   "av__calendar-event--pending",
   "buildCalendarGhost",
@@ -433,6 +453,11 @@ for (const term of [
 for (const term of [">-15m<", ">+15m<", ">-1d<", ">+1d<", "av__calendar-resize\" data-type"]) {
   if (calendarEventChip.includes(term)) {
     fail(`calendar event chip must no longer carry inline text buttons: ${term}`);
+  }
+}
+for (const term of ["av__calendar-schedule", "calendar-open-dialog"]) {
+  if (calendarEventChip.includes(term)) {
+    fail(`calendar event chip must hide permanent action affordances: ${term}`);
   }
 }
 
@@ -489,7 +514,7 @@ for (const term of [
   "event.key.toLowerCase() === \"n\"",
   "event.key === \"/\"",
   "event.key === \"Escape\"",
-  "/^[1-4]$/.test(event.key)",
+  "/^[1-6]$/.test(event.key)",
   "CALENDAR_VIEW_MODE_BY_COMMAND[command]",
   // Google Calendar's map, added alongside the legacy one.
   "event.key.toLowerCase() === \"d\"",
@@ -498,25 +523,14 @@ for (const term of [
   "event.key.toLowerCase() === \"x\"",
   "event.key.toLowerCase() === \"j\"",
   "event.key.toLowerCase() === \"c\"",
-  "event.key === \"?\"",
   "CALENDAR_ARIA_KEYSHORTCUTS",
-  "\"ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 D W M X A J K P C ?\"",
+  "\"ArrowLeft ArrowRight [ ] T N / Escape 1 2 3 4 5 6 D W M Y A X J K P C\"",
   // The focus-scope fix: BUTTON is gone from the bail list, so a click no longer
   // kills every shortcut.
   "[\"INPUT\", \"SELECT\", \"TEXTAREA\"].includes(element.tagName)",
   "isContentEditable",
   "isCalendarModalOpen",
-  // The "?" sheet is data, so it cannot drift from the resolver.
-  "getCalendarShortcutSections",
-  "renderCalendarShortcutHelp",
-  "openCalendarShortcutHelp",
-  "av__calendar-shortcuts",
-  "av__calendar-shortcuts-section",
-  "av__calendar-shortcuts-title",
-  "av__calendar-shortcuts-row",
-  "av__calendar-shortcuts-keys",
-  "av__calendar-shortcuts-label",
-  "<kbd>",
+
 ]) {
   if (!calendarKeymap.includes(term)) {
     fail(`calendar keymap missing ${term}`);
@@ -669,15 +683,20 @@ for (const term of ["setAttrViewCalendarDateField", "setAttrViewCalendarWeekStar
   }
 }
 for (const term of [
-  'data-type="calendar-map-field"',
-  "calendarRecurrence",
-  "calendarExceptions",
-  "calendarLocation",
-  "calendarDescription",
-  "colorFieldID",
+  "calendar-visible-field",
+  "calendar-add-visible-field",
+  "calendar-new-field-name",
+  "setAttrViewColHidden",
+  "addAttrViewCol",
 ]) {
-  if (layoutCode.includes(term)) {
-    fail(`calendar layout must not expose metadata mapping setting: ${term}`);
+  if (!layoutCode.includes(term)) {
+    fail(`calendar layout missing configurable field control: ${term}`);
+  }
+}
+const eventDialogCode = read("app/src/protyle/render/av/calendar/event-dialog.ts");
+for (const term of ["ensureRecurrenceStorage", "__calendar_recurrence", "calendar-recurrence-end", "calendar-field-value"]) {
+  if (!eventDialogCode.includes(term)) {
+    fail(`calendar dialog missing direct recurrence or dynamic field support: ${term}`);
   }
 }
 
@@ -685,7 +704,7 @@ const mappedFieldsCode = read("app/src/protyle/render/av/calendar/mapped-fields.
 for (const term of [
   "getMappedFieldID",
   "allowedTypes.includes(field.type)",
-  "getMappedFieldID(calendarData, persisted.recurrenceFieldID, [\"text\"])",
+  "const recurrenceFieldID = takeTextField",
   "getMappedFieldID(calendarData, persisted.colorFieldID, [\"select\", \"mSelect\"])",
   "const hasDateField = !!persistedDateFieldID && calendarData.fields.some(field => field.id === persistedDateFieldID && field.type === \"date\")",
 ]) {
@@ -747,10 +766,11 @@ for (const term of [
   "&-toolbar",
   "flex-wrap: wrap",
   "&-jump",
-  "&-summary",
   "flex: 1 1 180px",
   "&-search-count",
-  "&-filter",
+  "&-search-control",
+  "&-search-toggle",
+  "&-search-dropdown",
   "&-month",
   "&-event",
   "&--readonly",
@@ -801,10 +821,10 @@ for (const term of [
   "&-mini-dot",
   "&-sidebar",
   "&-main",
-  // The navigator must not cost the main view its width in a narrow pane; the
-  // pane is what is narrow, so this is a container query, not a media query.
+  // The mini calendar remains visible beside the main calendar.
   "container-type: inline-size",
-  "@container (min-width: 720px)",
+  "&-sidebar",
+  "display: block",
 ]) {
   if (!avStyles.includes(term)) {
     fail(`calendar styles missing ${term}`);
@@ -926,8 +946,8 @@ for (const term of [
   "av-event-recurrence-raw",
   "FREQ=WEEKLY;INTERVAL=2;COUNT=3;UNTIL=2026-06-01;BYDAY=MO,WE",
   "search.dispatchEvent(new Event('input'",
-  "calendar-prev-event",
-  "calendar-next-event",
+  "new KeyboardEvent('keydown', {key: '[', bubbles: true})",
+  "new KeyboardEvent('keydown', {key: ']', bubbles: true})",
   "calendar-clear-search",
   "readOnlyDraggable",
   "readOnlyLocalMode",

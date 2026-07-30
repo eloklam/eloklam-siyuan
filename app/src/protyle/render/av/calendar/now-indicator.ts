@@ -1,7 +1,5 @@
 import {
     CALENDAR_FALLBACK_SCROLL_MINUTE,
-    getCenteredScrollTopPx,
-    getMinutesOfDay,
     getNowOffsetPx,
     ICalendarTimeGeometry,
     minuteToOffsetPx,
@@ -97,14 +95,17 @@ export const mountCalendarNowIndicator = (options: IMountNowIndicatorOptions) =>
         return offset;
     };
 
-    const offset = paint();
+    paint();
     if (!options.hasRestoredScroll) {
-        // First look at this calendar: put the interesting part on screen. Centre
-        // "now" when today is visible, otherwise land on the working morning.
-        const viewportHeight = gridElement.clientHeight || 0;
-        gridElement.scrollTop = offset === null ?
-            Math.max(minuteToOffsetPx(CALENDAR_FALLBACK_SCROLL_MINUTE, geometry), 0) :
-            getCenteredScrollTopPx(getMinutesOfDay(clock()), viewportHeight, geometry);
+        // First look at this calendar: show context before the earliest visible
+        // timed event. With no timed events, start at 06:00 instead of midnight.
+        const starts = Array.from(gridElement.querySelectorAll<HTMLElement>(".av__calendar-timed-event[data-start-minute]"))
+            .map(element => parseInt(element.dataset.startMinute || "", 10))
+            .filter(Number.isFinite);
+        const firstInterestingMinute = starts.length > 0 ?
+            Math.max(Math.min(...starts) - 60, geometry.dayStartMinute) :
+            CALENDAR_FALLBACK_SCROLL_MINUTE;
+        gridElement.scrollTop = Math.max(minuteToOffsetPx(firstInterestingMinute, geometry), 0);
     }
 
     const timer = window.setInterval(paint, CALENDAR_NOW_TICK_MS);

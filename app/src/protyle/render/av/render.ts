@@ -85,6 +85,7 @@ export const genTabHeaderHTML = (data: IAV, showSearch: boolean, editable: boole
     const defaultTemplate = data.newItemTemplates?.find(item => item.id === data.defaultTemplateID);
     const defaultTemplateID = defaultTemplate && (defaultTemplate.targetType !== "detached" ||
         defaultTemplate.primaryKeyTemplate || Object.keys(defaultTemplate.fieldValues || {}).length) ? defaultTemplate.id : "";
+    const calendarHeaderSearchClass = data.viewType === "calendar" ? " fn__none" : "";
     return `<div class="av__header" data-default-template-id="${defaultTemplateID}">
         <div class="fn__flex av__views${showSearch ? " av__views--show" : ""}">
             <div class="layout-tab-bar fn__flex">
@@ -110,10 +111,10 @@ export const genTabHeaderHTML = (data: IAV, showSearch: boolean, editable: boole
                 <svg><use xlink:href="#iconSort"></use></svg>
             </span>
             <div class="fn__space"></div>
-            <button data-type="av-search-icon" aria-label="${window.siyuan.languages.search}" data-position="8south" class="ariaLabel block__icon">
+            <button data-type="av-search-icon" aria-label="${window.siyuan.languages.search}" data-position="8south" class="ariaLabel block__icon${calendarHeaderSearchClass}">
                 <svg><use xlink:href="#iconSearch"></use></svg>
             </button>
-            <div style="position: relative" class="fn__flex">
+            <div style="position: relative" class="fn__flex${calendarHeaderSearchClass}">
                 <div contenteditable="plaintext-only" style="${showSearch ? "width:128px" : "width:0;padding-left: 0;padding-right: 0;"}" data-type="av-search" class="b3-text-field b3-text-field--text" placeholder="${window.siyuan.languages.search}"></div>
             </div>
             <div class="fn__space"></div>

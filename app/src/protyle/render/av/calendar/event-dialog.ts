@@ -8,6 +8,7 @@ import {openFileById} from "../../../../editor/util";
 import {openMobileFileById} from "../../../../mobile/editor";
 /// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
+import {fetchSyncPost} from "../../../../util/fetch";
 import {getCalendarFieldMapping} from "./mapped-fields";
 import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
 import {CalendarRecurrencePreset, describeRecurrence, detectRecurrencePreset, getRecurrencePresetRule, renderRecurrencePresetOptions} from "./recurrence-summary";
@@ -171,22 +172,31 @@ const renderRecurrenceFields = (event: ICalendarNormalizedEvent | undefined, rea
         ${renderRecurrencePresetOptions(preset, startDate)}
     </select>
     <div class="av__calendar-recurrence" id="av-event-recurrence-custom" data-type="calendar-recurrence-custom"${preset === "custom" ? "" : ' style="display:none"'}>
-    <select class="b3-select" id="av-event-recurrence-freq" aria-label="${escapeAttr(window.siyuan.languages.calendarRecurrence || "Recurrence")}"${disabledAttr}>
-        <option value=""${recurrence.freq ? "" : " selected"}>${window.siyuan.languages.none || "None"}</option>
-        <option value="DAILY"${recurrence.freq === "DAILY" ? " selected" : ""}>${window.siyuan.languages.calendarDaily || "Daily"}</option>
-        <option value="WEEKLY"${recurrence.freq === "WEEKLY" ? " selected" : ""}>${window.siyuan.languages.calendarWeekly || "Weekly"}</option>
-        <option value="MONTHLY"${recurrence.freq === "MONTHLY" ? " selected" : ""}>${window.siyuan.languages.calendarMonthly || "Monthly"}</option>
-        <option value="YEARLY"${recurrence.freq === "YEARLY" ? " selected" : ""}>${window.siyuan.languages.calendarYearly || "Yearly"}</option>
-    </select>
-    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-interval" aria-label="${window.siyuan.languages.calendarInterval || "Interval"}" value="${escapeAttr(recurrence.interval || "1")}"${disabledAttr}>
-    <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-count" aria-label="${window.siyuan.languages.calendarCount || "Count"}" placeholder="${window.siyuan.languages.calendarCount || "Count"}" value="${escapeAttr(recurrence.count)}"${disabledAttr}>
-    <input type="date" class="b3-text-field" id="av-event-recurrence-until" aria-label="${window.siyuan.languages.calendarUntil || "Until"}" value="${escapeAttr(recurrence.until)}"${disabledAttr}>
-    <div class="av__calendar-weekday" data-type="calendar-weekday-row">
-        ${weekdays.map(day => `<label class="av__calendar-weekday-item">
-            <input type="checkbox" data-type="calendar-recurrence-weekday" value="${day.value}"${recurrence.byDay.includes(day.value) ? " checked" : ""}${disabledAttr}>
-            <span>${escapeHtml(day.label)}</span>
-        </label>`).join("")}
-    </div>
+        <div class="av__calendar-recurrence-row">
+            <label for="av-event-recurrence-interval">${escapeHtml(window.siyuan.languages.calendarRepeatEvery || "Repeat every")}</label>
+            <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-interval" aria-label="${window.siyuan.languages.calendarInterval || "Interval"}" value="${escapeAttr(recurrence.interval || "1")}"${disabledAttr}>
+            <select class="b3-select" id="av-event-recurrence-freq" aria-label="${escapeAttr(window.siyuan.languages.calendarRecurrence || "Recurrence")}"${disabledAttr}>
+                <option value="DAILY"${recurrence.freq === "DAILY" ? " selected" : ""}>${window.siyuan.languages.calendarDay || "Day"}</option>
+                <option value="WEEKLY"${recurrence.freq === "WEEKLY" || !recurrence.freq ? " selected" : ""}>${window.siyuan.languages.calendarWeek || "Week"}</option>
+                <option value="MONTHLY"${recurrence.freq === "MONTHLY" ? " selected" : ""}>${window.siyuan.languages.calendarMonth || "Month"}</option>
+                <option value="YEARLY"${recurrence.freq === "YEARLY" ? " selected" : ""}>${window.siyuan.languages.calendarYear || "Year"}</option>
+            </select>
+        </div>
+        <div class="av__calendar-recurrence-weekly" data-type="calendar-weekday-row">
+            <span>${escapeHtml(window.siyuan.languages.calendarRepeatOn || "Repeat on")}</span>
+            <div class="av__calendar-weekday">
+                ${weekdays.map(day => `<label class="av__calendar-weekday-item">
+                    <input type="checkbox" data-type="calendar-recurrence-weekday" value="${day.value}"${recurrence.byDay.includes(day.value) ? " checked" : ""}${disabledAttr}>
+                    <span>${escapeHtml(day.label.slice(0, 1))}</span>
+                </label>`).join("")}
+            </div>
+        </div>
+        <fieldset class="av__calendar-recurrence-end">
+            <legend>${escapeHtml(window.siyuan.languages.calendarEnd || "End")}</legend>
+            <label><input type="radio" name="calendar-recurrence-end" value="never"${!recurrence.until && !recurrence.count ? " checked" : ""}${disabledAttr}> ${escapeHtml(window.siyuan.languages.calendarNever || "Never")}</label>
+            <label><input type="radio" name="calendar-recurrence-end" value="until"${recurrence.until ? " checked" : ""}${disabledAttr}> ${escapeHtml(window.siyuan.languages.calendarOn || "On")} <input type="date" class="b3-text-field" id="av-event-recurrence-until" value="${escapeAttr(recurrence.until)}"${recurrence.until ? "" : " disabled"}${disabledAttr}></label>
+            <label><input type="radio" name="calendar-recurrence-end" value="count"${recurrence.count ? " checked" : ""}${disabledAttr}> ${escapeHtml(window.siyuan.languages.calendarAfter || "After")} <input type="number" min="1" step="1" class="b3-text-field" id="av-event-recurrence-count" value="${escapeAttr(recurrence.count || "13")}"${recurrence.count ? "" : " disabled"}${disabledAttr}> ${escapeHtml(window.siyuan.languages.calendarOccurrences || "occurrences")}</label>
+        </fieldset>
     </div>
     <div class="av__calendar-repeat-summary ft__on-surface ft__smaller" id="av-event-recurrence-summary" data-type="calendar-recurrence-summary" aria-live="polite">${escapeHtml(describeRecurrence(rawRule, startDate))}</div>
 </div>`;
@@ -217,6 +227,12 @@ const writeRecurrenceRuleToControls = (dialog: Dialog, rule: string) => {
     const untilInput = dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement;
     if (untilInput) {
         untilInput.value = parsed.until;
+    }
+    const endMode = parsed.until ? "until" : (parsed.count ? "count" : "never");
+    const endRadio = dialog.element.querySelector(`input[name="calendar-recurrence-end"][value="${endMode}"]`) as HTMLInputElement;
+    if (endRadio) {
+        endRadio.checked = true;
+        endRadio.dispatchEvent(new Event("change", {bubbles: true}));
     }
     dialog.element.querySelectorAll(CALENDAR_RECURRENCE_WEEKDAY_SELECTOR).forEach(item => {
         const checkbox = item as HTMLInputElement;
@@ -251,9 +267,10 @@ const getRecurrenceFromDialog = (dialog: Dialog) => {
         return "";
     }
     const interval = getPositiveIntegerInputValue((dialog.element.querySelector("#av-event-recurrence-interval") as HTMLInputElement)?.value || "", 1);
-    const count = getPositiveIntegerInputValue((dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement)?.value || "");
+    const endMode = (dialog.element.querySelector('input[name="calendar-recurrence-end"]:checked') as HTMLInputElement)?.value || "never";
+    const count = endMode === "count" ? getPositiveIntegerInputValue((dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement)?.value || "") : undefined;
     const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement)?.value;
-    const untilInput = (dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement)?.value;
+    const untilInput = endMode === "until" ? (dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement)?.value : "";
     const until = untilInput && date && untilInput < date ? date : untilInput;
     const parts = [`FREQ=${freq}`];
     if (interval && interval > 1) {
@@ -279,7 +296,10 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     const isEditing = !!event;
     const readOnly = !!options.readOnly;
     const mapping = getCalendarFieldMapping(options.data.view as IAVCalendar);
-    const colorField = (options.data.view as IAVCalendar).fields.find((field) => field.id === mapping.colorFieldID);
+    const calendarView = options.data.view as IAVCalendar;
+    const colorField = calendarView.fields.find((field) => field.id === mapping.colorFieldID);
+    const internalFieldIDs = new Set([mapping.recurrenceFieldID, mapping.exceptionFieldID].filter(Boolean));
+    const visibleTextFields = calendarView.fields.filter(field => field.type === "text" && !field.hidden && !internalFieldIDs.has(field.id));
     const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID;
     const deleteLabel = event?.isOccurrence ?
         (window.siyuan.languages.calendarDeleteRecurring || "Delete recurring item") :
@@ -315,15 +335,14 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <span class="av__calendar-time-sep">-</span>
         <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${endTime}"${disabledAttr}>
     </div>
-    ${mapping.locationFieldID ? `<div class="b3-form__space">
-        <input class="b3-text-field fn__block" id="av-event-location" placeholder="${window.siyuan.languages.calendarLocation || "Location"}" value="${escapeAttr(event?.location || "")}"${disabledAttr}>
-    </div>` : ""}
-    ${mapping.recurrenceFieldID ? `<div class="b3-form__space">
+    ${visibleTextFields.map(field => `<div class="b3-form__space av__calendar-dialog-field" data-type="calendar-custom-field" data-field-id="${escapeAttr(field.id)}">
+        <label class="ft__on-surface ft__smaller" for="av-event-field-${escapeAttr(field.id)}">${escapeHtml(field.name)}</label>
+        <input class="b3-text-field fn__block" id="av-event-field-${escapeAttr(field.id)}" data-type="calendar-field-value" data-field-id="${escapeAttr(field.id)}" value="${escapeAttr(event?.fieldValues?.[field.id] || draft?.fieldValues?.[field.id] || "")}"${disabledAttr}>
+    </div>`).join("")}
+    <div class="b3-form__space av__calendar-dialog-field">
+        <label class="ft__on-surface ft__smaller" for="av-event-recurrence-preset">${escapeHtml(window.siyuan.languages.calendarRepeat || "Repeat")}</label>
         ${renderRecurrenceFields(event, readOnly, startDate)}
-    </div>` : ""}
-    ${mapping.descriptionFieldID ? `<div class="b3-form__space">
-        <textarea class="b3-text-field fn__block" id="av-event-description" rows="3" placeholder="${window.siyuan.languages.calendarDescription || "Description"}"${disabledAttr}>${escapeHtml(event?.description || "")}</textarea>
-    </div>` : ""}
+    </div>
     ${renderColorField(colorField, event, readOnly)}
     ${event?.blockID ? `<div class="b3-form__space av__calendar-event-source" data-type="event-source">
         <span class="av__calendar-source" aria-hidden="true">↗</span>
@@ -348,7 +367,6 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         destroyCallback: () => guardedClose.unbind?.(),
     });
     guardedClose.unbind = bindGuardedEventDialogClose(dialog);
-    dialog.element.dataset.initialDraftFingerprint = getDraftFingerprint(dialog);
     bindFormEvents(dialog, options);
     return dialog;
 };
@@ -363,7 +381,7 @@ const bindGuardedEventDialogClose = (dialog: Dialog) => {
         }
         event.preventDefault();
         event.stopPropagation();
-        closeEventDialogSafely(dialog);
+        dialog.destroy();
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
@@ -409,6 +427,16 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     };
     recurrenceFreq?.addEventListener("change", updateWeekdayVisibility);
     updateWeekdayVisibility();
+    const updateRecurrenceEnd = () => {
+        const endMode = (dialog.element.querySelector('input[name="calendar-recurrence-end"]:checked') as HTMLInputElement)?.value || "never";
+        const untilInput = dialog.element.querySelector("#av-event-recurrence-until") as HTMLInputElement;
+        const countInput = dialog.element.querySelector("#av-event-recurrence-count") as HTMLInputElement;
+        if (untilInput) untilInput.disabled = !!options.readOnly || endMode !== "until";
+        if (countInput) countInput.disabled = !!options.readOnly || endMode !== "count";
+        updateRecurrenceSummary();
+    };
+    dialog.element.querySelectorAll('input[name="calendar-recurrence-end"]').forEach(item => item.addEventListener("change", updateRecurrenceEnd));
+    updateRecurrenceEnd();
     presetSelect?.addEventListener("change", () => {
         const preset = presetSelect.value as CalendarRecurrencePreset;
         if (customRow) {
@@ -429,8 +457,8 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
         dialog.element.querySelector("#av-event-recurrence-until"),
         ...Array.from(dialog.element.querySelectorAll(CALENDAR_RECURRENCE_WEEKDAY_SELECTOR)),
     ].forEach(item => item?.addEventListener("change", updateRecurrenceSummary));
-    dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => closeEventDialogSafely(dialog));
-    dialog.element.querySelector('[data-type="event-close"]')?.addEventListener("click", () => closeEventDialogSafely(dialog));
+    dialog.element.querySelector('[data-type="event-cancel"]')?.addEventListener("click", () => dialog.destroy());
+    dialog.element.querySelector('[data-type="event-close"]')?.addEventListener("click", () => dialog.destroy());
     if (options.readOnly) {
         dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
         return;
@@ -469,6 +497,13 @@ const getDraftFromDialog = (dialog: Dialog) => {
     const date = (dialog.element.querySelector("#av-event-date") as HTMLInputElement).value;
     const endDateInput = (dialog.element.querySelector("#av-event-end-date") as HTMLInputElement).value;
     const endDate = isRealDateInputValue(endDateInput) && endDateInput >= date ? endDateInput : date;
+    const fieldValues: { [fieldID: string]: string } = {};
+    dialog.element.querySelectorAll('[data-type="calendar-field-value"]').forEach(item => {
+        const input = item as HTMLInputElement;
+        if (input.dataset.fieldId) {
+            fieldValues[input.dataset.fieldId] = input.value;
+        }
+    });
     return {
         title: (dialog.element.querySelector("#av-event-title") as HTMLInputElement).value.trim(),
         date,
@@ -477,29 +512,9 @@ const getDraftFromDialog = (dialog: Dialog) => {
         startTime: (dialog.element.querySelector("#av-event-start") as HTMLInputElement).value || "09:00",
         endTime: (dialog.element.querySelector("#av-event-end") as HTMLInputElement).value || "10:00",
         recurrenceRaw: getRecurrenceFromDialog(dialog),
-        location: (dialog.element.querySelector("#av-event-location") as HTMLInputElement)?.value || "",
-        description: (dialog.element.querySelector("#av-event-description") as HTMLTextAreaElement)?.value || "",
         colorContent: (dialog.element.querySelector("#av-event-color") as HTMLSelectElement)?.value || "",
+        fieldValues,
     };
-};
-
-const getDraftFingerprint = (dialog: Dialog) => JSON.stringify(getDraftFromDialog(dialog));
-
-const isEventDialogDirty = (dialog: Dialog) => {
-    const initialDraftFingerprint = dialog.element.dataset.initialDraftFingerprint || "";
-    return !!initialDraftFingerprint && getDraftFingerprint(dialog) !== initialDraftFingerprint;
-};
-
-const closeEventDialogSafely = (dialog: Dialog) => {
-    if (!isEventDialogDirty(dialog)) {
-        dialog.destroy();
-        return;
-    }
-    confirmDialog(
-        window.siyuan.languages.confirm,
-        window.siyuan.languages.calendarDiscardChanges || "Discard unsaved calendar changes?",
-        () => dialog.destroy()
-    );
 };
 
 const withPendingSave = (dialog: Dialog, saveType: string, callback: () => Promise<boolean>) => withCalendarDialogOperationFeedback(dialog, saveType, window.siyuan.languages.calendarSaveFailed || "Save failed.", callback);
@@ -625,6 +640,58 @@ const runRecurringEventAction = (dialog: Dialog, options: IEventDialogOptions, a
     });
 };
 
+const ensureRecurrenceStorage = async (
+    options: IEventDialogOptions,
+    calendarData: IAVCalendar,
+    mapping: ReturnType<typeof getCalendarFieldMapping>,
+    recurrenceRaw = "",
+) => {
+    if (!recurrenceRaw || mapping.recurrenceFieldID) {
+        return mapping;
+    }
+    const avID = options.blockElement.getAttribute("data-av-id");
+    const blockID = options.blockElement.getAttribute("data-node-id");
+    const viewID = getViewID(options);
+    if (!avID || !blockID || !viewID) {
+        return mapping;
+    }
+    const recurrenceFieldID = Lute.NewNodeID();
+    const exceptionFieldID = Lute.NewNodeID();
+    const previousID = calendarData.fields.at(-1)?.id || "";
+    const response = await fetchSyncPost("/api/transactions", {
+        app: Constants.SIYUAN_APPID,
+        session: options.protyle?.id || Constants.SIYUAN_APPID,
+        reqId: Date.now(),
+        transactions: [{
+            doOperations: [{
+                action: "addAttrViewCol", avID, id: recurrenceFieldID, previousID,
+                name: "__calendar_recurrence", type: "text",
+            }, {
+                action: "addAttrViewCol", avID, id: exceptionFieldID, previousID: recurrenceFieldID,
+                name: "__calendar_recurrence_exceptions", type: "text",
+            }, {
+                action: "setAttrViewColHidden", avID, blockID, viewID, id: recurrenceFieldID, data: true,
+            }, {
+                action: "setAttrViewColHidden", avID, blockID, viewID, id: exceptionFieldID, data: true,
+            }, {
+                action: "setAttrViewCalendarFieldMapping", avID, blockID, viewID,
+                data: {recurrenceFieldID, exceptionFieldID},
+            }],
+            undoOperations: [],
+        }],
+    });
+    if (response?.code !== 0) {
+        return mapping;
+    }
+    const hiddenField = (id: string, name: string): IAVColumn => ({
+        id, name, type: "text", hidden: true, icon: "", wrap: false, desc: "",
+        calc: undefined, numberFormat: "", template: "", pin: false, width: "", align: "",
+    });
+    calendarData.fields.push(hiddenField(recurrenceFieldID, "__calendar_recurrence"), hiddenField(exceptionFieldID, "__calendar_recurrence_exceptions"));
+    calendarData.fieldMapping = {...calendarData.fieldMapping, recurrenceFieldID, exceptionFieldID};
+    return {...mapping, recurrenceFieldID, exceptionFieldID};
+};
+
 const saveEventWithScope = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope) => {
     if (scope === "future") {
         return saveFutureEvent(dialog, options);
@@ -667,8 +734,8 @@ const createEntryFromDraft = async (options: IEventDialogOptions, args: {
 
 const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope = "series") => {
     const calendarData = options.data.view as IAVCalendar;
-    const mapping = getCalendarFieldMapping(calendarData);
     const draft = getDraftFromDialog(dialog);
+    const mapping = await ensureRecurrenceStorage(options, calendarData, getCalendarFieldMapping(calendarData), draft.recurrenceRaw);
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if ((!draft.title && !options.event?.isTitleFallback) || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID) {
@@ -707,8 +774,9 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
             mapping,
             event: options.event,
             draft,
+            viewID: getViewID(options),
             previousUpdated: options.blockElement.getAttribute("updated") || "",
-        })) {
+            })) {
             return false;
         }
     } else if (!await createEntryFromDraft(options, {
@@ -728,8 +796,8 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
 
 const saveFutureEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     const calendarData = options.data.view as IAVCalendar;
-    const mapping = getCalendarFieldMapping(calendarData);
     const draft = getDraftFromDialog(dialog);
+    const mapping = await ensureRecurrenceStorage(options, calendarData, getCalendarFieldMapping(calendarData), draft.recurrenceRaw);
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     if (!options.event || !options.event.isOccurrence || (!draft.title && !options.event.isTitleFallback) || !isRealDateInputValue(draft.date) || !avID || !blockID || !mapping.dateFieldID || !mapping.recurrenceFieldID) {

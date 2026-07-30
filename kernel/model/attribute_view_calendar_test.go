@@ -194,7 +194,23 @@ func TestCalendarViewModeFromOperationData(t *testing.T) {
 		t.Fatalf("expected schedule, got %d", viewMode)
 	}
 
-	if _, err = calendarViewModeFromOperationData(float64(4)); err == nil {
+	viewMode, err = calendarViewModeFromOperationData(float64(4))
+	if err != nil {
+		t.Fatalf("float year should be accepted: %v", err)
+	}
+	if viewMode != av.ViewModeYear {
+		t.Fatalf("expected year, got %d", viewMode)
+	}
+
+	viewMode, err = calendarViewModeFromOperationData(5)
+	if err != nil {
+		t.Fatalf("int five-day should be accepted: %v", err)
+	}
+	if viewMode != av.ViewModeFiveDay {
+		t.Fatalf("expected five-day, got %d", viewMode)
+	}
+
+	if _, err = calendarViewModeFromOperationData(float64(6)); err == nil {
 		t.Fatal("invalid view mode should be rejected")
 	}
 	if _, err = calendarViewModeFromOperationData(float64(1.5)); err == nil {

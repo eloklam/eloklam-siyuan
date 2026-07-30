@@ -37,6 +37,7 @@ export interface ICalendarEventDraft {
     description?: string;
     color?: string;
     colorContent?: string;
+    fieldValues?: { [fieldID: string]: string };
 }
 
 export interface ICalendarNormalizedEvent {
@@ -56,6 +57,7 @@ export interface ICalendarNormalizedEvent {
     description?: string;
     color?: string;
     colorContent?: string;
+    fieldValues?: { [fieldID: string]: string };
     sourceCard: IAVGalleryItem;
     isOccurrence?: boolean;
     occurrenceID?: string;
