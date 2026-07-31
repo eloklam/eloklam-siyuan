@@ -2119,9 +2119,8 @@ img.av__cellassetimg {
 
     &--timed {
       align-items: flex-start;
-      background-color: var(--b3-theme-surface);
-      box-shadow: inset 3px 0 0 var(--calendar-event-accent, var(--b3-theme-primary));
-      color: var(--b3-theme-on-background);
+      background-color: var(--calendar-event-fill, var(--b3-theme-primary));
+      color: var(--b3-theme-on-primary);
       padding: 4px 7px;
     }
 

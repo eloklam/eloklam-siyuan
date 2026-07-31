@@ -33,6 +33,13 @@ assert(!eventChip.includes("const recurrenceMarker"), "recurrence O/R tags must 
 assert(!eventChip.includes('event.isOccurrence ? "O" : "R"'), "event chips must not expose internal O/R tags");
 assert(!scss.includes("&-recurring"), "unused recurrence-tag styling must be removed");
 
+const timedStyle = scss.match(/&--timed \{([\s\S]*?)\n    \}/)?.[1] || "";
+assert(timedStyle.includes("background-color: var(--calendar-event-fill, var(--b3-theme-primary));"),
+  "timed events must use the same complete colour fill as all-day events");
+assert(timedStyle.includes("color: var(--b3-theme-on-primary);"),
+  "timed event text must retain contrast on the complete colour fill");
+assert(!timedStyle.includes("inset 3px 0 0"), "timed events must not restore the left accent bar");
+
 assert(eventDialog.includes("calendarRecurrenceScopeSeries || \"All events\""), "edit scope needs a non-destructive All events label");
 assert(eventDialog.includes('options.action === "delete" ?'), "delete and edit series labels must be distinct");
 assert(eventDialog.includes("preset !== \"custom\""), "recurrence preset must override hidden custom controls");
