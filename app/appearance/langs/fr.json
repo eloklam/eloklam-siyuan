@@ -2309,6 +2309,7 @@
 	"calendarShortcutsNavigation": "Navigation",
 	"calendarShortcutsActions": "Actions",
 	"calendarDayView": "Vue jour",
+	"calendarFiveDayView": "5 jours",
 	"calendarWeekView": "Vue semaine",
 	"calendarMonthView": "Vue mois",
 	"calendarScheduleView": "Vue agenda",

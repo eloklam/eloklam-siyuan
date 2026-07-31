@@ -76,6 +76,7 @@ assert(eventDialog.includes("shouldResetCustomWeekdays(previousPreset, preset)")
 assert(eventDialog.includes("checkbox.checked = false"), "preset-derived weekday checkboxes must be cleared before custom weekday selection");
 assert(render.includes("getISOCalendarWeekNumber"), "calendar toolbar must calculate an ISO calendar week number");
 assert(render.includes('class="av__calendar-week-number"'), "calendar week number must render after the date title");
+assert(render.includes('calendarFiveDayView || "5 Days"') && !render.includes('german ? "5 Tage" : "5 Days"'), "five-day view label must come from locale data");
 assert(scss.includes("flex: 0 1 192px") && scss.includes("max-width: 192px"), "search control must use the measured half-width target");
 assert(eventChip.includes('calendarEditEvent || "Edit event"'), "right-click editor action must use the unified event terminology");
 const saveEventSource = eventDialog.slice(eventDialog.indexOf("const saveEvent = async"), eventDialog.indexOf("const saveFutureEvent = async"));

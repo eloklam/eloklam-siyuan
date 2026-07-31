@@ -139,17 +139,14 @@ const getAgendaRange = (anchor: dayjs.Dayjs, blockElement: HTMLElement): ICalend
     return {start: anchor.startOf("day"), end: anchor.add(days - 1, "day").endOf("day")};
 };
 
-const isGermanCalendarLocale = () => /^de(?:-|$)/i.test(window.siyuan.config.lang || "");
-
 const getViewModeLabel = (viewMode: number) => {
-    const german = isGermanCalendarLocale();
     const labels: Record<number, string> = {
         0: window.siyuan.languages.month || "Month",
         1: window.siyuan.languages.week || "Week",
-        2: german ? "Tag" : (window.siyuan.languages.calendarDayView || "Day").replace(/\s+view$/i, ""),
-        3: german ? "Terminübersicht" : (window.siyuan.languages.calendarSchedule || "Schedule"),
+        2: window.siyuan.languages.calendarDay || "Day",
+        3: window.siyuan.languages.calendarSchedule || "Schedule",
         4: window.siyuan.languages.year || "Year",
-        5: german ? "5 Tage" : "5 Days",
+        5: window.siyuan.languages.calendarFiveDayView || "5 Days",
     };
     return labels[viewMode] || labels[0];
 };

@@ -33,6 +33,7 @@ const recurrenceEditorKeys = [
 const requiredKeys = [
   ...recurrenceEditorKeys,
   "calendarWeekNumber",
+  "calendarFiveDayView",
   "calendarDeleteSeries",
   "calendarEditEvent",
   "calendarDeleteEvent",
