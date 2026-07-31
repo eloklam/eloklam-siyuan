@@ -538,20 +538,23 @@ export const buildOccurrenceExceptionOperations = (options: {
     return ops;
 };
 
-interface ICalendarSplitOptions {
+interface ICalendarTruncateOptions {
     avID: string;
     blockID: string;
-    dateFieldID: string;
     fields: IAVColumn[];
     mapping: ICalendarFieldMapping;
     event: ICalendarNormalizedEvent;
-    draft: ICalendarEventDraft;
     occurrenceDate: string;
     previousUpdated?: string;
 }
 
+interface ICalendarSplitOptions extends ICalendarTruncateOptions {
+    dateFieldID: string;
+    draft: ICalendarEventDraft;
+}
+
 /** Truncate the original series so it stops before the edited occurrence. */
-const buildSplitTruncateOperations = (options: ICalendarSplitOptions): ICalendarOperationSet => {
+const buildSplitTruncateOperations = (options: ICalendarTruncateOptions): ICalendarOperationSet => {
     const untilDate = dayjs(options.occurrenceDate).subtract(1, "day").format("YYYY-MM-DD");
     const truncatedRecurrence = recurrenceWithUntil(getEventRecurrenceRaw(options.event), untilDate);
     const truncateOps: ICalendarOperationSet = {doOperations: [], undoOperations: []};
@@ -1221,6 +1224,27 @@ export const deleteCalendarEvent = async (options: {
     viewID?: string;
 }) => {
     return executeCalendarOperations(options.protyle, buildDeleteEventOperations(options), options);
+};
+
+export const deleteCalendarEventThisAndFuture = async (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    fields: IAVColumn[];
+    mapping: ICalendarFieldMapping;
+    event: ICalendarNormalizedEvent;
+    occurrenceDate: string;
+    previousUpdated?: string;
+    viewID?: string;
+}) => {
+    if (!options.mapping.recurrenceFieldID) {
+        return false;
+    }
+    if (!dayjs(options.occurrenceDate).isAfter(options.event.start, "day")) {
+        return deleteCalendarEvent(options);
+    }
+    const ops = buildSplitTruncateOperations(options);
+    return ops.doOperations.length > 0 ? executeCalendarOperations(options.protyle, ops, options) : false;
 };
 
 export const deleteCalendarOccurrence = async (options: {

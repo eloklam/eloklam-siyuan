@@ -17,7 +17,7 @@ import {getCalendarFieldMapping} from "./mapped-fields";
 import {getBlockCell, getCellByFieldID, getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent, ICalendarRange} from "./model";
 import {eventOverlapsDay, normalizeCalendarEvents, sortCalendarEvents} from "./normalize";
 import {CalendarRecurrenceScope, getDisabledRecurrenceScopes, isRecurringSourceEvent, openEventDialog, openRecurrenceScopeDialog} from "./event-dialog";
-import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarOccurrence, ICalendarCreateOptions, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
+import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventThisAndFuture, deleteCalendarOccurrence, ICalendarCreateOptions, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 import {
     CALENDAR_DEFAULT_EVENT_MINUTES,
     formatClockLabel,
@@ -1489,6 +1489,16 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         withCalendarOperationFeedback(operationElement, window.siyuan.languages.saved || "Saved", failureMessage, async () => {
             const removed = await (scope === "occurrence" && sourceEvent.isOccurrence && mapping.exceptionFieldID ?
                 deleteCalendarOccurrence({
+                    protyle: options.protyle,
+                    avID,
+                    blockID,
+                    fields: calendar.fields,
+                    mapping,
+                    event: sourceEvent,
+                    occurrenceDate: sourceEvent.start.format("YYYY-MM-DD"),
+                    previousUpdated: options.blockElement.getAttribute("updated") || "",
+                }) : scope === "future" && mapping.recurrenceFieldID ?
+                deleteCalendarEventThisAndFuture({
                     protyle: options.protyle,
                     avID,
                     blockID,

@@ -2238,7 +2238,7 @@
 	"calendarNeedDateField": "Der Kalender benötigt ein Datumsfeld",
 	"calendarCreateDateColumn": "Es wurde kein Datumsfeld gefunden. Möchten Sie ein Feld \"${x}\" erstellen und zur Kalenderansicht wechseln?",
 	"calendarSearch": "Kalender durchsuchen",
-	"calendarThisAndFuture": "Diesen und folgende Termine",
+	"calendarThisAndFuture": "Diesen Termin und alle folgenden",
 	"calendarCreateDateField": "Datumsfeld erstellen",
 	"calendarDeleteOccurrence": "Termin löschen",
 	"calendarDeleteSeries": "Alle löschen",

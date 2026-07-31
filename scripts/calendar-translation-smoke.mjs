@@ -50,6 +50,10 @@ for (const name of localeFiles) {
   for (const key of requiredKeys) {
     assert(typeof locale[key] === "string" && locale[key].trim(), `${name} missing ${key}`);
   }
+  assert(locale.calendarWeekNumber.includes("${x}"), `${name} week-number label must preserve the placeholder`);
+  if (name !== "de.json") {
+    assert(locale.calendarWeekNumber !== "KW ${x}", `${name} must not reuse the German KW abbreviation`);
+  }
   if (name !== "en.json") {
     for (const key of recurrenceEditorKeys) {
       if (locale[key] === english[key] && !legitimateCognates.has(`${name}:${key}`)) {
@@ -64,6 +68,7 @@ assert(german.calendarEditEvent === "Termin bearbeiten", "German edit action mus
 assert(german.calendarDeleteEvent === "Termin löschen", "German delete action must use Termin");
 assert(german.calendarDeleteRecurring === "Termin löschen", "German recurring delete action must use Termin");
 assert(german.calendarDeleteSeries === "Alle löschen", "German delete-all action must say Alle löschen");
+assert(german.calendarThisAndFuture === "Diesen Termin und alle folgenden", "German future scope wording must stay explicit");
 assert(german.calendarWeekNumber === "KW ${x}", "German week-number label must use KW");
 for (const key of [
   "calendarRecurrenceScopeDeleteTitle",

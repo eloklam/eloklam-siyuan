@@ -27,6 +27,8 @@ assert(eventDialog.includes('calendarDeleteSeries || "Delete all"'), "delete-all
 assert(eventDialog.includes("getDisabledRecurrenceScopes"), "missing disabled scope matrix helper");
 assert(eventDialog.includes("mapping.exceptionFieldID") && eventDialog.includes("calendarRecurrenceScopeOccurrenceDisabled"), "occurrence scope must require mapped exception field with visible reason");
 assert(eventDialog.includes("mapping.recurrenceFieldID") && eventDialog.includes("calendarRecurrenceScopeFutureDisabled"), "future scope must require mapped recurrence field with visible reason");
+assert(eventDialog.includes("deleteCalendarEventThisAndFuture"), "this-and-future delete must use a real truncation transaction");
+assert(!eventDialog.includes("calendarRecurrenceScopeFutureDeleteDisabled ||"), "this-and-future delete must not be disabled as unsupported");
 assert(eventDialog.includes("runRecurringEventAction"), "recurring edit/delete must route through scope selection");
 assert(eventDialog.includes("CalendarRecurrenceScope") && eventDialog.includes("saveEventWithScope"), "save flow must accept selected recurrence scope");
 assert(eventDialog.includes("deleteEventWithScope"), "delete flow must accept selected recurrence scope");
@@ -38,7 +40,7 @@ assert(runRecurringEventAction[0].includes("isRecurringSourceEvent"), "root/sour
 assert(!runRecurringEventAction[0].includes("if (!options.event?.isOccurrence) {\n        run(\"series\")"), "root/source recurring event must not silently run whole-series edit/delete");
 assert(runRecurringEventAction[0].includes("openRecurrenceScopeDialog"), "recurring root/source edit/delete must open the recurrence scope dialog");
 assert(eventDialog.includes("calendarRecurrenceScopeRootOccurrenceDisabled"), "root/source recurrence capability matrix must remain explicit in code");
-assert(eventDialog.includes("calendarRecurrenceScopeRootFutureDisabled"), "root/source future capability matrix must remain explicit in code");
+assert(eventDialog.includes('future: mapping.recurrenceFieldID ? ""'), "root/source future scope must be available when recurrence storage exists");
 
 assert(scss.includes("&-scope") && scss.includes("&-scope-option"), "missing recurrence scope dialog styles");
 

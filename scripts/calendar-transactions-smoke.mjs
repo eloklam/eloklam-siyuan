@@ -341,6 +341,20 @@ exports.__calendarTransactionCalls = calls;
   assert(reorderedSplitCall.doOperations.some((op) => op.rowID !== event.id && op.keyID === "recurrence" &&
     op.data.text?.content === "FREQ=WEEKLY;COUNT=3;BYDAY=MO"), "equivalent reordered RRULE should still reduce COUNT");
 
+  assert(await transactionsModule.deleteCalendarEventThisAndFuture({
+    protyle: baseOptions.protyle,
+    avID: baseOptions.avID,
+    blockID: baseOptions.blockID,
+    fields,
+    mapping,
+    event,
+    occurrenceDate: "2026-06-07",
+  }) === true, "this-and-future delete should truncate the original series");
+  const deleteFutureCall = calls.pop();
+  assert(deleteFutureCall.doOperations.some((op) => op.rowID === event.id && op.keyID === "recurrence" &&
+    op.data.text?.content === "FREQ=WEEKLY;COUNT=5;UNTIL=2026-06-06"), "this-and-future delete should stop before the selected occurrence");
+  assert(!deleteFutureCall.doOperations.some((op) => op.action === "insertAttrViewBlock"), "this-and-future delete must not create a follow-up series");
+
   assert(await transactionsModule.deleteCalendarEvent({
     protyle: {id: "calendar-smoke-protyle", undo: {add: () => undefined}},
     avID: "av-smoke",

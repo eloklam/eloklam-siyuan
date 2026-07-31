@@ -205,8 +205,8 @@ try {
   if (byday.join(",") !== "2026-05-25,2026-06-01,2026-06-03") {
     fail(`weekly BYDAY recurrence dates were ${byday.join(",")}`);
   }
-  if (bydayBase.join(",") !== "2026-05-26,2026-05-28,2026-06-04") {
-    fail(`weekly BYDAY recurrence did not retain DTSTART: ${bydayBase.join(",")}`);
+  if (bydayBase.join(",") !== "2026-05-28,2026-06-04") {
+    fail(`weekly BYDAY recurrence retained an obsolete DTSTART weekday: ${bydayBase.join(",")}`);
   }
   if (none.length !== 1 || none[0].recurrence || none[0].start.format("YYYY-MM-DD") !== "2026-05-25") {
     fail("None recurrence should normalize as a single non-recurring event");

@@ -12,7 +12,7 @@ import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from 
 import {CalendarRecurrencePreset, describeRecurrence, detectRecurrencePreset, getRecurrencePresetRule, renderRecurrencePresetOptions} from "./recurrence-summary";
 import {shouldResetCustomWeekdays} from "./recurrence";
 import {ensureCalendarRecurrenceStorage} from "./recurrence-storage";
-import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventDocument, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
+import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventDocument, deleteCalendarEventThisAndFuture, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 export type CalendarRecurrenceScope = "occurrence" | "future" | "series";
 
@@ -607,11 +607,8 @@ export const getDisabledRecurrenceScopes = (mapping: ReturnType<typeof getCalend
         occurrence: isSourceEvent ?
             (window.siyuan.languages.calendarRecurrenceScopeRootOccurrenceDisabled || "This source event stores the recurring series. Single-occurrence changes are only available from generated occurrences.") :
             (mapping.exceptionFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeOccurrenceDisabled || "Map an exception field to change only this occurrence.")),
-        future: isSourceEvent ?
-            (window.siyuan.languages.calendarRecurrenceScopeRootFutureDisabled || "This and following is only available from generated occurrences.") :
-            (action === "delete" ?
-                (window.siyuan.languages.calendarRecurrenceScopeFutureDeleteDisabled || "Deleting this and following is not supported yet.") :
-                (mapping.recurrenceFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeFutureDisabled || "Map a recurrence field to change this and following items."))),
+        future: mapping.recurrenceFieldID ? "" :
+            (window.siyuan.languages.calendarRecurrenceScopeFutureDisabled || "Map a recurrence field to change this and following items."),
     };
 };
 
@@ -891,6 +888,23 @@ const deleteEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: 
     const mapping = getCalendarFieldMapping(calendarData);
     if (scope === "occurrence" && options.event.isOccurrence && mapping.exceptionFieldID) {
         if (!await deleteCalendarOccurrence({
+            protyle: options.protyle,
+            avID,
+            blockID,
+            fields: calendarData.fields,
+            mapping,
+            event: options.event,
+            occurrenceDate: options.event.start.format("YYYY-MM-DD"),
+            previousUpdated: options.blockElement.getAttribute("updated") || "",
+        })) {
+            return false;
+        }
+        dialog.destroy();
+        options.onDelete?.();
+        return true;
+    }
+    if (scope === "future" && mapping.recurrenceFieldID) {
+        if (!await deleteCalendarEventThisAndFuture({
             protyle: options.protyle,
             avID,
             blockID,
