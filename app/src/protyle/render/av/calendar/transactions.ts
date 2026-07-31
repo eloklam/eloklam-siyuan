@@ -41,18 +41,18 @@ const getEventRecurrenceRaw = (event: ICalendarNormalizedEvent) => event.recurre
 
 const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
 
-const addRecurringStep = (date: dayjs.Dayjs, event: ICalendarNormalizedEvent) => {
+const getRecurringStartAtIndex = (event: ICalendarNormalizedEvent, index: number) => {
     const interval = event.recurrence?.interval || 1;
     if (event.recurrence?.freq === "DAILY") {
-        return date.add(interval, "day");
+        return event.start.add(index * interval, "day");
     }
     if (event.recurrence?.freq === "WEEKLY") {
-        return date.add(interval, "week");
+        return event.start.add(index * interval, "week");
     }
     if (event.recurrence?.freq === "MONTHLY") {
-        return date.add(interval, "month");
+        return event.start.add(index * interval, "month");
     }
-    return date.add(interval, "year");
+    return event.start.add(index * interval, "year");
 };
 
 const countOccurrencesBefore = (event: ICalendarNormalizedEvent, occurrenceDate: string) => {
@@ -101,7 +101,7 @@ const countOccurrencesBefore = (event: ICalendarNormalizedEvent, occurrenceDate:
         }
         count++;
         generated++;
-        cursor = addRecurringStep(cursor, event);
+        cursor = getRecurringStartAtIndex(event, generated);
     }
     return count;
 };
@@ -127,9 +127,18 @@ const recurrenceWithCount = (value: string, count: number) => {
     return upper.split(";").filter(Boolean).map(part => part.startsWith("COUNT=") ? `COUNT=${count}` : part).join(";");
 };
 
+const canonicalRecurrenceValue = (value: string) => {
+    const normalized = normalizeRecurrenceValue(value).toUpperCase();
+    if (!normalized) {
+        return "";
+    }
+    const parts = normalized.includes("=") ? normalized.split(";").filter(Boolean) : [`FREQ=${normalized}`];
+    return parts.sort().join(";");
+};
+
 const recurrenceForSplitFuture = (value: string, event: ICalendarNormalizedEvent, occurrenceDate: string, originalValue: string) => {
     const count = recurrenceCount(value);
-    if (!count || value.toUpperCase() !== originalValue.toUpperCase()) {
+    if (!count || canonicalRecurrenceValue(value) !== canonicalRecurrenceValue(originalValue)) {
         return value;
     }
     return recurrenceWithCount(value, Math.max(count - countOccurrencesBefore(event, occurrenceDate), 1));

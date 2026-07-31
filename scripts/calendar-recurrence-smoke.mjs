@@ -173,6 +173,12 @@ try {
       card("byday-base", "BYDAY base smoke", "2026-05-26T15:00:00", "2026-05-26T16:00:00", {
         recurrence: "FREQ=WEEKLY;COUNT=2;BYDAY=TH",
       }),
+      card("month-end", "Month end smoke", "2026-01-31T09:00:00", "2026-01-31T10:00:00", {
+        recurrence: "FREQ=MONTHLY;COUNT=4",
+      }),
+      card("leap-day", "Leap day smoke", "2024-02-29T09:00:00", "2024-02-29T10:00:00", {
+        recurrence: "FREQ=YEARLY;COUNT=5",
+      }),
     ],
   };
 
@@ -199,6 +205,17 @@ try {
   }
   if (none.length !== 1 || none[0].recurrence || none[0].start.format("YYYY-MM-DD") !== "2026-05-25") {
     fail("None recurrence should normalize as a single non-recurring event");
+  }
+
+  const edgeRange = {start: dayjs("2024-01-01"), end: dayjs("2028-12-31").endOf("day")};
+  const edgeEvents = normalizeCalendarEvents(calendar, mapping, edgeRange).events;
+  const monthEnd = edgeEvents.filter((event) => event.id === "month-end").map((event) => event.start.format("YYYY-MM-DD"));
+  const leapDay = edgeEvents.filter((event) => event.id === "leap-day").map((event) => event.start.format("YYYY-MM-DD"));
+  if (monthEnd.join(",") !== "2026-01-31,2026-02-28,2026-03-31,2026-04-30") {
+    fail(`month-end recurrence drifted: ${monthEnd.join(",")}`);
+  }
+  if (leapDay.join(",") !== "2024-02-29,2025-02-28,2026-02-28,2027-02-28,2028-02-29") {
+    fail(`leap-day recurrence drifted: ${leapDay.join(",")}`);
   }
 
   const recurringOccurrence = events.find((event) => event.id === "weekly" && event.start.format("YYYY-MM-DD") === "2026-06-07");

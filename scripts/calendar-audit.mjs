@@ -615,7 +615,7 @@ for (const term of [
   "recurrenceExceptionRaw: \"\"",
   "const editsSeries = !!event?.isOccurrence && !mapping.exceptionFieldID",
   "window.siyuan.languages.calendarEditSeriesNotice",
-  "event?.blockID ? `<button class=\"b3-button b3-button--outline\" data-type=\"event-open-block\"",
+  "event?.blockID ? `<button type=\"button\" class=\"b3-button b3-button--text b3-form__space av__calendar-event-source\" data-type=\"event-open-block\"",
   "readOnly?: boolean",
   "const readOnly = !!options.readOnly",
   "isEditing && !readOnly",

@@ -2211,15 +2211,27 @@ img.av__cellassetimg {
 
   &-event-source {
     align-items: center;
+    background: transparent;
+    border: 0;
     color: var(--b3-theme-on-surface);
+    cursor: pointer;
     display: flex;
     gap: 6px;
+    justify-content: flex-start;
+    max-width: 100%;
+    padding: 4px 0;
+    text-align: left;
+    width: auto;
 
     code {
       background-color: var(--b3-theme-surface);
       border-radius: var(--b3-border-radius);
       font-size: 11px;
+      min-width: 0;
+      overflow: hidden;
       padding: 1px 4px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
 
@@ -2322,6 +2334,27 @@ img.av__cellassetimg {
     justify-self: end;
   }
 
+  &-dialog-footer {
+    display: grid;
+    gap: 8px;
+    padding-inline: 0;
+  }
+
+  &-dialog-footer-secondary,
+  &-dialog-footer-primary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  &-dialog-footer-secondary {
+    justify-content: flex-start;
+  }
+
+  &-dialog-footer-primary {
+    justify-content: flex-end;
+  }
+
   &-resize {
     border-left: 1px solid currentColor;
     cursor: ew-resize;
@@ -2365,7 +2398,7 @@ img.av__cellassetimg {
       align-items: center;
       display: grid;
       gap: 8px;
-      grid-template-columns: 18px 52px minmax(0, 1fr);
+      grid-template-columns: 18px max-content minmax(96px, 1fr) max-content;
     }
 
     .b3-text-field {

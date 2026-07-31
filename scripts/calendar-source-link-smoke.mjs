@@ -21,7 +21,7 @@ const checks = [
   [render.includes('eventElement.addEventListener("click"') && render.includes('openEventSchedulingFor(calendarEvent)'), 'single Termin activation opens scheduling preview'],
   [render.includes('eventElement.addEventListener("dblclick"') && /if \(calendarEvent && getEventDocumentID\(calendarEvent\)\) \{\s*\n\s*openCalendarEventSource/.test(render), 'double Termin activation opens the bound page'],
   [dialog.includes('calendarSource') && dialog.includes('event-source'), 'dialog shows explicit source note/block context'],
-  [dialog.includes('event-open-block') && dialog.includes('calendarOpenSource'), 'dialog has obvious Open source action'],
+  [dialog.includes('event-open-block') && dialog.includes('calendarOpenSource') && dialog.includes('av__calendar-event-source'), 'dialog source row is the obvious Open source action'],
   [scss.includes('&-source') && scss.includes('&-event-source'), 'dialog source note remains styled in calendar SCSS'],
 
   // Page-per-entry: a BOUND chip opens its page on double click through

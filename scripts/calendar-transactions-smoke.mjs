@@ -326,6 +326,21 @@ exports.__calendarTransactionCalls = calls;
   assert(splitCall.doOperations.some((op) => op.rowID !== event.id && op.keyID === "recurrence" &&
     op.data.text?.content === "FREQ=WEEKLY;COUNT=3"), "split should reduce COUNT for the new future series");
 
+  const reorderedEvent = {
+    ...event,
+    recurrenceRaw: "FREQ=WEEKLY;BYDAY=MO;COUNT=5",
+    recurrence: {freq: "WEEKLY", count: 5, byDay: ["MO"]},
+  };
+  assert(await transactionsModule.updateCalendarEventThisAndFuture({
+    ...baseOptions,
+    event: reorderedEvent,
+    draft: {...draft, recurrenceRaw: "FREQ=WEEKLY;COUNT=5;BYDAY=MO"},
+    occurrenceDate: "2026-06-07",
+  }) === true, "this-and-future split should ignore equivalent RRULE part ordering");
+  const reorderedSplitCall = calls.pop();
+  assert(reorderedSplitCall.doOperations.some((op) => op.rowID !== event.id && op.keyID === "recurrence" &&
+    op.data.text?.content === "FREQ=WEEKLY;COUNT=3;BYDAY=MO"), "equivalent reordered RRULE should still reduce COUNT");
+
   assert(await transactionsModule.deleteCalendarEvent({
     protyle: {id: "calendar-smoke-protyle", undo: {add: () => undefined}},
     avID: "av-smoke",

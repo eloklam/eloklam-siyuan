@@ -93,18 +93,18 @@ export const parseRecurrence = (value: unknown): ICalendarRecurrence | undefined
     return result.freq && !isMalformed ? result as ICalendarRecurrence : undefined;
 };
 
-const addFreq = (date: dayjs.Dayjs, recurrence: ICalendarRecurrence) => {
+const getRecurringStartAtIndex = (start: dayjs.Dayjs, recurrence: ICalendarRecurrence, index: number) => {
     const interval = recurrence.interval || 1;
     if (recurrence.freq === "DAILY") {
-        return date.add(interval, "day");
+        return start.add(index * interval, "day");
     }
     if (recurrence.freq === "WEEKLY") {
-        return date.add(interval, "week");
+        return start.add(index * interval, "week");
     }
     if (recurrence.freq === "MONTHLY") {
-        return date.add(interval, "month");
+        return start.add(index * interval, "month");
     }
-    return date.add(interval, "year");
+    return start.add(index * interval, "year");
 };
 
 const getExpansionStart = (range: ICalendarRange, duration: number) => range.start.subtract(Math.max(duration, 0), "millisecond");
@@ -117,10 +117,10 @@ const getAlignedRecurringStart = (event: ICalendarNormalizedEvent, expansionStar
     const unit = event.recurrence.freq === "DAILY" ? "day" : (event.recurrence.freq === "WEEKLY" ? "week" : (event.recurrence.freq === "MONTHLY" ? "month" : "year"));
     const diff = Math.max(expansionStart.diff(event.start, unit), 0);
     let index = Math.max(Math.floor(diff / interval), 0);
-    let occurrenceStart = event.start.add(index * interval, unit);
+    let occurrenceStart = getRecurringStartAtIndex(event.start, event.recurrence, index);
     while (occurrenceStart.isBefore(expansionStart)) {
-        occurrenceStart = occurrenceStart.add(interval, unit);
         index++;
+        occurrenceStart = getRecurringStartAtIndex(event.start, event.recurrence, index);
     }
     return {occurrenceStart, index};
 };
@@ -230,8 +230,8 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
                     baseEventID: event.id,
                 });
             }
-            occurrenceStart = addFreq(occurrenceStart, event.recurrence);
             index++;
+            occurrenceStart = getRecurringStartAtIndex(event.start, event.recurrence, index);
         }
     });
     return expanded.sort((a, b) => a.start.valueOf() - b.start.valueOf());
