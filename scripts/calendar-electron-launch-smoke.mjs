@@ -588,7 +588,8 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
     newDialog.element.querySelector('#av-event-title').value = 'Dialog smoke event';
     newDialog.element.querySelector('#av-event-allday').checked = false;
     newDialog.element.querySelector('#av-event-allday').dispatchEvent(new Event('change', {bubbles: true}));
-    const timeRowVisible = newDialog.element.querySelector('#av-event-time-row').style.display !== 'none';
+    const timeFieldsVisible = [...newDialog.element.querySelectorAll('.av__calendar-dialog-time')]
+      .every((field) => getComputedStyle(field).display !== 'none');
     newDialog.element.querySelector('#av-event-start').value = '09:30';
     newDialog.element.querySelector('#av-event-end').value = '10:45';
     newDialog.element.querySelector('#av-event-end-date').value = '2026-06-02';
@@ -658,7 +659,7 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
     const advancedReadOnly = advancedDialog.element.querySelector('#av-event-recurrence-raw')?.readOnly || false;
 
     return {
-      timeRowVisible,
+      timeFieldsVisible,
       weekdayVisible,
       createDraft: createCall?.payload?.draft,
       createDestroyed: newDialog.destroyed,
@@ -679,7 +680,7 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
   })()`);
   const draft = result?.createDraft || {};
   const duplicateDraft = result?.duplicateDraft || {};
-  if (!result?.timeRowVisible || !result.weekdayVisible || !result.createDestroyed ||
+  if (!result?.timeFieldsVisible || !result.weekdayVisible || !result.createDestroyed ||
     result.saves < 2 || draft.title !== "Dialog smoke event" || draft.date !== "2026-06-01" ||
     draft.endDate !== "2026-06-02" || draft.startTime !== "09:30" || draft.endTime !== "10:45" ||
     draft.isAllDay !== false || draft.fieldValues?.location !== "Dialog Room" || draft.fieldValues?.description !== "Dialog details" ||
@@ -1646,7 +1647,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     // The chip is quiet; the menu carries the actions it used to carry inline.
     !result.chipMenuOpened || !result.chipKeyboardMenuOpened || !result.chipMenuClosedAfterCommand ||
     result.chipMenuDialogEventID !== "row-render" ||
-    result.chipInlineButtonCount !== 0 || result.chipDotCount < 1 ||
+    result.chipInlineButtonCount !== 0 || result.chipDotCount !== 0 ||
     result.chipMenuItemTypes !== "calendar-open-source,calendar-open-dialog,calendar-duplicate-next-day,calendar-resize,calendar-resize,calendar-shift,calendar-shift,calendar-shift,calendar-shift,calendar-delete" ||
     result.shiftDraft?.startTime !== "11:15" || result.shiftDraft?.endTime !== "12:15" ||
     result.shiftDraft?.date !== "2026-05-25" ||

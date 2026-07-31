@@ -31,6 +31,11 @@ assert(render.includes("startAllDayCreate"), "all-day empty-space creation must 
 
 assert(!eventChip.includes("const recurrenceMarker"), "recurrence O/R tags must not be rendered beside event names");
 assert(!eventChip.includes("av__calendar-event-dot"), "event names must not render a leading colour dot");
+assert(eventChip.includes("export const getEventTimeLabel"), "event chips need one shared single-day and multi-day time label");
+assert(eventChip.includes('!event.start.isSame(end, "day")'), "multi-day timed labels must detect different endpoint days");
+assert(eventChip.includes("formatCalendarDate(event.start, dateOptions)"), "multi-day timed labels must include the start date");
+assert(eventChip.includes("formatCalendarDate(end, dateOptions)"), "multi-day timed labels must include the end date");
+assert(!eventChip.includes("multiDayPrefix"), "multi-day dates must belong to the time range instead of being prefixed to the title");
 assert(!eventChip.includes('event.isOccurrence ? "O" : "R"'), "event chips must not expose internal O/R tags");
 assert(!scss.includes("&-recurring"), "unused recurrence-tag styling must be removed");
 
@@ -42,6 +47,10 @@ assert(timedStyle.includes("color: var(--b3-theme-on-primary);"),
 assert(!timedStyle.includes("inset 3px 0 0"), "timed events must not restore the left accent bar");
 
 assert(eventDialog.includes("calendarRecurrenceScopeSeries || \"All events\""), "edit scope needs a non-destructive All events label");
+assert(eventDialog.includes('class="av__calendar-dialog-endpoint"'), "event editor must group each date with its matching time");
+assert(eventDialog.includes('id="av-event-schedule"'), "event editor needs one endpoint-based schedule group");
+assert(eventDialog.includes("av__calendar-dialog-schedule--all-day"), "all-day mode must hide time fields without separating endpoint dates");
+assert(!eventDialog.includes('id="av-event-time-row"'), "event editor must not restore a detached time-only row");
 assert(eventDialog.includes('options.action === "delete" ?'), "delete and edit series labels must be distinct");
 assert(eventDialog.includes("preset !== \"custom\""), "recurrence preset must override hidden custom controls");
 assert(eventDialog.includes("getRecurrencePresetRule(preset)"), "Does not repeat must save an empty recurrence rule");

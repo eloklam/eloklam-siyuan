@@ -2282,6 +2282,46 @@ img.av__cellassetimg {
     top: 8px;
   }
 
+  &-dialog-schedule {
+    display: grid;
+    gap: 8px;
+  }
+
+  &-dialog-endpoint {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  &-dialog-endpoint-label {
+    color: var(--b3-theme-on-surface);
+    font-size: 85%;
+  }
+
+  &-dialog-endpoint-fields {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(96px, .55fr);
+    min-width: 0;
+
+    > .b3-text-field {
+      min-width: 0;
+    }
+  }
+
+  &-dialog-schedule--all-day &-dialog-time {
+    display: none;
+  }
+
+  &-dialog-schedule--all-day &-dialog-endpoint-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  &-dialog-all-day {
+    justify-self: end;
+  }
+
   &-resize {
     border-left: 1px solid currentColor;
     cursor: ew-resize;

@@ -325,18 +325,25 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <input class="b3-text-field fn__block" id="av-event-title" aria-label="${escapeAttr(documentID ? getRenamesPageHint() : (window.siyuan.languages.title || "Title"))}" placeholder="${escapeAttr((event?.isTitleFallback ? event.title : "") || window.siyuan.languages.title || "Title")}" value="${escapeAttr((event?.isTitleFallback ? "" : event?.title) || draft?.title || "")}"${disabledAttr}>
         ${documentID ? `<div class="ft__on-surface ft__smaller" data-type="event-title-hint">${escapeHtml(getRenamesPageHint())}</div>` : ""}
     </div>
-    <div class="b3-form__space fn__flex">
-        <input type="date" class="b3-text-field fn__flex-1" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${startDate}"${disabledAttr}>
-        <input type="date" class="b3-text-field fn__flex-1" id="av-event-end-date" aria-label="${window.siyuan.languages.endDate || "End date"}" value="${endDate}"${disabledAttr}>
-        <label class="fn__flex-center av__calendar-check">
+    <div class="b3-form__space av__calendar-dialog-schedule${isAllDay ? " av__calendar-dialog-schedule--all-day" : ""}" id="av-event-schedule">
+        <div class="av__calendar-dialog-endpoint">
+            <label class="av__calendar-dialog-endpoint-label" for="av-event-date">${escapeHtml(window.siyuan.languages.date || "Date")}</label>
+            <div class="av__calendar-dialog-endpoint-fields">
+                <input type="date" class="b3-text-field" id="av-event-date" aria-label="${window.siyuan.languages.date || "Date"}" value="${startDate}"${disabledAttr}>
+                <input type="time" class="b3-text-field av__calendar-dialog-time" id="av-event-start" value="${startTime}"${disabledAttr}>
+            </div>
+        </div>
+        <div class="av__calendar-dialog-endpoint">
+            <label class="av__calendar-dialog-endpoint-label" for="av-event-end-date">${escapeHtml(window.siyuan.languages.endDate || "End date")}</label>
+            <div class="av__calendar-dialog-endpoint-fields">
+                <input type="date" class="b3-text-field" id="av-event-end-date" aria-label="${window.siyuan.languages.endDate || "End date"}" value="${endDate}"${disabledAttr}>
+                <input type="time" class="b3-text-field av__calendar-dialog-time" id="av-event-end" value="${endTime}"${disabledAttr}>
+            </div>
+        </div>
+        <label class="fn__flex-center av__calendar-check av__calendar-dialog-all-day">
             <input type="checkbox" id="av-event-allday" ${isAllDay ? "checked" : ""}${disabledAttr}>
             <span>${window.siyuan.languages.allDay || "All day"}</span>
         </label>
-    </div>
-    <div class="b3-form__space fn__flex" id="av-event-time-row" style="${isAllDay ? "display:none" : ""}">
-        <input type="time" class="b3-text-field fn__flex-1" id="av-event-start" value="${startTime}"${disabledAttr}>
-        <span class="av__calendar-time-sep">-</span>
-        <input type="time" class="b3-text-field fn__flex-1" id="av-event-end" value="${endTime}"${disabledAttr}>
     </div>
     ${visibleTextFields.map(field => `<div class="b3-form__space av__calendar-dialog-field" data-type="calendar-custom-field" data-field-id="${escapeAttr(field.id)}">
         <label class="ft__on-surface ft__smaller" for="av-event-field-${escapeAttr(field.id)}">${escapeHtml(field.name)}</label>
@@ -392,9 +399,9 @@ const bindGuardedEventDialogClose = (dialog: Dialog) => {
 
 const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     const allDayCheckbox = dialog.element.querySelector("#av-event-allday") as HTMLInputElement;
-    const timeRow = dialog.element.querySelector("#av-event-time-row") as HTMLElement;
+    const schedule = dialog.element.querySelector("#av-event-schedule") as HTMLElement;
     allDayCheckbox?.addEventListener("change", () => {
-        timeRow.style.display = allDayCheckbox.checked ? "none" : "flex";
+        schedule?.classList.toggle("av__calendar-dialog-schedule--all-day", allDayCheckbox.checked);
     });
     const dateInput = dialog.element.querySelector("#av-event-date") as HTMLInputElement;
     const endDateInput = dialog.element.querySelector("#av-event-end-date") as HTMLInputElement;

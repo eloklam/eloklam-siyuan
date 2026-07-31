@@ -52,6 +52,21 @@ export const getEventDateLabel = (event: ICalendarNormalizedEvent) => {
     return dateLabel;
 };
 
+export const getEventTimeLabel = (event: ICalendarNormalizedEvent) => {
+    if (event.isAllDay) {
+        return window.siyuan.languages.allDay || "All day";
+    }
+    const end = event.end || event.start.add(30, "minute");
+    if (!event.start.isSame(end, "day")) {
+        const dateOptions: Intl.DateTimeFormatOptions = {month: "short", day: "numeric"};
+        if (!event.start.isSame(end, "year")) {
+            dateOptions.year = "numeric";
+        }
+        return `${formatCalendarDate(event.start, dateOptions)} ${event.start.format("HH:mm")} – ${formatCalendarDate(end, dateOptions)} ${end.format("HH:mm")}`;
+    }
+    return `${event.start.format("HH:mm")}–${end.format("HH:mm")}`;
+};
+
 export const getEventTooltip = (event: ICalendarNormalizedEvent) => {
     return [
         event.title,
@@ -84,7 +99,6 @@ export interface ICalendarChipOptions {
 
 /**
  * The colour a chip paints itself with, as the inline style render.ts produced.
- * Also drives the timed variant's leading dot.
  */
 const getChipColorStyle = (event: ICalendarNormalizedEvent, variant: CalendarChipVariant) => {
     if (!event.color) {
@@ -106,8 +120,6 @@ const getChipColorStyle = (event: ICalendarNormalizedEvent, variant: CalendarChi
 export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
     const {event, variant} = options;
     const editable = options.editable !== false;
-    const multiDayPrefix = event.end && !event.start.isSame(event.end, "day") ?
-        `${formatCalendarDate(event.start, {month: "short", day: "numeric"})} - ${formatCalendarDate(event.end, {month: "short", day: "numeric"})} ` : "";
     const inlineStyle = `${getChipColorStyle(event, variant)}${options.style || ""}`;
     const colorStyle = inlineStyle ? ` style="${inlineStyle}"` : "";
     const eventTooltip = getEventTooltip(event);
@@ -117,16 +129,14 @@ export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
     const continuationClass = `${options.continuesBefore ? " av__calendar-event--continues-before" : ""}${options.continuesAfter ? " av__calendar-event--continues-after" : ""}`;
     const durationMinutes = event.isAllDay ? 24 * 60 : Math.max((event.end || event.start.add(30, "minute")).diff(event.start, "minute"), 0);
     const densityClass = durationMinutes < 45 ? " av__calendar-event--short" : durationMinutes >= 90 ? " av__calendar-event--tall" : "";
-    const timeRange = event.isAllDay ?
-        (window.siyuan.languages.allDay || "All day") :
-        `${event.start.format("HH:mm")}–${(event.end || event.start.add(30, "minute")).format("HH:mm")}`;
+    const timeRange = getEventTimeLabel(event);
     const secondary = event.location ? `<span class="av__calendar-event-meta">${escapeHtml(event.location)}</span>` : "";
     const content = variant === "month" ?
-        `${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(`${multiDayPrefix}${event.title}`)}</span>` :
+        `${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}<span class="av__calendar-event-title">${escapeHtml(event.title)}</span>` :
         variant === "list" ?
-            `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.end && !event.start.isSame(event.end, "day") ? `<span class="av__calendar-event-meta">${escapeHtml(getEventDateLabel(event))}</span>` : secondary}` :
+            `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${secondary}` :
             variant === "all-day" ?
-                `${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">→ ${(event.end || event.start.add(30, "minute")).format("HH:mm")}</span>`}` :
+                `<span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}` :
                 `<span class="av__calendar-event-content"><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}${secondary}</span>`;
     return `<button class="av__calendar-event${variantClass}${densityClass}${continuationClass}${editable ? "" : " av__calendar-event--readonly"}${documentID ? " av__calendar-event--page" : ""}${options.className ? ` ${options.className}` : ""}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-page="${escapeAttr(documentID)}" data-date="${options.displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" data-variant="${variant}" data-all-day="${event.isAllDay ? "true" : "false"}" data-time="${escapeAttr(event.isAllDay ? "" : event.start.format("HH:mm"))}" data-duration-minutes="${durationMinutes}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
     ${content}
