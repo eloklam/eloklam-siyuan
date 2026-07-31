@@ -1,6 +1,5 @@
 import * as dayjs from "dayjs";
 import {Dialog} from "../../../../dialog";
-import {confirmDialog} from "../../../../dialog/confirmDialog";
 import {Constants} from "../../../../constants";
 import {showMessage} from "../../../../dialog/message";
 import {openFileById} from "../../../../editor/util";
@@ -465,7 +464,7 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     }
     dialog.element.querySelector('[data-type="event-save"]')?.addEventListener("click", () => runRecurringEventAction(dialog, options, "edit", (scope) => withPendingSave(dialog, "event-save", () => saveEventWithScope(dialog, options, scope))));
     dialog.element.querySelector('[data-type="event-delete"]')?.addEventListener("click", () => runRecurringEventAction(dialog, options, "delete", (scope) => withCalendarDialogOperationFeedback(dialog, "event-delete", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEventWithScope(dialog, options, scope))));
-    dialog.element.querySelector('[data-type="event-delete-page"]')?.addEventListener("click", () => confirmDeleteEventPage(dialog, options));
+    dialog.element.querySelector('[data-type="event-delete-page"]')?.addEventListener("click", () => withCalendarDialogOperationFeedback(dialog, "event-delete-page", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEventWithPage(dialog, options)));
     dialog.element.querySelector('[data-type="event-duplicate"]')?.addEventListener("click", () => withCalendarDialogOperationFeedback(dialog, "event-duplicate", window.siyuan.languages.calendarDuplicateFailed || "Duplicate failed.", () => duplicateEvent(dialog, options)));
     dialog.element.querySelector('[data-type="event-open-block"]')?.addEventListener("click", () => openEventBlock(dialog, options));
     dialog.element.querySelector("#av-event-title")?.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -854,23 +853,6 @@ const duplicateEvent = async (dialog: Dialog, options: IEventDialogOptions) => {
     dialog.destroy();
     options.onSave?.();
     return true;
-};
-
-/**
- * Removing the PAGE is deliberately a separate, confirm-gated action: the
- * calendar's undo can restore a row, never a document. The plain delete stays
- * "remove from calendar" and always leaves the page alone.
- */
-const confirmDeleteEventPage = (dialog: Dialog, options: IEventDialogOptions) => {
-    const documentID = getEventDocumentID(options.event);
-    if (!documentID || options.readOnly) {
-        return;
-    }
-    confirmDialog(
-        window.siyuan.languages.deleteOpConfirm,
-        (window.siyuan.languages.confirmDeleteTip || "${x}").replace("${x}", escapeHtml(options.event?.title || documentID)),
-        () => withCalendarDialogOperationFeedback(dialog, "event-delete-page", window.siyuan.languages.calendarDeleteFailed || "Delete failed.", () => deleteEventWithPage(dialog, options))
-    );
 };
 
 const deleteEventWithPage = async (dialog: Dialog, options: IEventDialogOptions) => {
