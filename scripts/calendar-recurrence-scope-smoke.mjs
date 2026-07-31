@@ -40,7 +40,8 @@ assert(runRecurringEventAction[0].includes("isRecurringSourceEvent"), "root/sour
 assert(!runRecurringEventAction[0].includes("if (!options.event?.isOccurrence) {\n        run(\"series\")"), "root/source recurring event must not silently run whole-series edit/delete");
 assert(runRecurringEventAction[0].includes("openRecurrenceScopeDialog"), "recurring root/source edit/delete must open the recurrence scope dialog");
 assert(eventDialog.includes("calendarRecurrenceScopeRootOccurrenceDisabled"), "root/source recurrence capability matrix must remain explicit in code");
-assert(eventDialog.includes('future: mapping.recurrenceFieldID ? ""'), "root/source future scope must be available when recurrence storage exists");
+assert(eventDialog.includes("future: isSourceEvent ?") && eventDialog.includes("calendarRecurrenceScopeRootFutureDisabled"), "root/source future scope must be hidden because it duplicates all");
+assert(eventDialog.includes('(mapping.recurrenceFieldID ? ""'), "later occurrence future scope must be available when recurrence storage exists");
 
 assert(scss.includes("&-scope") && scss.includes("&-scope-option"), "missing recurrence scope dialog styles");
 

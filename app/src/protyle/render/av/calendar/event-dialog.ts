@@ -607,8 +607,10 @@ export const getDisabledRecurrenceScopes = (mapping: ReturnType<typeof getCalend
         occurrence: isSourceEvent ?
             (window.siyuan.languages.calendarRecurrenceScopeRootOccurrenceDisabled || "This source event stores the recurring series. Single-occurrence changes are only available from generated occurrences.") :
             (mapping.exceptionFieldID ? "" : (window.siyuan.languages.calendarRecurrenceScopeOccurrenceDisabled || "Map an exception field to change only this occurrence.")),
-        future: mapping.recurrenceFieldID ? "" :
-            (window.siyuan.languages.calendarRecurrenceScopeFutureDisabled || "Map a recurrence field to change this and following items."),
+        future: isSourceEvent ?
+            (window.siyuan.languages.calendarRecurrenceScopeRootFutureDisabled || "This option is only available from a later occurrence.") :
+            (mapping.recurrenceFieldID ? "" :
+                (window.siyuan.languages.calendarRecurrenceScopeFutureDisabled || "Map a recurrence field to change this and following items.")),
     };
 };
 
