@@ -20,8 +20,6 @@ export interface ICalendarMiniMonthState {
     range?: { start: dayjs.Dayjs; end: dayjs.Dayjs };
     /** 0 = Sunday, 1 = Monday. Same convention as the main grid. */
     weekStart?: number;
-    /** "YYYY-MM-DD" keys that hold at least one event; drawn with a dot. */
-    eventDays?: Set<string> | string[];
     /** BCP 47 tag; falls back to window.siyuan.config.lang. */
     locale?: string;
 }
@@ -42,13 +40,6 @@ const getSafeWeekStart = (weekStart?: number) => weekStart === 1 ? 1 : 0;
 const startOfMiniWeek = (date: dayjs.Dayjs, weekStart: number) => {
     const offset = (date.day() - weekStart + 7) % 7;
     return date.subtract(offset, "day").startOf("day");
-};
-
-const getEventDaySet = (eventDays?: Set<string> | string[]): Set<string> => {
-    if (!eventDays) {
-        return new Set<string>();
-    }
-    return eventDays instanceof Set ? eventDays : new Set(eventDays);
 };
 
 /**
@@ -90,7 +81,6 @@ export const renderCalendarMiniMonth = (state: ICalendarMiniMonthState): string 
     const locale = state.locale || getCalendarLocale();
     const cursor = (state.cursor || state.anchor).startOf("month");
     const today = dayjs();
-    const eventDays = getEventDaySet(state.eventDays);
     const days = getMiniMonthDays(cursor, weekStart);
     const dayFormatter = getDateFormatter(locale, {year: "numeric", month: "long", day: "numeric"});
     return `<div class="av__calendar-mini" data-type="calendar-mini-month" data-cursor="${cursor.format("YYYY-MM")}" role="group" aria-label="${escapeAttr(lang("calendarMiniMonth", "Month navigator"))}">
@@ -107,7 +97,6 @@ export const renderCalendarMiniMonth = (state: ICalendarMiniMonthState): string 
         const dateKey = day.format("YYYY-MM-DD");
         const isToday = day.isSame(today, "day");
         const isSelected = day.isSame(state.anchor, "day");
-        const hasEvents = eventDays.has(dateKey);
         const classes = ["av__calendar-mini-day"];
         if (!day.isSame(cursor, "month")) {
             classes.push("av__calendar-mini-day--outside");
@@ -121,12 +110,8 @@ export const renderCalendarMiniMonth = (state: ICalendarMiniMonthState): string 
         if (isToday) {
             classes.push("av__calendar-mini-day--today");
         }
-        if (hasEvents) {
-            classes.push("av__calendar-mini-day--has-events");
-        }
         return `<button class="${classes.join(" ")}" data-type="calendar-mini-day" data-date="${dateKey}"${isToday ? ' aria-current="date"' : ""}${isSelected ? ' aria-pressed="true"' : ""} aria-label="${escapeAttr(dayFormatter.format(day.toDate()))}">
             <span class="av__calendar-mini-day-number">${day.date()}</span>
-            ${hasEvents ? '<span class="av__calendar-mini-dot" aria-hidden="true"></span>' : ""}
         </button>`;
     }).join("")}
     </div>

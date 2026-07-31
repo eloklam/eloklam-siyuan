@@ -1196,7 +1196,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
 
     // --- mini month navigator -------------------------------------------------
     // Anchor is 2026-05-24 here (month view). The navigator draws a 6x7 matrix,
-    // marks the anchor, dots the days that hold events, pages WITHOUT moving the
+    // marks the anchor without duplicating event dots, pages WITHOUT moving the
     // main view, and moves the main view only when a day is clicked.
     const miniMonthWrapper = host.querySelector('[data-type="calendar-mini-month-wrapper"]');
     if (!miniMonthWrapper) {
@@ -1715,10 +1715,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     !result.readOnlyHasEvent || result.readOnlyDraggable !== "false" || result.readOnlyHasNewButton ||
     result.readOnlyLocalMode !== "2" || result.readOnlyRenderedMode !== "2" ||
     result.readOnlyHasContextMenu ||
-    // Mini month: a full 6x7 matrix, the anchor marked, dots where events are,
+    // Mini month: a full 6x7 matrix, the anchor marked, no event dots,
     // paging that leaves the main view alone, and a click that moves it.
     result.miniMonthDayCount !== 42 || result.miniMonthSelected !== "2026-05-24" ||
-    result.miniMonthEventDotCount < 1 || !result.miniMonthPagedTitleChanged ||
+    result.miniMonthEventDotCount !== 0 || !result.miniMonthPagedTitleChanged ||
     !result.miniMonthPagingLeftMainView || result.miniMonthAnchorAfterClick !== "2026-05-28" ||
     result.readOnlyMiniMonthDayCount !== 42 ||
     // Google's keys, from a focused BUTTON (the focus-scope bug), plus the

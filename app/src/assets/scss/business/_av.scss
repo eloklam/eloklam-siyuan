@@ -2952,10 +2952,9 @@ img.av__cellassetimg {
   // ---------------------------------------------------------------------------
   // Mini month navigator (mini-month.ts).
   //
-  // Deliberately dense: it is a map of the month, not a second calendar. The day
-  // buttons are square-ish cells with a number and an optional dot, so a glance
-  // shows both "where am I" (selected / in-range / today) and "where is there
-  // anything" (has-events).
+  // Deliberately dense: it is a map of the month, not a second calendar. Keep the
+  // selected / in-range / today states, but do not duplicate event indicators
+  // from the main calendar.
   // ---------------------------------------------------------------------------
   &-mini {
     font-size: 12px;
@@ -3059,19 +3058,6 @@ img.av__cellassetimg {
     line-height: 16px;
   }
 
-  &-mini-dot {
-    background-color: currentColor;
-    border-radius: 50%;
-    height: 3px;
-    opacity: .8;
-    width: 3px;
-  }
-
-  // A selected day is already filled with the primary colour, so its dot has to
-  // stay currentColor (on-primary) to remain visible.
-  &-mini-day--has-events:not(.av__calendar-mini-day--selected) &-mini-dot {
-    background-color: var(--b3-theme-primary);
-  }
 
   // ---------------------------------------------------------------------------
   // The "?" keyboard shortcut sheet (keymap.ts).

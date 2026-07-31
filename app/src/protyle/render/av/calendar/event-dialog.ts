@@ -7,10 +7,10 @@ import {openFileById} from "../../../../editor/util";
 import {openMobileFileById} from "../../../../mobile/editor";
 /// #endif
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
-import {fetchSyncPost} from "../../../../util/fetch";
 import {getCalendarFieldMapping, isCalendarRecurrenceStorageField} from "./mapped-fields";
 import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
 import {CalendarRecurrencePreset, describeRecurrence, detectRecurrencePreset, getRecurrencePresetRule, renderRecurrencePresetOptions} from "./recurrence-summary";
+import {ensureCalendarRecurrenceStorage} from "./recurrence-storage";
 import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventDocument, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
 export type CalendarRecurrenceScope = "occurrence" | "future" | "series";
@@ -639,56 +639,27 @@ const runRecurringEventAction = (dialog: Dialog, options: IEventDialogOptions, a
     });
 };
 
-const ensureRecurrenceStorage = async (
+const ensureRecurrenceStorage = (
     options: IEventDialogOptions,
     calendarData: IAVCalendar,
     mapping: ReturnType<typeof getCalendarFieldMapping>,
     recurrenceRaw = "",
 ) => {
-    if (!recurrenceRaw || mapping.recurrenceFieldID) {
-        return mapping;
-    }
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
     const viewID = getViewID(options);
     if (!avID || !blockID || !viewID) {
-        return mapping;
+        return Promise.resolve(mapping);
     }
-    const recurrenceFieldID = Lute.NewNodeID();
-    const exceptionFieldID = Lute.NewNodeID();
-    const previousID = calendarData.fields.at(-1)?.id || "";
-    const response = await fetchSyncPost("/api/transactions", {
-        app: Constants.SIYUAN_APPID,
-        session: options.protyle?.id || Constants.SIYUAN_APPID,
-        reqId: Date.now(),
-        transactions: [{
-            doOperations: [{
-                action: "addAttrViewCol", avID, id: recurrenceFieldID, previousID,
-                name: "__calendar_recurrence", type: "text",
-            }, {
-                action: "addAttrViewCol", avID, id: exceptionFieldID, previousID: recurrenceFieldID,
-                name: "__calendar_recurrence_exceptions", type: "text",
-            }, {
-                action: "setAttrViewColHidden", avID, blockID, viewID, id: recurrenceFieldID, data: true,
-            }, {
-                action: "setAttrViewColHidden", avID, blockID, viewID, id: exceptionFieldID, data: true,
-            }, {
-                action: "setAttrViewCalendarFieldMapping", avID, blockID, viewID,
-                data: {recurrenceFieldID, exceptionFieldID},
-            }],
-            undoOperations: [],
-        }],
+    return ensureCalendarRecurrenceStorage({
+        protyle: options.protyle,
+        calendarData,
+        mapping,
+        avID,
+        blockID,
+        viewID,
+        storageRequired: Boolean(recurrenceRaw),
     });
-    if (response?.code !== 0) {
-        return mapping;
-    }
-    const hiddenField = (id: string, name: string): IAVColumn => ({
-        id, name, type: "text", hidden: true, icon: "", wrap: false, desc: "",
-        calc: undefined, numberFormat: "", template: "", pin: false, width: "", align: "",
-    });
-    calendarData.fields.push(hiddenField(recurrenceFieldID, "__calendar_recurrence"), hiddenField(exceptionFieldID, "__calendar_recurrence_exceptions"));
-    calendarData.fieldMapping = {...calendarData.fieldMapping, recurrenceFieldID, exceptionFieldID};
-    return {...mapping, recurrenceFieldID, exceptionFieldID};
 };
 
 const saveEventWithScope = async (dialog: Dialog, options: IEventDialogOptions, scope: CalendarRecurrenceScope) => {

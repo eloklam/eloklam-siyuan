@@ -1220,7 +1220,6 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             anchor: miniMonthAnchor,
             range,
             weekStart,
-            eventDays: getCalendarMiniMonthEventDays(miniMonthEvents),
             locale: getCalendarLocale(),
         },
         {onSelectDate: (date) => setCalendarAnchor(date)},

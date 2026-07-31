@@ -17,10 +17,13 @@ const requiredFiles = [
   "app/src/protyle/render/av/calendar/model.ts",
   "app/src/protyle/render/av/calendar/normalize.ts",
   "app/src/protyle/render/av/calendar/recurrence.ts",
+  "app/src/protyle/render/av/calendar/ics.ts",
   "app/src/protyle/render/av/calendar/mapped-fields.ts",
+  "app/src/protyle/render/av/calendar/recurrence-storage.ts",
   "app/src/protyle/render/av/calendar/transactions.ts",
   "app/src/protyle/render/av/calendar/render.ts",
   "app/src/protyle/render/av/calendar/event-dialog.ts",
+  "app/src/protyle/render/av/layout.ts",
   // The Week/Day time grid moved out of render.ts (G1-G5). These files are part
   // of the audited frontend surface so the terms migrated below keep covering
   // real code instead of silently evaporating with the code that moved.
@@ -42,6 +45,7 @@ const requiredFiles = [
   "app/src/layout/util.ts",
   "scripts/calendar-kernel-smoke.mjs",
   "scripts/calendar-recurrence-smoke.mjs",
+  "scripts/calendar-ics-import-smoke.mjs",
   "scripts/calendar-transactions-smoke.mjs",
   "scripts/calendar-electron-launch-smoke.mjs",
   "scripts/calendar-electron-document-flow-smoke.mjs",
@@ -78,6 +82,9 @@ const expectedFeatureTerms = [
   "deleteCalendarOccurrence",
   "expandRecurrences",
   "parseRecurrence",
+  "parseICSCalendar",
+  "calendar-import-ics",
+  "ensureCalendarRecurrenceStorage",
   "calendar-search",
   "calendar-filter",
   "calendar-clear-search",
@@ -311,9 +318,10 @@ for (const term of [
   "deleteCalendarEventWithScope",
   "getDisabledRecurrenceScopes(mapping, \"delete\", sourceEvent)",
   "action: \"delete\",",
-  // The mini month: bound, torn down, and anchored on a click.
+  // The mini month stays bound and anchored on a click; event-day collection is
+  // reserved for the Year view, not rendered as dots in the left navigator.
   "bindCalendarMiniMonth(",
-  "getCalendarMiniMonthEventDays(miniMonthEvents)",
+  "getCalendarMiniMonthEventDays(events)",
   "onSelectDate: (date) => setCalendarAnchor(date)",
   "calendar-mini-month-wrapper",
   "av__calendar-sidebar",
@@ -557,9 +565,7 @@ for (const term of [
   "av__calendar-mini-day--in-range",
   "av__calendar-mini-day--selected",
   "av__calendar-mini-day--today",
-  "av__calendar-mini-day--has-events",
   "av__calendar-mini-day-number",
-  "av__calendar-mini-dot",
   "calendar-mini-prev",
   "calendar-mini-next",
   "calendar-mini-day",
@@ -694,9 +700,15 @@ for (const term of [
   }
 }
 const eventDialogCode = read("app/src/protyle/render/av/calendar/event-dialog.ts");
-for (const term of ["ensureRecurrenceStorage", "__calendar_recurrence", "calendar-recurrence-end", "calendar-field-value"]) {
+for (const term of ["ensureRecurrenceStorage", "calendar-recurrence-end", "calendar-field-value"]) {
   if (!eventDialogCode.includes(term)) {
     fail(`calendar dialog missing direct recurrence or dynamic field support: ${term}`);
+  }
+}
+const recurrenceStorageCode = read("app/src/protyle/render/av/calendar/recurrence-storage.ts");
+for (const term of ["__calendar_recurrence", "__calendar_recurrence_exceptions", "renderAttributeView"]) {
+  if (!recurrenceStorageCode.includes(term)) {
+    fail(`calendar recurrence storage missing persisted read-back support: ${term}`);
   }
 }
 
@@ -816,9 +828,7 @@ for (const term of [
   "&--in-range",
   "&--selected",
   "&--today",
-  "&-mini-day--has-events",
   "&-mini-day-number",
-  "&-mini-dot",
   "&-sidebar",
   "&-main",
   // The mini calendar remains visible beside the main calendar.

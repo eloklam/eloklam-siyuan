@@ -1014,8 +1014,9 @@ export const createCalendarEventAsDocument = async (options: ICalendarCreateOpti
 
 
 /**
- * Deleting the page behind an entry. Confirm-gated by the caller: the calendar's
- * undo stack cannot restore a document.
+ * Deleting the page behind an entry. The caller exposes this as a separate,
+ * explicit page-removal action because the calendar's undo stack cannot restore
+ * a document.
  * Endpoint verified against kernel/api/router.go:150 ->
  * kernel/api/filetree.go:622 removeDocByID, which takes {id}.
  */

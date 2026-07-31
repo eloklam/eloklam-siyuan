@@ -2,10 +2,14 @@ import {transaction} from "../../wysiwyg/transaction";
 import {Constants} from "../../../constants";
 import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {fetchSyncPost} from "../../../util/fetch";
+import {showMessage} from "../../../dialog/message";
 import {setPosition} from "../../../util/setPosition";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
+import {parseICSCalendar} from "./calendar/ics";
 import {getCalendarFieldMapping, isCalendarRecurrenceStorageField} from "./calendar/mapped-fields";
+import {ensureCalendarRecurrenceStorage} from "./calendar/recurrence-storage";
+import {createCalendarEvent, createCalendarEventAsDocument, ICalendarCreateOptions} from "./calendar/transactions";
 
 const getCalendarLocale = () => window.siyuan.config.lang;
 
@@ -179,6 +183,12 @@ export const getLayoutHTML = (data: IAV) => {
             <input class="b3-text-field fn__flex-1" data-type="calendar-new-field-name" placeholder="${escapeAttr(window.siyuan.languages.addField || window.siyuan.languages.fields || "Add field")}">
             <button class="b3-button b3-button--outline" type="button" data-type="calendar-add-visible-field">+</button>
         </div>
+        <div class="fn__hr"></div>
+        <button class="b3-button b3-button--outline fn__block" type="button" data-type="calendar-import-ics-button" style="position: relative">
+            <input class="b3-form__upload" type="file" accept=".ics,text/calendar" data-type="calendar-import-ics" aria-label="${escapeAttr(`${window.siyuan.languages.import || "Import"} ICS`)}">
+            <svg><use xlink:href="#iconDownload"></use></svg>${escapeHtml(window.siyuan.languages.import || "Import")} ICS
+        </button>
+        <div class="ft__on-surface ft__smaller" data-type="calendar-import-ics-status" aria-live="polite"></div>
     </div>
 </div>`;
     }
@@ -325,6 +335,97 @@ export const bindLayoutEvent = (options: {
     });
 };
 
+const importCalendarICS = async (options: {
+    protyle: IProtyle,
+    data: IAV,
+    menuElement: HTMLElement
+    blockElement: Element
+}, avID: string, blockID: string, viewID: string, input: HTMLInputElement) => {
+    const file = input.files?.[0];
+    if (!file) {
+        return;
+    }
+    const button = input.closest('[data-type="calendar-import-ics-button"]') as HTMLButtonElement;
+    const status = options.menuElement.querySelector('[data-type="calendar-import-ics-status"]') as HTMLElement;
+    input.disabled = true;
+    if (button) {
+        button.disabled = true;
+    }
+    try {
+        const events = parseICSCalendar(await file.text());
+        if (events.length === 0) {
+            const message = `${window.siyuan.languages.import || "Import"}: ${window.siyuan.languages.empty || "Empty"}`;
+            status.textContent = message;
+            showMessage(message, 6000, "error");
+            return;
+        }
+        const calendarView = options.data.view as IAVCalendar;
+        let mapping = getCalendarFieldMapping(calendarView);
+        if (!mapping.dateFieldID) {
+            const message = window.siyuan.languages.calendarNeedDateField || window.siyuan.languages.dateField || "Calendar requires a date field";
+            status.textContent = message;
+            showMessage(message, 6000, "error");
+            return;
+        }
+        const needsRecurrenceStorage = events.some(event => event.draft.recurrenceRaw || event.draft.recurrenceExceptionRaw);
+        mapping = await ensureCalendarRecurrenceStorage({
+            protyle: options.protyle,
+            calendarData: calendarView,
+            mapping,
+            avID,
+            blockID,
+            viewID,
+            storageRequired: needsRecurrenceStorage,
+        });
+        if (needsRecurrenceStorage && (!mapping.recurrenceFieldID || !mapping.exceptionFieldID)) {
+            const message = window.siyuan.languages.calendarCreateFailed || "Create failed.";
+            status.textContent = message;
+            showMessage(message, 6000, "error");
+            return;
+        }
+        const createsDocuments = getCalendarNewItemTarget(calendarView) === CALENDAR_NEW_ITEM_TARGET_DOCUMENT;
+        let imported = 0;
+        for (const event of events) {
+            const createOptions: ICalendarCreateOptions = {
+                protyle: options.protyle,
+                avID,
+                blockID,
+                viewID,
+                dateFieldID: mapping.dateFieldID,
+                fields: calendarView.fields,
+                mapping,
+                draft: {
+                    ...event.draft,
+                    title: event.draft.title || window.siyuan.languages.untitled,
+                },
+                previousUpdated: options.blockElement.getAttribute("updated") || "",
+            };
+            const created = createsDocuments ?
+                Boolean(await createCalendarEventAsDocument({...createOptions, templateID: options.data.defaultTemplateID || ""})) :
+                await createCalendarEvent(createOptions);
+            if (created) {
+                imported++;
+            }
+            status.textContent = `${window.siyuan.languages.import || "Import"}: ${imported}/${events.length}`;
+        }
+        options.blockElement.removeAttribute("data-render");
+        const message = `${window.siyuan.languages.imported || "Import completed"}: ${imported}/${events.length}`;
+        status.textContent = message;
+        showMessage(message, imported === events.length ? 3000 : 6000, imported === events.length ? undefined : "error");
+    } catch (error) {
+        console.error("Importing ICS failed", error);
+        const message = window.siyuan.languages.calendarCreateFailed || "Create failed.";
+        status.textContent = message;
+        showMessage(message, 6000, "error");
+    } finally {
+        input.value = "";
+        input.disabled = false;
+        if (button) {
+            button.disabled = false;
+        }
+    }
+};
+
 const bindCalendarLayoutEvent = (options: {
     protyle: IProtyle,
     data: IAV,
@@ -460,6 +561,10 @@ const bindCalendarLayoutEvent = (options: {
             event.preventDefault();
             addVisibleField();
         }
+    });
+    const importICSInput = options.menuElement.querySelector('[data-type="calendar-import-ics"]') as HTMLInputElement;
+    importICSInput?.addEventListener("change", () => {
+        void importCalendarICS(options, avID, blockID, viewID, importICSInput);
     });
 };
 
