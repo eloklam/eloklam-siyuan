@@ -55,6 +55,14 @@ const startOfCalendarWeek = (date: dayjs.Dayjs, weekStart = 0) => {
 
 const endOfCalendarWeek = (date: dayjs.Dayjs, weekStart = 0) => startOfCalendarWeek(date, weekStart).add(6, "day").endOf("day");
 
+export const getISOCalendarWeekNumber = (date: dayjs.Dayjs) => {
+    const target = new Date(Date.UTC(date.year(), date.month(), date.date()));
+    const weekday = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - weekday);
+    const yearStart = Date.UTC(target.getUTCFullYear(), 0, 1);
+    return Math.ceil((((target.getTime() - yearStart) / 86400000) + 1) / 7);
+};
+
 const CALENDAR_VIEW_MODES = [0, 1, 2, 3, 4, 5];
 
 const getSafeViewMode = (viewMode?: number) => CALENDAR_VIEW_MODES.includes(viewMode || 0) ? viewMode || 0 : 0;
@@ -606,6 +614,8 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true, 
     const expandAllDay = blockElement.dataset.calendarAllDayExpanded === "true";
     const searchFilterID = `calendar-search-filter-${blockElement.getAttribute("data-node-id") || blockElement.getAttribute("data-av-id") || "view"}`;
     const title = getCalendarTitle(safeAnchor, range, viewMode);
+    const weekNumber = getISOCalendarWeekNumber(safeAnchor);
+    const weekNumberLabel = (window.siyuan.languages.calendarWeekNumber || "Week ${x}").replace("${x}", String(weekNumber));
     let body = hasSearchQuery ? renderList(range, events, true, editable) : renderMonth(safeAnchor, range, events, weekStart, editable);
     if (!hasSearchQuery && viewMode === 1) {
         body = renderWeek(range, events, editable, expandAllDay);
@@ -627,6 +637,7 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true, 
         <button class="block__icon block__icon--show" data-type="calendar-next" aria-keyshortcuts="ArrowRight"><svg><use xlink:href="#iconRight"></use></svg></button>
         <div class="av__calendar-title-control">
             <span class="av__calendar-title" aria-live="polite">${escapeHtml(title)}</span>
+            <span class="av__calendar-week-number">${escapeHtml(weekNumberLabel)}</span>
         </div>
         <div class="av__calendar-search-control" data-type="calendar-search-control">
             <input class="b3-text-field av__calendar-search" data-type="calendar-search" role="combobox" aria-autocomplete="none" aria-controls="${escapeAttr(searchFilterID)}" aria-expanded="false" aria-keyshortcuts="/" placeholder="${window.siyuan.languages.calendarSearch || window.siyuan.languages.search || "Search"}" value="${escapeAttr(search)}">

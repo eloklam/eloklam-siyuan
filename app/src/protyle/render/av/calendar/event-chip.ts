@@ -29,15 +29,11 @@ export const formatCalendarDate = (date: dayjs.Dayjs, options: Intl.DateTimeForm
 };
 
 export const getOpenPageLabel = () => {
-    if (window.siyuan.languages.openBy && window.siyuan.languages.doc) {
-        return `${window.siyuan.languages.openBy} ${window.siyuan.languages.doc}`;
-    }
     return window.siyuan.languages.calendarOpenSource || "Open page";
 };
 
 export const getOpenScheduleLabel = () => {
-    const scheduleLabel = window.siyuan.languages.calendarSchedule || "Schedule";
-    return window.siyuan.languages.edit ? `${window.siyuan.languages.edit} ${scheduleLabel}` : scheduleLabel;
+    return window.siyuan.languages.calendarEditEvent || "Edit event";
 };
 
 export const getEventDateLabel = (event: ICalendarNormalizedEvent) => {

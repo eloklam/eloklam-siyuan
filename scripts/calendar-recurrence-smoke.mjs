@@ -131,6 +131,11 @@ try {
   const dayjs = requireFromApp("dayjs");
   const {getCalendarFieldMapping} = await import(path.join(tempDir, "mapped-fields.js"));
   const {normalizeCalendarEvents} = await import(path.join(tempDir, "normalize.js"));
+  const {shouldResetCustomWeekdays} = await import(path.join(tempDir, "recurrence.js"));
+
+  if (!shouldResetCustomWeekdays("weekly", "custom") || shouldResetCustomWeekdays("custom", "custom") || shouldResetCustomWeekdays("weekly", "daily")) {
+    fail("preset-to-custom weekday reset decision is incorrect");
+  }
 
   const calendar = {
     dateFieldID: "date",

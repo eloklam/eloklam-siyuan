@@ -1752,7 +1752,11 @@ img.av__cellassetimg {
   }
 
   &-title-control {
+    align-items: center;
+    display: flex;
     flex: 1 1 180px;
+    gap: 8px;
+    justify-content: center;
     min-width: 160px;
     position: relative;
   }
@@ -1764,9 +1768,7 @@ img.av__cellassetimg {
     font-size: 15px;
     font-weight: 600;
     gap: 6px;
-    justify-content: center;
     text-align: center;
-    width: 100%;
 
     svg {
       height: 13px;
@@ -1775,8 +1777,17 @@ img.av__cellassetimg {
     }
   }
 
+  &-week-number {
+    color: var(--b3-theme-on-surface);
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
   &-search-control {
-    flex: 1 1 180px;
+    flex: 0 1 192px;
+    max-width: 192px;
     min-width: 120px;
     position: relative;
   }

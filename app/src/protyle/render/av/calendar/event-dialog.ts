@@ -10,6 +10,7 @@ import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getCalendarFieldMapping, isCalendarRecurrenceStorageField} from "./mapped-fields";
 import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from "./model";
 import {CalendarRecurrencePreset, describeRecurrence, detectRecurrencePreset, getRecurrencePresetRule, renderRecurrencePresetOptions} from "./recurrence-summary";
+import {shouldResetCustomWeekdays} from "./recurrence";
 import {ensureCalendarRecurrenceStorage} from "./recurrence-storage";
 import {createCalendarEvent, createCalendarEventAsDocument, createCalendarEventReplacingOccurrence, deleteCalendarEvent, deleteCalendarEventDocument, deleteCalendarOccurrence, updateCalendarEvent, updateCalendarEventThisAndFuture} from "./transactions";
 
@@ -455,14 +456,22 @@ const bindFormEvents = (dialog: Dialog, options: IEventDialogOptions) => {
     };
     dialog.element.querySelectorAll('input[name="calendar-recurrence-end"]').forEach(item => item.addEventListener("change", updateRecurrenceEnd));
     updateRecurrenceEnd();
+    let previousPreset = presetSelect?.value as CalendarRecurrencePreset;
     presetSelect?.addEventListener("change", () => {
         const preset = presetSelect.value as CalendarRecurrencePreset;
         if (customRow) {
             customRow.style.display = preset === "custom" ? "" : "none";
         }
+        if (shouldResetCustomWeekdays(previousPreset, preset)) {
+            dialog.element.querySelectorAll(CALENDAR_RECURRENCE_WEEKDAY_SELECTOR).forEach(item => {
+                const checkbox = item as HTMLInputElement;
+                checkbox.checked = false;
+            });
+        }
         if (preset !== "custom") {
             writeRecurrenceRuleToControls(dialog, getRecurrencePresetRule(preset));
         }
+        previousPreset = preset;
         updateWeekdayVisibility();
         updateRecurrenceSummary();
     });
@@ -618,25 +627,28 @@ export const openRecurrenceScopeDialog = (options: {
         {scope: "occurrence", title: window.siyuan.languages.calendarRecurrenceScopeOccurrence || "This occurrence", description: window.siyuan.languages.calendarRecurrenceScopeOccurrenceDesc || "Only the selected occurrence."},
         {scope: "future", title: window.siyuan.languages.calendarThisAndFuture || "This and future", description: window.siyuan.languages.calendarRecurrenceScopeFutureDesc || "This occurrence and following items in the series."},
         {scope: "series", title: options.action === "delete" ?
-            (window.siyuan.languages.calendarDeleteSeries || "Delete series") :
+            (window.siyuan.languages.calendarDeleteSeries || "Delete all") :
             (window.siyuan.languages.calendarRecurrenceScopeSeries || "All events"), description: window.siyuan.languages.calendarRecurrenceScopeSeriesDesc || "Every item in the recurring series."},
     ];
+    const availableLabels = labels.filter(item => !options.disabledScopes[item.scope]);
+    if (availableLabels.length === 1 && options.action !== "delete") {
+        options.onSelect(availableLabels[0].scope);
+        return;
+    }
+    const isSingleDelete = availableLabels.length === 1 && options.action === "delete";
     const dialog = new Dialog({
         title,
         width: "420px",
         content: `<div class="b3-dialog__content av__calendar-scope">
-    <div class="ft__on-surface b3-form__space">${window.siyuan.languages.calendarRecurrenceScopePrompt || "Choose how far this change should apply."}</div>
-    ${labels.map(item => {
-        const disabledReason = options.disabledScopes[item.scope];
-        return `<button class="b3-button b3-button--outline av__calendar-scope-option" data-type="calendar-scope-${item.scope}"${disabledReason ? " disabled" : ""}>
+    ${isSingleDelete ? "" : `<div class="ft__on-surface b3-form__space">${window.siyuan.languages.calendarRecurrenceScopePrompt || "Choose how far this change should apply."}</div>
+    ${availableLabels.map(item => `<button class="b3-button b3-button--outline av__calendar-scope-option" data-type="calendar-scope-${item.scope}">
             <span class="av__calendar-scope-title">${escapeHtml(item.title)}</span>
-            <span class="av__calendar-scope-desc">${escapeHtml(disabledReason || item.description)}</span>
-        </button>`;
-    }).join("")}
-    <div class="b3-dialog__action"><button class="b3-button b3-button--cancel" data-type="calendar-scope-cancel">${window.siyuan.languages.cancel}</button></div>
+            <span class="av__calendar-scope-desc">${escapeHtml(item.description)}</span>
+        </button>`).join("")}`}
+    <div class="b3-dialog__action"><button class="b3-button b3-button--cancel" data-type="calendar-scope-cancel">${window.siyuan.languages.cancel}</button>${isSingleDelete ? `<span class="fn__space"></span><button class="b3-button b3-button--remove" data-type="calendar-scope-${availableLabels[0].scope}">${escapeHtml(availableLabels[0].title)}</button>` : ""}</div>
 </div>`,
     });
-    labels.forEach(item => {
+    availableLabels.forEach(item => {
         dialog.element.querySelector(`[data-type="calendar-scope-${item.scope}"]`)?.addEventListener("click", () => {
             dialog.destroy();
             options.onSelect(item.scope);

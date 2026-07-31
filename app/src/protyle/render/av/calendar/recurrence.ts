@@ -5,6 +5,9 @@ const isValidFreq = (value: string) => ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].
 const weekdayMap: { [key: string]: number } = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
 const supportedKeys = ["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"];
 
+export const shouldResetCustomWeekdays = (previousPreset?: string, nextPreset?: string) =>
+    nextPreset === "custom" && previousPreset !== "custom";
+
 const parseDateStrict = (value: string, format: string) => {
     const date = dayjs(value);
     return date.isValid() && date.format(format) === value ? date : undefined;

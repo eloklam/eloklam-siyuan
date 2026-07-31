@@ -16,12 +16,14 @@ const assert = (condition, message) => {
 
 assert(eventDialog.includes("type CalendarRecurrenceScope"), "missing explicit recurrence scope type");
 assert(eventDialog.includes("openRecurrenceScopeDialog"), "missing reusable recurrence scope dialog");
-assert(eventDialog.includes("calendar-scope-${item.scope}"), "missing recurrence scope option data types");
+assert(eventDialog.includes("availableLabels"), "scope dialog must derive the actually available options");
+assert(eventDialog.includes("labels.filter(item => !options.disabledScopes[item.scope])"), "unsupported recurrence scopes must be hidden instead of shown as technical disabled cards");
+assert(eventDialog.includes('availableLabels.length === 1 && options.action !== "delete"'), "single non-destructive scope must run directly without an unnecessary dialog");
+assert(eventDialog.includes('class="b3-button b3-button--remove" data-type="calendar-scope-${availableLabels[0].scope}"'), "single delete scope must render as one explicit destructive action");
 assert(eventDialog.includes('scope: "occurrence"'), "missing occurrence scope option");
 assert(eventDialog.includes('scope: "future"'), "missing this-and-future scope option");
 assert(eventDialog.includes('scope: "series"'), "missing series scope option");
-assert(eventDialog.includes('options.action === "delete" ?') && eventDialog.includes('calendarRecurrenceScopeSeries || "All events"'),
-  "edit scope must use All events while delete scope keeps Delete series");
+assert(eventDialog.includes('calendarDeleteSeries || "Delete all"'), "delete-all scope must use direct action wording");
 assert(eventDialog.includes("getDisabledRecurrenceScopes"), "missing disabled scope matrix helper");
 assert(eventDialog.includes("mapping.exceptionFieldID") && eventDialog.includes("calendarRecurrenceScopeOccurrenceDisabled"), "occurrence scope must require mapped exception field with visible reason");
 assert(eventDialog.includes("mapping.recurrenceFieldID") && eventDialog.includes("calendarRecurrenceScopeFutureDisabled"), "future scope must require mapped recurrence field with visible reason");
@@ -35,8 +37,8 @@ assert(runRecurringEventAction, "missing recurring action router implementation"
 assert(runRecurringEventAction[0].includes("isRecurringSourceEvent"), "root/source recurring event path must be detected before edit/delete");
 assert(!runRecurringEventAction[0].includes("if (!options.event?.isOccurrence) {\n        run(\"series\")"), "root/source recurring event must not silently run whole-series edit/delete");
 assert(runRecurringEventAction[0].includes("openRecurrenceScopeDialog"), "recurring root/source edit/delete must open the recurrence scope dialog");
-assert(eventDialog.includes("calendarRecurrenceScopeRootOccurrenceDisabled"), "root/source recurrence scope dialog must truthfully disable unsupported single-occurrence root edit/delete");
-assert(eventDialog.includes("calendarRecurrenceScopeRootFutureDisabled"), "root/source recurrence scope dialog must truthfully disable unsupported this-and-future root edit/delete");
+assert(eventDialog.includes("calendarRecurrenceScopeRootOccurrenceDisabled"), "root/source recurrence capability matrix must remain explicit in code");
+assert(eventDialog.includes("calendarRecurrenceScopeRootFutureDisabled"), "root/source future capability matrix must remain explicit in code");
 
 assert(scss.includes("&-scope") && scss.includes("&-scope-option"), "missing recurrence scope dialog styles");
 

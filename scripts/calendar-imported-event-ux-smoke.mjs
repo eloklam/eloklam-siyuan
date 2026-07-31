@@ -71,6 +71,13 @@ assert(german.calendarRepeatUntilSuffix === " bis ${x}" && german.calendarRepeat
 assert(eventDialog.includes('let rememberedTimedStart = allDayCheckbox.checked ? "09:00"'), "all-day events need a sane timed-start default when converted");
 assert(eventDialog.includes('let rememberedTimedEnd = allDayCheckbox.checked ? "10:00"'), "all-day events need a sane timed-end default when converted");
 assert(eventDialog.includes('event.key === "Enter" && !event.isComposing'), "IME composition Enter must not submit the editor");
+assert(eventDialog.includes("let previousPreset = presetSelect?.value"), "preset-to-custom transitions must track the previous recurrence preset");
+assert(eventDialog.includes("shouldResetCustomWeekdays(previousPreset, preset)"), "entering Custom from a preset must reset preset-derived weekdays");
+assert(eventDialog.includes("checkbox.checked = false"), "preset-derived weekday checkboxes must be cleared before custom weekday selection");
+assert(render.includes("getISOCalendarWeekNumber"), "calendar toolbar must calculate an ISO calendar week number");
+assert(render.includes('class="av__calendar-week-number"'), "calendar week number must render after the date title");
+assert(scss.includes("flex: 0 1 192px") && scss.includes("max-width: 192px"), "search control must use the measured half-width target");
+assert(eventChip.includes('calendarEditEvent || "Edit event"'), "right-click editor action must use the unified event terminology");
 const saveEventSource = eventDialog.slice(eventDialog.indexOf("const saveEvent = async"), eventDialog.indexOf("const saveFutureEvent = async"));
 assert(saveEventSource.indexOf("showInvalidDraftMessage") < saveEventSource.indexOf("ensureRecurrenceStorage"), "validation must run before recurrence storage can mutate the AV schema");
 assert(eventDialog.includes('options.action === "delete" ?'), "delete and edit series labels must be distinct");
