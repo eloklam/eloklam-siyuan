@@ -52,6 +52,7 @@ assert(eventDialog.includes('id="av-event-schedule"'), "event editor needs one e
 assert(eventDialog.includes("av__calendar-dialog-schedule--all-day"), "all-day mode must hide time fields without separating endpoint dates");
 assert(!eventDialog.includes('id="av-event-time-row"'), "event editor must not restore a detached time-only row");
 assert(!eventDialog.includes('data-type="event-title-hint"'), "bound event titles must not repeat the rename-document hint below an existing title");
+assert(eventDialog.includes('window.siyuan.languages.calendarRecurrence || "Recurrence"'), "recurrence row label must use the noun translation");
 assert(eventDialog.includes('options.action === "delete" ?'), "delete and edit series labels must be distinct");
 assert(eventDialog.includes("preset !== \"custom\""), "recurrence preset must override hidden custom controls");
 assert(eventDialog.includes("getRecurrencePresetRule(preset)"), "Does not repeat must save an empty recurrence rule");

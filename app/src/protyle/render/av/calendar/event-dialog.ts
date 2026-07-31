@@ -349,7 +349,7 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
         <input class="b3-text-field fn__block" id="av-event-field-${escapeAttr(field.id)}" data-type="calendar-field-value" data-field-id="${escapeAttr(field.id)}" value="${escapeAttr(event?.fieldValues?.[field.id] || draft?.fieldValues?.[field.id] || "")}"${disabledAttr}>
     </div>`).join("")}
     <div class="b3-form__space av__calendar-dialog-field">
-        <label class="ft__on-surface ft__smaller" for="av-event-recurrence-preset">${escapeHtml(window.siyuan.languages.calendarRepeat || "Repeat")}</label>
+        <label class="ft__on-surface ft__smaller" for="av-event-recurrence-preset">${escapeHtml(window.siyuan.languages.calendarRecurrence || "Recurrence")}</label>
         ${renderRecurrenceFields(event, readOnly, startDate)}
     </div>
     ${renderColorField(colorField, event, readOnly)}
