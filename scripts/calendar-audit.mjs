@@ -438,7 +438,6 @@ for (const term of [
   "draggable=\"${editable ? \"true\" : \"false\"}\"",
   "av__calendar-event--readonly",
   "av__calendar-event--page",
-  "av__calendar-event-dot",
   "av__calendar-event-title",
   "av__calendar-event-time",
   "av__calendar-event-meta",
@@ -467,6 +466,9 @@ for (const term of ["const recurrenceMarker", 'event.isOccurrence ? "O" : "R"', 
   if (calendarEventChip.includes(term)) {
     fail(`calendar event chip must not expose internal recurrence tags: ${term}`);
   }
+}
+if (calendarEventChip.includes("av__calendar-event-dot")) {
+  fail("calendar event chip must not render a leading colour dot beside event names");
 }
 
 // --- Chip context menu (where those inline buttons went) ---------------------
@@ -799,7 +801,6 @@ for (const term of [
   "&-now-indicator",
   "&-list",
   // Chip anatomy after the inline buttons were removed.
-  "&-event-dot",
   "&--timed",
   "&--all-day",
   "&--month,",
@@ -838,6 +839,9 @@ for (const term of [
   if (!avStyles.includes(term)) {
     fail(`calendar styles missing ${term}`);
   }
+}
+if (avStyles.includes("&-event-dot")) {
+  fail("calendar styles must not restore the leading event-name dot");
 }
 
 const kernelSmoke = read("scripts/calendar-kernel-smoke.mjs");

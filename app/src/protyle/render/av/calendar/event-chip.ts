@@ -113,8 +113,6 @@ export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
     const eventTooltip = getEventTooltip(event);
     const documentID = getEventDocumentID(event);
 
-    // The all-day shape is a filled bar, so a leading dot would be noise on it.
-    const dotMarker = variant === "all-day" ? "" : '<span class="av__calendar-event-dot" aria-hidden="true"></span>';
     const variantClass = ` av__calendar-event--${variant === "all-day" ? "all-day" : variant}`;
     const continuationClass = `${options.continuesBefore ? " av__calendar-event--continues-before" : ""}${options.continuesAfter ? " av__calendar-event--continues-after" : ""}`;
     const durationMinutes = event.isAllDay ? 24 * 60 : Math.max((event.end || event.start.add(30, "minute")).diff(event.start, "minute"), 0);
@@ -124,12 +122,12 @@ export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
         `${event.start.format("HH:mm")}–${(event.end || event.start.add(30, "minute")).format("HH:mm")}`;
     const secondary = event.location ? `<span class="av__calendar-event-meta">${escapeHtml(event.location)}</span>` : "";
     const content = variant === "month" ?
-        `${dotMarker}${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(`${multiDayPrefix}${event.title}`)}</span>` :
+        `${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(`${multiDayPrefix}${event.title}`)}</span>` :
         variant === "list" ?
-            `${dotMarker}<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.end && !event.start.isSame(event.end, "day") ? `<span class="av__calendar-event-meta">${escapeHtml(getEventDateLabel(event))}</span>` : secondary}` :
+            `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.end && !event.start.isSame(event.end, "day") ? `<span class="av__calendar-event-meta">${escapeHtml(getEventDateLabel(event))}</span>` : secondary}` :
             variant === "all-day" ?
                 `${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">→ ${(event.end || event.start.add(30, "minute")).format("HH:mm")}</span>`}` :
-                `${dotMarker}<span class="av__calendar-event-content"><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}${secondary}</span>`;
+                `<span class="av__calendar-event-content"><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}${secondary}</span>`;
     return `<button class="av__calendar-event${variantClass}${densityClass}${continuationClass}${editable ? "" : " av__calendar-event--readonly"}${documentID ? " av__calendar-event--page" : ""}${options.className ? ` ${options.className}` : ""}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-page="${escapeAttr(documentID)}" data-date="${options.displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" data-variant="${variant}" data-all-day="${event.isAllDay ? "true" : "false"}" data-time="${escapeAttr(event.isAllDay ? "" : event.start.format("HH:mm"))}" data-duration-minutes="${durationMinutes}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
     ${content}
 </button>`;

@@ -2129,8 +2129,7 @@ img.av__cellassetimg {
       padding-top: 1px;
 
       .av__calendar-event-time,
-      .av__calendar-event-meta,
-      .av__calendar-event-dot {
+      .av__calendar-event-meta {
         display: none;
       }
     }
@@ -2159,20 +2158,6 @@ img.av__cellassetimg {
       border-bottom-right-radius: 0;
       border-top-right-radius: 0;
     }
-  }
-
-  &-event-dot {
-    background-color: currentColor;
-    border-radius: 50%;
-    flex: 0 0 auto;
-    height: 7px;
-    margin-top: 4px;
-    width: 7px;
-  }
-
-  &-event--month &-event-dot,
-  &-event--list &-event-dot {
-    display: none;
   }
 
   &-event-content {

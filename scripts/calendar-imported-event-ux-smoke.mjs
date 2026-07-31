@@ -29,7 +29,8 @@ assert(render.includes('dataset.calendarAllDayExpanded = "true"'), "+x more must
 assert(render.includes('classList.contains("av__calendar-allday-cell")'), "empty all-day cells need a create action");
 assert(render.includes("startAllDayCreate"), "all-day empty-space creation must use one explicit entry point");
 
-assert(!eventChip.includes("const recurrenceMarker"), "recurrence O/R tags must be removed from event chips");
+assert(!eventChip.includes("const recurrenceMarker"), "recurrence O/R tags must not be rendered beside event names");
+assert(!eventChip.includes("av__calendar-event-dot"), "event names must not render a leading colour dot");
 assert(!eventChip.includes('event.isOccurrence ? "O" : "R"'), "event chips must not expose internal O/R tags");
 assert(!scss.includes("&-recurring"), "unused recurrence-tag styling must be removed");
 
