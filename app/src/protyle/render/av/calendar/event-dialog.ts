@@ -323,7 +323,6 @@ export const openEventDialog = (options: IEventDialogOptions): Dialog => {
     ${!readOnly && editsSeries ? `<div class="b3-form__space ft__on-surface ft__smaller">${window.siyuan.languages.calendarEditSeriesNotice || "This will edit the recurring series. Map an exception field to edit a single occurrence."}</div>` : ""}
     <div class="b3-form__space">
         <input class="b3-text-field fn__block" id="av-event-title" aria-label="${escapeAttr(documentID ? getRenamesPageHint() : (window.siyuan.languages.title || "Title"))}" placeholder="${escapeAttr((event?.isTitleFallback ? event.title : "") || window.siyuan.languages.title || "Title")}" value="${escapeAttr((event?.isTitleFallback ? "" : event?.title) || draft?.title || "")}"${disabledAttr}>
-        ${documentID ? `<div class="ft__on-surface ft__smaller" data-type="event-title-hint">${escapeHtml(getRenamesPageHint())}</div>` : ""}
     </div>
     <div class="b3-form__space av__calendar-dialog-schedule${isAllDay ? " av__calendar-dialog-schedule--all-day" : ""}" id="av-event-schedule">
         <div class="av__calendar-dialog-endpoint">
