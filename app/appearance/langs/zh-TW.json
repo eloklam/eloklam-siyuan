@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "建立日期欄位",
 	"calendarDeleteOccurrence": "刪除這次",
 	"calendarDeleteSeries": "刪除整串",
+	"calendarRecurrenceScopeSeries": "所有活動",
 	"calendarDaily": "每天",
 	"calendarWeekly": "每週",
 	"calendarMonthly": "每月",

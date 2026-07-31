@@ -119,10 +119,11 @@ const parseDateParts = (value: string) => {
 };
 
 const dateInTimeZone = (parts: ReturnType<typeof parseDateParts> & object, timeZone: string) => {
+    const resolvedTimeZone = timezoneAliases[timeZone] || timeZone;
     let timestamp = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
     try {
         const formatter = new Intl.DateTimeFormat("en-CA", {
-            timeZone,
+            timeZone: resolvedTimeZone,
             year: "numeric",
             month: "2-digit",
             day: "2-digit",
@@ -198,6 +199,39 @@ const normalizeRecurrenceRule = (value = "") => {
 const firstProperty = (properties: IICSProperty[], name: string) => properties.find(property => property.name === name);
 const allProperties = (properties: IICSProperty[], name: string) => properties.filter(property => property.name === name);
 
+// Exchange/Outlook commonly emits Windows timezone IDs. Thunderbird resolves
+// these to the same rules as IANA zones before it constructs an item.
+const timezoneAliases: {[key: string]: string} = {
+    "AUS Central Standard Time": "Australia/Darwin",
+    "Central Europe Standard Time": "Europe/Budapest",
+    "Cuba Standard Time": "America/Havana",
+    "Egypt Standard Time": "Africa/Cairo",
+    "Pacific SA Standard Time": "America/Santiago",
+    "Romance Standard Time": "Europe/Paris",
+    "Sri Lanka Standard Time": "Asia/Colombo",
+    "Taipei Standard Time": "Asia/Taipei",
+    "Tonga Standard Time": "Pacific/Tongatapu",
+    "W. Europe Standard Time": "Europe/Berlin",
+};
+
+/**
+ * Browser File.text() assumes UTF-8. Calendar exports in the wild still use
+ * legacy single-byte encodings, so decode the bytes explicitly before parsing.
+ * Thunderbird's importer accepts these files, including the Latin-1 fixture in
+ * calendar/test/unit/data/importLatin1.ics.
+ */
+export const decodeICSBytes = (bytes: ArrayBuffer | Uint8Array) => {
+    const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    for (const encoding of ["utf-8", "windows-1252", "iso-8859-1"]) {
+        try {
+            return new TextDecoder(encoding, {fatal: true}).decode(input);
+        } catch (_) {
+            // Try the next compatible encoding.
+        }
+    }
+    return new TextDecoder("utf-8").decode(input);
+};
+
 const buildImportEvent = (properties: IICSProperty[]): ICalendarICSImportEvent | undefined => {
     if (firstProperty(properties, "STATUS")?.value.trim().toUpperCase() === "CANCELLED") {
         return undefined;
@@ -267,5 +301,10 @@ export const parseICSCalendar = (source: string): ICalendarICSImportEvent[] => {
             }
         }
     });
-    return events;
+    const collator = new Intl.Collator(undefined, {numeric: true});
+    return events.sort((a, b) => {
+        const aStart = `${a.draft.date}T${a.draft.startTime || "00:00"}`;
+        const bStart = `${b.draft.date}T${b.draft.startTime || "00:00"}`;
+        return aStart.localeCompare(bStart) || collator.compare(a.draft.title, b.draft.title);
+    });
 };

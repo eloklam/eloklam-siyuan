@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Buat bidang tanggal",
 	"calendarDeleteOccurrence": "Hapus kejadian",
 	"calendarDeleteSeries": "Hapus seri",
+	"calendarRecurrenceScopeSeries": "Semua acara",
 	"calendarDaily": "Harian",
 	"calendarWeekly": "Mingguan",
 	"calendarMonthly": "Bulanan",

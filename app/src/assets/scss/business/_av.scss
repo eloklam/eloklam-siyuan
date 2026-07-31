@@ -2131,8 +2131,7 @@ img.av__cellassetimg {
 
       .av__calendar-event-time,
       .av__calendar-event-meta,
-      .av__calendar-event-dot,
-      .av__calendar-recurring {
+      .av__calendar-event-dot {
         display: none;
       }
     }
@@ -2145,6 +2144,11 @@ img.av__cellassetimg {
       background-color: var(--calendar-event-fill, var(--b3-theme-primary));
       color: var(--b3-theme-on-primary);
       font-weight: 500;
+
+      .av__calendar-event-title {
+        flex: 1;
+        min-width: 0;
+      }
     }
 
     &--continues-before {
@@ -2300,17 +2304,6 @@ img.av__cellassetimg {
     flex-shrink: 0;
     opacity: 0.72;
     padding-left: 4px;
-  }
-
-  &-recurring {
-    border: 1px solid currentColor;
-    border-radius: 6px;
-    flex: 0 0 auto;
-    font-size: 10px;
-    line-height: 14px;
-    min-width: 14px;
-    opacity: 0.78;
-    text-align: center;
   }
 
   &-recurrence {
@@ -2559,6 +2552,7 @@ img.av__cellassetimg {
 
   &-allday-cell {
     border-left: 1px solid var(--b3-border-color);
+    cursor: cell;
     min-width: 0;
 
     &.av__calendar-time-day--weekend {
@@ -2568,6 +2562,12 @@ img.av__cellassetimg {
     &.av__calendar-day--today {
       background-color: transparent;
       box-shadow: none;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: -2px;
+      z-index: 3;
     }
   }
 

@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Vytvoriť pole dátumu",
 	"calendarDeleteOccurrence": "Odstrániť výskyt",
 	"calendarDeleteSeries": "Odstrániť sériu",
+	"calendarRecurrenceScopeSeries": "Všetky udalosti",
 	"calendarDaily": "Denne",
 	"calendarWeekly": "Týždenne",
 	"calendarMonthly": "Mesačne",

@@ -31,7 +31,7 @@ try {
     });
     const outputFile = path.join(tempDir, "ics.js");
     fs.writeFileSync(outputFile, result.outputText);
-    const {parseICSCalendar} = requireFromApp(outputFile);
+    const {decodeICSBytes, parseICSCalendar} = requireFromApp(outputFile);
     const input = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -53,6 +53,12 @@ try {
       "SUMMARY:UTC meeting",
       "END:VEVENT",
       "BEGIN:VEVENT",
+      "UID:windows-tz@example.test",
+      "DTSTART;TZID=W. Europe Standard Time:20260804T090000",
+      "DTEND;TZID=W. Europe Standard Time:20260804T100000",
+      "SUMMARY:Windows timezone meeting",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
       "UID:cancelled@example.test",
       "STATUS:CANCELLED",
       "DTSTART;VALUE=DATE:20260809",
@@ -61,8 +67,8 @@ try {
       "END:VCALENDAR",
     ].join("\r\n");
     const events = parseICSCalendar(input);
-    if (events.length !== 2) fail(`expected 2 events, got ${events.length}`);
-    const allDay = events[0]?.draft;
+    if (events.length !== 3) fail(`expected 3 events, got ${events.length}`);
+    const allDay = events.find(event => event.draft.title === "Summer, planning")?.draft;
     if (allDay?.title !== "Summer, planning") fail("escaped summary was not decoded");
     if (allDay?.date !== "2026-08-03" || allDay?.endDate !== "2026-08-05" || !allDay?.isAllDay) {
       fail(`all-day range was not converted from exclusive DTEND: ${JSON.stringify(allDay)}`);
@@ -71,15 +77,37 @@ try {
     if (allDay?.location !== "Room; A") fail("escaped location was not decoded");
     if (allDay?.recurrenceRaw !== "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=4") fail(`unsupported RRULE keys were not filtered: ${allDay?.recurrenceRaw}`);
     if (allDay?.recurrenceExceptionRaw !== "2026-08-17,2026-08-31") fail(`EXDATE values were not normalized: ${allDay?.recurrenceExceptionRaw}`);
-    const timed = events[1]?.draft;
+    const timed = events.find(event => event.draft.title === "UTC meeting")?.draft;
     if (timed?.date !== "2026-07-31" || timed?.startTime !== "09:00" || timed?.endTime !== "10:30" || timed?.isAllDay) {
       fail(`UTC/DURATION event was not converted in Europe/Berlin: ${JSON.stringify(timed)}`);
     }
+    if (events[0]?.draft.title !== "UTC meeting" || events[1]?.draft.title !== "Summer, planning") {
+      fail(`ICS events were not sorted by start date: ${events.map(event => event.draft.title).join(", ")}`);
+    }
+    const windowsTimezone = events.find(event => event.draft.title === "Windows timezone meeting")?.draft;
+    if (windowsTimezone?.date !== "2026-08-04" || windowsTimezone.startTime !== "09:00" || windowsTimezone.endTime !== "10:00") {
+      fail(`Windows timezone ID was not resolved: ${JSON.stringify(windowsTimezone)}`);
+    }
+    const latin1Source = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "DTSTART:20260801T100000",
+      "DTEND:20260801T110000",
+      "SUMMARY:Event Två",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const latin1Bytes = Buffer.from(latin1Source, "latin1");
+    const latin1Events = parseICSCalendar(decodeICSBytes(latin1Bytes));
+    if (latin1Events[0]?.draft.title !== "Event Två") fail(`legacy Latin-1 ICS was not decoded: ${latin1Events[0]?.draft.title}`);
+    if (events[0]?.draft.date > events[1]?.draft.date) fail("ICS events were not sorted by start date");
     const layoutSource = fs.readFileSync(path.join(appDir, "src/protyle/render/av/layout.ts"), "utf8");
     for (const contract of [
       'data-type="calendar-import-ics"',
       'accept=".ics,text/calendar"',
       "parseICSCalendar",
+      "decodeICSBytes",
       "createCalendarEventAsDocument",
       "createCalendarEvent(createOptions)",
       "ensureCalendarRecurrenceStorage",

@@ -102,7 +102,6 @@ const expectedFeatureTerms = [
   "event-open-block",
   "openEventBlock",
   "getEventTooltip",
-  "av__calendar-recurring",
   "data-days",
   // was computeTimedEventColumns in render.ts, now the pure packer in layout-overlap.ts
   "packTimedEventColumns",
@@ -436,10 +435,6 @@ for (const term of [
   "title=\"${escapeAttr(eventTooltip)}\"",
   "aria-label=\"${escapeAttr(eventTooltip)}\"",
   "window.siyuan.languages.calendarOccurrence || \"Recurring occurrence\"",
-  "const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence",
-  "event.isOccurrence ? \"O\" : \"R\"",
-  "${recurrenceMarker}",
-  "av__calendar-recurring",
   "draggable=\"${editable ? \"true\" : \"false\"}\"",
   "av__calendar-event--readonly",
   "av__calendar-event--page",
@@ -466,6 +461,11 @@ for (const term of [">-15m<", ">+15m<", ">-1d<", ">+1d<", "av__calendar-resize\"
 for (const term of ["av__calendar-schedule", "calendar-open-dialog"]) {
   if (calendarEventChip.includes(term)) {
     fail(`calendar event chip must hide permanent action affordances: ${term}`);
+  }
+}
+for (const term of ["const recurrenceMarker", 'event.isOccurrence ? "O" : "R"', "av__calendar-recurring"]) {
+  if (calendarEventChip.includes(term)) {
+    fail(`calendar event chip must not expose internal recurrence tags: ${term}`);
   }
 }
 
@@ -787,7 +787,6 @@ for (const term of [
   "&-event",
   "&--readonly",
   "&-resize",
-  "&-recurring",
   "&-recurrence",
   "&-week",
   // &-day-view is gone: Week and Day are one renderer, so the day view is the
@@ -954,7 +953,7 @@ for (const term of [
   "futureDraft",
   "delete-occurrence",
   "av-event-recurrence-raw",
-  "FREQ=WEEKLY;INTERVAL=2;COUNT=3;UNTIL=2026-06-01;BYDAY=MO,WE",
+  "FREQ=WEEKLY;INTERVAL=2;COUNT=3;BYDAY=MO,WE",
   "search.dispatchEvent(new Event('input'",
   "new KeyboardEvent('keydown', {key: '[', bubbles: true})",
   "new KeyboardEvent('keydown', {key: ']', bubbles: true})",

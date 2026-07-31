@@ -413,6 +413,9 @@ exports.getAVLocateParams = () => undefined;
 exports.prepareAVLocate = () => undefined;
 exports.finishAVLocate = () => undefined;
 `);
+  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/recurrence-storage.js"), `
+exports.ensureCalendarRecurrenceStorage = async (options) => options.mapping;
+`);
   writeFile(path.join(tempDir, "src/protyle/render/av/calendar/event-dialog.js"), `
 // Pure helpers come from the compiled real module so the harness cannot drift
 // from production logic; only the dialog openers are replaced with recorders.
@@ -492,6 +495,9 @@ const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (item) => (
 exports.escapeHtml = escapeHtml;
 exports.escapeAttr = escapeHtml;
 `);
+  writeFile(path.join(tempDir, "src/protyle/render/av/calendar/recurrence-storage.js"), `
+exports.ensureCalendarRecurrenceStorage = async (options) => options.mapping;
+`);
   writeFile(path.join(tempDir, "src/protyle/render/av/calendar/transactions.js"), `
 const record = (type, payload) => {
   (globalThis.__calendarDialogTxCalls ||= []).push({type, payload});
@@ -518,7 +524,7 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
     const dialogModule = require(${JSON.stringify(dialogModule)});
     window.siyuan = window.siyuan || {};
     window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en'});
-    window.siyuan.languages = Object.assign({
+    window.siyuan.languages = Object.assign({}, window.siyuan.languages || {}, {
       allDay: 'All day',
       cancel: 'Cancel',
       color: 'Color',
@@ -541,7 +547,7 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
       calendarUntil: 'Until',
       calendarWeekly: 'Weekly',
       calendarYearly: 'Yearly',
-    }, window.siyuan.languages || {});
+    });
     window.Lute = window.Lute || {NewNodeID: () => 'dialog-generated-id'};
     globalThis.__calendarDialogTxCalls = [];
     globalThis.__calendarDialogMessages = [];
@@ -586,14 +592,18 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
     newDialog.element.querySelector('#av-event-start').value = '09:30';
     newDialog.element.querySelector('#av-event-end').value = '10:45';
     newDialog.element.querySelector('#av-event-end-date').value = '2026-06-02';
-    newDialog.element.querySelector('#av-event-location').value = 'Dialog Room';
-    newDialog.element.querySelector('#av-event-description').value = 'Dialog details';
+    newDialog.element.querySelector('#av-event-field-location').value = 'Dialog Room';
+    newDialog.element.querySelector('#av-event-field-description').value = 'Dialog details';
     newDialog.element.querySelector('#av-event-color').value = 'Focus';
+    newDialog.element.querySelector('#av-event-recurrence-preset').value = 'custom';
+    newDialog.element.querySelector('#av-event-recurrence-preset').dispatchEvent(new Event('change', {bubbles: true}));
     newDialog.element.querySelector('#av-event-recurrence-freq').value = 'WEEKLY';
     newDialog.element.querySelector('#av-event-recurrence-freq').dispatchEvent(new Event('change', {bubbles: true}));
     newDialog.element.querySelector('#av-event-recurrence-interval').value = '2';
+    const countEnd = newDialog.element.querySelector('input[name="calendar-recurrence-end"][value="count"]');
+    countEnd.checked = true;
+    countEnd.dispatchEvent(new Event('change', {bubbles: true}));
     newDialog.element.querySelector('#av-event-recurrence-count').value = '3';
-    newDialog.element.querySelector('#av-event-recurrence-until').value = '2026-05-01';
     newDialog.element.querySelector('[data-type="calendar-recurrence-weekday"][value="MO"]').checked = true;
     newDialog.element.querySelector('[data-type="calendar-recurrence-weekday"][value="WE"]').checked = true;
     const weekdayVisible = newDialog.element.querySelector('[data-type="calendar-weekday-row"]').style.display !== 'none';
@@ -672,8 +682,8 @@ const runCalendarDialogSmoke = async (debugPort, dialogModule) => {
   if (!result?.timeRowVisible || !result.weekdayVisible || !result.createDestroyed ||
     result.saves < 2 || draft.title !== "Dialog smoke event" || draft.date !== "2026-06-01" ||
     draft.endDate !== "2026-06-02" || draft.startTime !== "09:30" || draft.endTime !== "10:45" ||
-    draft.isAllDay !== false || draft.location !== "Dialog Room" || draft.description !== "Dialog details" ||
-    draft.colorContent !== "Focus" || draft.recurrenceRaw !== "FREQ=WEEKLY;INTERVAL=2;COUNT=3;UNTIL=2026-06-01;BYDAY=MO,WE" ||
+    draft.isAllDay !== false || draft.fieldValues?.location !== "Dialog Room" || draft.fieldValues?.description !== "Dialog details" ||
+    draft.colorContent !== "Focus" || draft.recurrenceRaw !== "FREQ=WEEKLY;INTERVAL=2;COUNT=3;BYDAY=MO,WE" ||
     !result.readOnlyDisabled || result.readOnlyHasSave || result.openedBlock !== "block-dialog" ||
     !result.scopeFutureEnabled || !result.scopeOccurrenceEnabled || result.futureDraft?.title !== "Future dialog event" || !result.futureDestroyed ||
     result.deleteOccurrenceType !== "delete-occurrence" || result.deletes !== 1 ||
@@ -707,7 +717,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const renderModule = require(${JSON.stringify(renderModule)});
     window.siyuan = window.siyuan || {};
     window.siyuan.config = Object.assign({}, window.siyuan.config || {}, {lang: 'en'});
-    window.siyuan.languages = Object.assign({
+    window.siyuan.languages = Object.assign({}, window.siyuan.languages || {}, {
       calendar: 'Calendar',
       month: 'Month',
       week: 'Week',
@@ -732,7 +742,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       copy: 'Copy',
       untitled: 'Untitled',
       _kernel: {29: 'Failed'}
-    }, window.siyuan.languages || {});
+    });
     const commonMenu = document.getElementById('commonMenu') || (() => {
       const menu = document.createElement('div');
       menu.id = 'commonMenu';
@@ -875,15 +885,11 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       throw new Error('calendar new bridge must exist but stay visually hidden');
     }
     calendarNewBridge.click();
-    const toolbarQuickTitleFocused = document.activeElement?.getAttribute('data-type') === 'calendar-quick-create-title';
-    const toolbarQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
-    host.querySelector('[data-type="calendar-quick-create-more"]').click();
     const toolbarNewDialog = globalThis.__calendarRenderDialogs.at(-1);
+    const toolbarDialogAllDay = toolbarNewDialog?.draft?.isAllDay === true;
     host.querySelector('.av__calendar-daynum[data-date="2026-05-26"]').click();
-    const dayQuickSummary = host.querySelector('[data-type="calendar-quick-create-summary"]')?.textContent || '';
-    const dayQuickAllDay = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true;
-    host.querySelector('[data-type="calendar-quick-create-more"]').click();
     const dayNewDialog = globalThis.__calendarRenderDialogs.at(-1);
+    const dayDialogAllDay = dayNewDialog?.draft?.isAllDay === true;
     // A bound entry previews scheduling on a single click and opens its real page
     // on double click. No permanent inline action icon is rendered.
     const openRowsBeforeClick = (globalThis.__calendarRenderOpenRows || []).length;
@@ -1015,16 +1021,12 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     }));
     clickAtNineOClock();
     await new Promise(resolve => setTimeout(resolve, 100));
-    const slotQuickTitle = host.querySelector('[data-type="calendar-quick-create-title"]');
-    const slotQuickTitleFocused = document.activeElement === slotQuickTitle;
-    const slotQuickTop = host.querySelector('.av__calendar-quick-create')?.style.getPropertyValue('--calendar-quick-create-top') || '';
-    const slotQuickSummary = host.querySelector('[data-type="calendar-quick-create-summary"]')?.textContent || '';
+    const slotCreateDialog = globalThis.__calendarRenderDialogs.at(-1);
+    const slotDialogOpened = globalThis.__calendarRenderDialogs.length === dialogCountBeforeSlot + 1;
+    const slotCreateDraft = slotCreateDialog?.draft;
+    const slotQuickSummary = slotCreateDraft ? slotCreateDraft.date + ' ' + slotCreateDraft.startTime + ' - ' + slotCreateDraft.endTime : '';
     createSurface.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
-    const slotDblclickDialogBlocked = globalThis.__calendarRenderDialogs.length === dialogCountBeforeSlot;
-    slotQuickTitle.value = 'Quick slot smoke';
-    host.querySelector('[data-type="calendar-quick-create-save"]').click();
-    await new Promise(resolve => setTimeout(resolve, 100));
-    const slotCreateCall = globalThis.__calendarRenderTxCalls.filter(call => call.type === 'create-document').find(call => call.payload?.draft?.title === 'Quick slot smoke');
+    const slotDblclickDialogBlocked = globalThis.__calendarRenderDialogs.length === dialogCountBeforeSlot + 1;
     await switchCalendarMode(2);
     const dayMode = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
     await switchCalendarMode(4);
@@ -1054,10 +1056,10 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     const modeAfterKeyboard = host.querySelector('.av__calendar')?.getAttribute('data-view-mode');
     const selectableCell = host.querySelector('.av__calendar-day[data-date="2026-05-27"]');
     selectableCell.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-    const selectedDateAfterClick = host.querySelector('[data-type="calendar-quick-create-summary"]')?.textContent || '';
-    const selectedClassApplied = !!host.querySelector('[data-type="calendar-quick-create-title"]');
-    const selectedJumpValue = host.querySelector('[data-type="calendar-quick-create-all-day"]')?.checked === true ? 'all-day' : '';
-    host.querySelector('[data-type="calendar-quick-create-cancel"]')?.click();
+    const selectedDialog = globalThis.__calendarRenderDialogs.at(-1);
+    const selectedDateAfterClick = selectedDialog?.date || '';
+    const selectedClassApplied = selectedDialog?.draft?.isAllDay === true;
+    const selectedJumpValue = selectedDialog?.draft?.isAllDay === true ? 'all-day' : '';
     await switchCalendarMode(2);
     // Day view is the same grid renderer with a one-day list; it identifies
     // itself with data-view-kind / data-first-date instead of .av__calendar-day-view.
@@ -1465,10 +1467,8 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       recurringCount,
       dataViewMode: calendarElement && calendarElement.getAttribute('data-view-mode'),
       tooltip,
-      toolbarQuickTitleFocused,
-      toolbarQuickAllDay,
-      dayQuickSummary,
-      dayQuickAllDay,
+      toolbarDialogAllDay,
+      dayDialogAllDay,
       dialogDates: globalThis.__calendarRenderDialogs.map(item => item.date),
       toolbarNewDate: toolbarNewDialog?.date || '',
       dayNewDate: dayNewDialog?.date || '',
@@ -1495,8 +1495,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       dragDraft: dragUpdateCall?.payload?.draft,
       persistedModeOperation: globalThis.__calendarRenderTransactions[0]?.doOperations?.[0]?.action || '',
       weekMode,
-      slotQuickTitleFocused,
-      slotQuickTop,
+      slotDialogOpened,
       scopeDialogActions: (globalThis.__calendarRenderScopeDialogs || []).map(item => item.action).join(','),
       scopeDialogDisabled: (globalThis.__calendarRenderScopeDialogs || []).map(item => (item.disabled?.occurrence ? '1' : '0') + (item.disabled?.future ? '1' : '0')).join(','),
       occurrenceMonthCount,
@@ -1560,8 +1559,8 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
       offRangeHintExists,
       offRangeEventCount,
       slotDblclickDialogBlocked,
-      slotCreateDraft: slotCreateCall?.payload?.draft,
-      slotCreateTemplateID: slotCreateCall?.payload?.templateID || '',
+      slotCreateDraft,
+      slotCreateTemplateID: slotCreateDialog?.templateID || '',
       dayMode,
       yearMode,
       yearMonthCount,
@@ -1634,9 +1633,9 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.viewMenuAccelerators !== "D,W,M,Y,A,X" || result.viewMenuSelectedID !== "calendar-view-0" ||
     result.hasSummary || !result.hasSearch || result.hasJumpDate || result.hasDatePickerTrigger || result.hasShortcutButton ||
     !result.eventText.includes("Calendar UI render smoke event") ||
-    !result.eventText.includes("Calendar none smoke event") || result.recurringCount < 1 ||
-    !result.tooltip.includes("Render Room") || !result.toolbarQuickTitleFocused || !result.toolbarQuickAllDay ||
-    !result.dayQuickAllDay || result.dayQuickSummary !== "2026-05-26" ||
+    !result.eventText.includes("Calendar none smoke event") || result.recurringCount !== 0 ||
+    !result.tooltip.includes("Render Room") || !result.toolbarDialogAllDay ||
+    !result.dayDialogAllDay ||
     result.toolbarNewDate !== "2026-05-24" ||
     result.dayNewDate !== "2026-05-26" || result.editDialogEventID !== "row-render" ||
     result.boundClickOpenedPage || !result.boundClickOpenedDialog || !result.boundDoubleClickOpenedPage ||
@@ -1653,9 +1652,7 @@ const runCalendarRenderSmoke = async (debugPort, renderModule) => {
     result.shiftDraft?.date !== "2026-05-25" ||
     result.menuDeleteEventID !== "row-detached" ||
     result.dragDraft?.date !== "2026-05-26" || result.dragDraft?.title !== "Calendar none smoke event" ||
-    result.weekMode !== "1" || !result.slotQuickTitleFocused ||
-    // pixel-exact popover anchor: 09:00 is 9 * 48px down the column
-    result.slotQuickTop !== "432px" ||
+    result.weekMode !== "1" || !result.slotDialogOpened ||
     result.scopeDialogActions !== "resize,resize,resize" ||
     result.scopeDialogDisabled !== "11,00,00" ||
     result.occurrenceMonthCount < 1 || result.occurrenceDate !== "2026-05-25" ||

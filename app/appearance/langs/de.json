@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Datumsfeld erstellen",
 	"calendarDeleteOccurrence": "Termin löschen",
 	"calendarDeleteSeries": "Serie löschen",
+	"calendarRecurrenceScopeSeries": "Alle Termine",
 	"calendarDaily": "Täglich",
 	"calendarWeekly": "Wöchentlich",
 	"calendarMonthly": "Monatlich",

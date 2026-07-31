@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Create date field",
 	"calendarDeleteOccurrence": "Delete occurrence",
 	"calendarDeleteSeries": "Delete series",
+	"calendarRecurrenceScopeSeries": "All events",
 	"calendarDaily": "Daily",
 	"calendarWeekly": "Weekly",
 	"calendarMonthly": "Monthly",

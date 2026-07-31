@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Utwórz pole daty",
 	"calendarDeleteOccurrence": "Usuń wystąpienie",
 	"calendarDeleteSeries": "Usuń serię",
+	"calendarRecurrenceScopeSeries": "Wszystkie wydarzenia",
 	"calendarDaily": "Codziennie",
 	"calendarWeekly": "Co tydzień",
 	"calendarMonthly": "Co miesiąc",

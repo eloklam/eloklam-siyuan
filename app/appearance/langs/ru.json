@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Создать поле даты",
 	"calendarDeleteOccurrence": "Удалить повторение",
 	"calendarDeleteSeries": "Удалить серию",
+	"calendarRecurrenceScopeSeries": "Все события",
 	"calendarDaily": "Ежедневно",
 	"calendarWeekly": "Еженедельно",
 	"calendarMonthly": "Ежемесячно",

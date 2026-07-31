@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "צור שדה תאריך",
 	"calendarDeleteOccurrence": "מחק מופע",
 	"calendarDeleteSeries": "מחק סדרה",
+	"calendarRecurrenceScopeSeries": "כל האירועים",
 	"calendarDaily": "יומי",
 	"calendarWeekly": "שבועי",
 	"calendarMonthly": "חודשי",

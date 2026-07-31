@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "날짜 필드 만들기",
 	"calendarDeleteOccurrence": "이 회차 삭제",
 	"calendarDeleteSeries": "시리즈 삭제",
+	"calendarRecurrenceScopeSeries": "모든 일정",
 	"calendarDaily": "매일",
 	"calendarWeekly": "매주",
 	"calendarMonthly": "매월",

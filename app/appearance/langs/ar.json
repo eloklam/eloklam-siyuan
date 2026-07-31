@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "إنشاء حقل تاريخ",
 	"calendarDeleteOccurrence": "حذف الظهور",
 	"calendarDeleteSeries": "حذف السلسلة",
+	"calendarRecurrenceScopeSeries": "كل الأحداث",
 	"calendarDaily": "يوميًا",
 	"calendarWeekly": "أسبوعيًا",
 	"calendarMonthly": "شهريًا",

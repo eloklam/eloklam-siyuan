@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "日付フィールドを作成",
 	"calendarDeleteOccurrence": "この回を削除",
 	"calendarDeleteSeries": "シリーズを削除",
+	"calendarRecurrenceScopeSeries": "すべての予定",
 	"calendarDaily": "毎日",
 	"calendarWeekly": "毎週",
 	"calendarMonthly": "毎月",

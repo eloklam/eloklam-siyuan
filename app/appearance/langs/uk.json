@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Створити поле дати",
 	"calendarDeleteOccurrence": "Видалити повторення",
 	"calendarDeleteSeries": "Видалити серію",
+	"calendarRecurrenceScopeSeries": "Усі події",
 	"calendarDaily": "Щодня",
 	"calendarWeekly": "Щотижня",
 	"calendarMonthly": "Щомісяця",

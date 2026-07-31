@@ -170,6 +170,9 @@ try {
         recurrence: "FREQ=WEEKLY;COUNT=4;BYDAY=MO,WE",
         exception: "2026-05-27",
       }),
+      card("byday-base", "BYDAY base smoke", "2026-05-26T15:00:00", "2026-05-26T16:00:00", {
+        recurrence: "FREQ=WEEKLY;COUNT=2;BYDAY=TH",
+      }),
     ],
   };
 
@@ -182,6 +185,7 @@ try {
   const {events, baseEventsByID} = normalizeCalendarEvents(calendar, mapping, range);
   const weekly = events.filter((event) => event.id === "weekly").map((event) => event.start.format("YYYY-MM-DD"));
   const byday = events.filter((event) => event.id === "byday").map((event) => event.start.format("YYYY-MM-DD"));
+  const bydayBase = events.filter((event) => event.id === "byday-base").map((event) => event.start.format("YYYY-MM-DD"));
   const none = events.filter((event) => event.id === "none");
 
   if (weekly.join(",") !== "2026-05-24,2026-06-07") {
@@ -189,6 +193,9 @@ try {
   }
   if (byday.join(",") !== "2026-05-25,2026-06-01,2026-06-03") {
     fail(`weekly BYDAY recurrence dates were ${byday.join(",")}`);
+  }
+  if (bydayBase.join(",") !== "2026-05-26,2026-05-28,2026-06-04") {
+    fail(`weekly BYDAY recurrence did not retain DTSTART: ${bydayBase.join(",")}`);
   }
   if (none.length !== 1 || none[0].recurrence || none[0].start.format("YYYY-MM-DD") !== "2026-05-25") {
     fail("None recurrence should normalize as a single non-recurring event");

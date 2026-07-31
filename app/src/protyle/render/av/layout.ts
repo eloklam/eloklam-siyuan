@@ -6,7 +6,7 @@ import {showMessage} from "../../../dialog/message";
 import {setPosition} from "../../../util/setPosition";
 import {getCardAspectRatio} from "./gallery/util";
 import {getFieldsByData} from "./view";
-import {parseICSCalendar} from "./calendar/ics";
+import {decodeICSBytes, parseICSCalendar} from "./calendar/ics";
 import {getCalendarFieldMapping, isCalendarRecurrenceStorageField} from "./calendar/mapped-fields";
 import {ensureCalendarRecurrenceStorage} from "./calendar/recurrence-storage";
 import {createCalendarEvent, createCalendarEventAsDocument, ICalendarCreateOptions} from "./calendar/transactions";
@@ -352,7 +352,7 @@ const importCalendarICS = async (options: {
         button.disabled = true;
     }
     try {
-        const events = parseICSCalendar(await file.text());
+        const events = parseICSCalendar(decodeICSBytes(await file.arrayBuffer()));
         if (events.length === 0) {
             const message = `${window.siyuan.languages.import || "Import"}: ${window.siyuan.languages.empty || "Empty"}`;
             status.textContent = message;

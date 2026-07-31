@@ -20,6 +20,8 @@ assert(eventDialog.includes("calendar-scope-${item.scope}"), "missing recurrence
 assert(eventDialog.includes('scope: "occurrence"'), "missing occurrence scope option");
 assert(eventDialog.includes('scope: "future"'), "missing this-and-future scope option");
 assert(eventDialog.includes('scope: "series"'), "missing series scope option");
+assert(eventDialog.includes('options.action === "delete" ?') && eventDialog.includes('calendarRecurrenceScopeSeries || "All events"'),
+  "edit scope must use All events while delete scope keeps Delete series");
 assert(eventDialog.includes("getDisabledRecurrenceScopes"), "missing disabled scope matrix helper");
 assert(eventDialog.includes("mapping.exceptionFieldID") && eventDialog.includes("calendarRecurrenceScopeOccurrenceDisabled"), "occurrence scope must require mapped exception field with visible reason");
 assert(eventDialog.includes("mapping.recurrenceFieldID") && eventDialog.includes("calendarRecurrenceScopeFutureDisabled"), "future scope must require mapped recurrence field with visible reason");

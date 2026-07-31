@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "दिनांक फ़ील्ड बनाएँ",
 	"calendarDeleteOccurrence": "यह आवृत्ति हटाएं",
 	"calendarDeleteSeries": "श्रृंखला हटाएं",
+	"calendarRecurrenceScopeSeries": "सभी इवेंट",
 	"calendarDaily": "दैनिक",
 	"calendarWeekly": "साप्ताहिक",
 	"calendarMonthly": "मासिक",

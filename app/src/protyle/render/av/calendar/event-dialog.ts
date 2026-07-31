@@ -261,6 +261,10 @@ const getRecurrenceFromDialog = (dialog: Dialog) => {
     if (rawInput) {
         return rawInput.value;
     }
+    const preset = (dialog.element.querySelector("#av-event-recurrence-preset") as HTMLSelectElement)?.value as CalendarRecurrencePreset;
+    if (preset && preset !== "custom") {
+        return getRecurrencePresetRule(preset);
+    }
     const freq = (dialog.element.querySelector("#av-event-recurrence-freq") as HTMLSelectElement)?.value;
     if (!freq) {
         return "";
@@ -598,7 +602,9 @@ export const openRecurrenceScopeDialog = (options: {
     const labels: Array<{scope: CalendarRecurrenceScope, title: string, description: string}> = [
         {scope: "occurrence", title: window.siyuan.languages.calendarRecurrenceScopeOccurrence || "This occurrence", description: window.siyuan.languages.calendarRecurrenceScopeOccurrenceDesc || "Only the selected occurrence."},
         {scope: "future", title: window.siyuan.languages.calendarThisAndFuture || "This and future", description: window.siyuan.languages.calendarRecurrenceScopeFutureDesc || "This occurrence and following items in the series."},
-        {scope: "series", title: window.siyuan.languages.calendarDeleteSeries || "Entire series", description: window.siyuan.languages.calendarRecurrenceScopeSeriesDesc || "Every item in the recurring series."},
+        {scope: "series", title: options.action === "delete" ?
+            (window.siyuan.languages.calendarDeleteSeries || "Delete series") :
+            (window.siyuan.languages.calendarRecurrenceScopeSeries || "All events"), description: window.siyuan.languages.calendarRecurrenceScopeSeriesDesc || "Every item in the recurring series."},
     ];
     const dialog = new Dialog({
         title,

@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "สร้างฟิลด์วันที่",
 	"calendarDeleteOccurrence": "ลบรายการครั้งนี้",
 	"calendarDeleteSeries": "ลบทั้งชุด",
+	"calendarRecurrenceScopeSeries": "กิจกรรมทั้งหมด",
 	"calendarDaily": "รายวัน",
 	"calendarWeekly": "รายสัปดาห์",
 	"calendarMonthly": "รายเดือน",

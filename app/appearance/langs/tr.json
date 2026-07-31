@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Tarih alanı oluştur",
 	"calendarDeleteOccurrence": "Yinelemeyi sil",
 	"calendarDeleteSeries": "Seriyi sil",
+	"calendarRecurrenceScopeSeries": "Tüm etkinlikler",
 	"calendarDaily": "Günlük",
 	"calendarWeekly": "Haftalık",
 	"calendarMonthly": "Aylık",

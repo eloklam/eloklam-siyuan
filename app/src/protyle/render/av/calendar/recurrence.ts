@@ -154,6 +154,21 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
         const expansionStart = getExpansionStart(range, duration);
         if (event.recurrence.freq === "WEEKLY" && event.recurrence.byDay?.length > 0) {
             let weekCursor = getAlignedRecurringWeekStart(event, expansionStart);
+            // DTSTART is always part of the recurrence set, even when BYDAY
+            // names a different weekday. Thunderbird keeps that base occurrence
+            // before adding the RRULE candidates and counts only candidates for
+            // COUNT. This matters for imported calendars such as DTSTART=TU with
+            // RRULE ... BYDAY=TH.
+            if (!isException(event.start) &&
+                !(event.end ? event.end.isBefore(range.start, "day") : event.start.isBefore(range.start, "day")) &&
+                !event.start.isAfter(range.end, "day")) {
+                expanded.push({
+                    ...event,
+                    isOccurrence: false,
+                    occurrenceID: `${event.id}:${event.start.format("YYYYMMDD")}`,
+                    baseEventID: event.id,
+                });
+            }
             let index = 0;
             while (!weekCursor.isAfter(range.end, "day")) {
                 const weeksFromStart = weekCursor.diff(event.start.startOf("week"), "week");
@@ -173,7 +188,8 @@ export const expandRecurrences = (events: ICalendarNormalizedEvent[], range: ICa
                         if (event.recurrence.until && occurrenceStart.isAfter(event.recurrence.until)) {
                             break;
                         }
-                        if (!isException(occurrenceStart) &&
+                        if (!occurrenceStart.isSame(event.start) &&
+                            !isException(occurrenceStart) &&
                             !occurrenceStart.isAfter(range.end, "day") &&
                             !(event.end ? occurrenceStart.add(duration, "millisecond").isBefore(range.start, "day") : occurrenceStart.isBefore(range.start, "day"))) {
                             expanded.push({

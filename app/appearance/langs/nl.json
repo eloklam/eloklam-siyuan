@@ -2242,6 +2242,7 @@
 	"calendarCreateDateField": "Datumveld aanmaken",
 	"calendarDeleteOccurrence": "Herhaling verwijderen",
 	"calendarDeleteSeries": "Reeks verwijderen",
+	"calendarRecurrenceScopeSeries": "Alle afspraken",
 	"calendarDaily": "Dagelijks",
 	"calendarWeekly": "Wekelijks",
 	"calendarMonthly": "Maandelijks",

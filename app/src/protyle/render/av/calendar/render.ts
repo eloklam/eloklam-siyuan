@@ -444,11 +444,12 @@ const renderMonth = (anchor: dayjs.Dayjs, range: ICalendarRange, events: ICalend
  * All the geometry, the overlap packing and the sticky chrome live there; this
  * file only supplies the chip markup and the locale-aware labels.
  */
-const renderTimeGridView = (days: dayjs.Dayjs[], events: ICalendarNormalizedEvent[], viewKind: "week" | "day" | "five-day", editable = true) =>
+const renderTimeGridView = (days: dayjs.Dayjs[], events: ICalendarNormalizedEvent[], viewKind: "week" | "day" | "five-day", editable = true, expandAllDay = false) =>
     renderCalendarTimeGrid({
         days,
         events,
         editable,
+        expandAllDay,
         geometry: getCalendarTimeGeometry(days.length),
         viewKind,
         labels: {
@@ -460,30 +461,30 @@ const renderTimeGridView = (days: dayjs.Dayjs[], events: ICalendarNormalizedEven
         // The grid decides where a chip sits; the chip decides what it looks
         // like. An all-day entry is a filled bar in the sticky lane, a timed one
         // is a dot + time + title block in the column.
-        renderEventChip: (event, day, chipEditable) => renderCalendarEventChip({
+        renderEventChip: (event, day, chipEditable, surface) => renderCalendarEventChip({
             event,
-            variant: event.isAllDay ? "all-day" : "timed",
+            variant: surface,
             displayDate: day,
             editable: chipEditable,
         }),
     });
 
-const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], editable = true) => {
+const renderWeek = (range: ICalendarRange, events: ICalendarNormalizedEvent[], editable = true, expandAllDay = false) => {
     const days: dayjs.Dayjs[] = [];
     let cursor = range.start.startOf("day");
     while (!cursor.isAfter(range.end, "day")) {
         days.push(cursor);
         cursor = cursor.add(1, "day");
     }
-    return `<div class="av__calendar-week">${renderTimeGridView(days, events, "week", editable)}</div>`;
+    return `<div class="av__calendar-week">${renderTimeGridView(days, events, "week", editable, expandAllDay)}</div>`;
 };
 
-const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[], editable = true) =>
-    `<div class="av__calendar-week av__calendar-week--single">${renderTimeGridView([anchor.startOf("day")], events, "day", editable)}</div>`;
+const renderDay = (anchor: dayjs.Dayjs, events: ICalendarNormalizedEvent[], editable = true, expandAllDay = false) =>
+    `<div class="av__calendar-week av__calendar-week--single">${renderTimeGridView([anchor.startOf("day")], events, "day", editable, expandAllDay)}</div>`;
 
-const renderFiveDay = (range: ICalendarRange, events: ICalendarNormalizedEvent[], editable = true) => {
+const renderFiveDay = (range: ICalendarRange, events: ICalendarNormalizedEvent[], editable = true, expandAllDay = false) => {
     const days = Array.from({length: 5}, (unused, index) => range.start.add(index, "day"));
-    return `<div class="av__calendar-week av__calendar-week--five-day">${renderTimeGridView(days, events, "five-day", editable)}</div>`;
+    return `<div class="av__calendar-week av__calendar-week--five-day">${renderTimeGridView(days, events, "five-day", editable, expandAllDay)}</div>`;
 };
 
 const getISOWeekNumber = (date: dayjs.Dayjs) => {
@@ -602,19 +603,20 @@ const getCalendarHTML = (data: IAV, blockElement: HTMLElement, editable = true, 
     const events = filteredEvents.filter(event => eventMatchesSearch(event, search));
     const hasLocalQuery = !!search || filter !== "all";
     const hasActiveQuery = !!search || filter !== "all" || !!databaseQuery;
+    const expandAllDay = blockElement.dataset.calendarAllDayExpanded === "true";
     const searchFilterID = `calendar-search-filter-${blockElement.getAttribute("data-node-id") || blockElement.getAttribute("data-av-id") || "view"}`;
     const title = getCalendarTitle(safeAnchor, range, viewMode);
     let body = hasSearchQuery ? renderList(range, events, true, editable) : renderMonth(safeAnchor, range, events, weekStart, editable);
     if (!hasSearchQuery && viewMode === 1) {
-        body = renderWeek(range, events, editable);
+        body = renderWeek(range, events, editable, expandAllDay);
     } else if (!hasSearchQuery && viewMode === 2) {
-        body = renderDay(safeAnchor, events, editable);
+        body = renderDay(safeAnchor, events, editable, expandAllDay);
     } else if (!hasSearchQuery && viewMode === 3) {
         body = renderList(range, events, true, editable, true);
     } else if (!hasSearchQuery && viewMode === 4) {
         body = renderYear(safeAnchor, events, weekStart, editable);
     } else if (!hasSearchQuery && viewMode === 5) {
-        body = renderFiveDay(range, events, editable);
+        body = renderFiveDay(range, events, editable, expandAllDay);
     }
 
     blockElement.dataset.baseEvents = JSON.stringify(Array.from(normalized.baseEventsByID.keys()));
@@ -842,6 +844,21 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
         setCalendarAnchor(dayjs());
     });
 
+    const startAllDayCreate = (surface: HTMLElement) => {
+        if (!editable) {
+            return;
+        }
+        const date = surface.dataset.date || dayjs().format("YYYY-MM-DD");
+        openFullCalendarCreate({
+            title: "",
+            date,
+            endDate: date,
+            isAllDay: true,
+            startTime: "09:00",
+            endTime: "09:30",
+        });
+    };
+
     calendarElement?.querySelectorAll('[data-type="calendar-drop-day"]').forEach(item => {
         item.addEventListener("click", (event: MouseEvent) => {
             if ((event.target as HTMLElement).closest(`.av__calendar-event, .av__calendar-quick-create, [data-type="${CALENDAR_TIME_CREATE_TYPE}"], button, input, select`)) {
@@ -849,6 +866,12 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             }
             const date = (item as HTMLElement).dataset.date;
             if (!date) {
+                return;
+            }
+            if ((item as HTMLElement).classList.contains("av__calendar-allday-cell")) {
+                event.preventDefault();
+                event.stopPropagation();
+                startAllDayCreate(item as HTMLElement);
                 return;
             }
             if (viewMode === 0 && (item as HTMLElement).classList.contains("av__calendar-day")) {
@@ -871,6 +894,15 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             calendarElement.querySelectorAll(".av__calendar-day--selected").forEach(selectedElement => selectedElement.classList.remove("av__calendar-day--selected"));
             (item as HTMLElement).classList.add("av__calendar-day--selected");
         });
+        if ((item as HTMLElement).classList.contains("av__calendar-allday-cell")) {
+            item.addEventListener("keydown", (event: KeyboardEvent) => {
+                if (event.key !== "Enter" && event.key !== " ") {
+                    return;
+                }
+                event.preventDefault();
+                startAllDayCreate(item as HTMLElement);
+            });
+        }
     });
     calendarElement?.querySelectorAll('[data-type="calendar-more"]').forEach(item => {
         item.addEventListener("click", (event: MouseEvent) => {
@@ -878,6 +910,11 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             event.stopPropagation();
             const date = (item as HTMLElement).dataset.date;
             if (!date) {
+                return;
+            }
+            if ((item as HTMLElement).classList.contains("av__calendar-allday-more")) {
+                options.blockElement.dataset.calendarAllDayExpanded = "true";
+                rerender(false, true);
                 return;
             }
             // Peek at the day locally without persisting the saved view mode.

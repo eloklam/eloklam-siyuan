@@ -49,12 +49,14 @@ export interface ICalendarTimeGridOptions {
     geometry: ICalendarTimeGeometry;
     viewKind: "week" | "day" | "five-day";
     labels: ICalendarTimeGridLabels;
+    /** Reveal every stacked all-day lane after the user activates +x more. */
+    expandAllDay?: boolean;
     /** Locale-aware short header, e.g. "Tue". */
     formatWeekday: (day: dayjs.Dayjs) => string;
     /** Locale-aware full date, used for aria-labels. */
     formatFullDate: (day: dayjs.Dayjs) => string;
     /** render.ts owns the chip markup; the grid only owns where it sits. */
-    renderEventChip: (event: ICalendarNormalizedEvent, day: dayjs.Dayjs, editable: boolean) => string;
+    renderEventChip: (event: ICalendarNormalizedEvent, day: dayjs.Dayjs, editable: boolean, surface: "timed" | "all-day") => string;
 }
 
 /** Grid classes/attributes other modules and the smokes may rely on. */
@@ -69,6 +71,17 @@ const isWeekend = (day: dayjs.Dayjs) => day.day() === 0 || day.day() === 6;
 
 const dayKey = (day: dayjs.Dayjs) => day.format("YYYY-MM-DD");
 
+/**
+ * A timed event spanning date boundaries is one continuous event. Drawing it in
+ * every timed column makes it look like a daily recurrence, so it belongs in the
+ * spanning lane alongside all-day events while retaining its exact timestamps.
+ */
+export const isMultiDayTimedEvent = (event: ICalendarNormalizedEvent) =>
+    !event.isAllDay && !!event.end && !event.start.isSame(event.end, "day");
+
+const belongsInAllDayLane = (event: ICalendarNormalizedEvent) =>
+    event.isAllDay || isMultiDayTimedEvent(event);
+
 /** Raw minute range of a timed event relative to one day column's midnight. */
 const getRawMinuteRange = (event: ICalendarNormalizedEvent, day: dayjs.Dayjs) => {
     const dayStart = day.startOf("day");
@@ -79,7 +92,7 @@ const getRawMinuteRange = (event: ICalendarNormalizedEvent, day: dayjs.Dayjs) =>
 
 const renderTimedEvents = (options: ICalendarTimeGridOptions, day: dayjs.Dayjs) => {
     const geometry = options.geometry;
-    const timedEvents = sortCalendarEvents(options.events.filter(event => !event.isAllDay && eventOverlapsDay(event, day)));
+    const timedEvents = sortCalendarEvents(options.events.filter(event => !belongsInAllDayLane(event) && eventOverlapsDay(event, day)));
     const ranges = new Map<string, ReturnType<typeof getEventMinuteRange>>();
     const layoutItems: ITimedLayoutItem[] = [];
     timedEvents.forEach(event => {
@@ -107,7 +120,7 @@ const renderTimedEvents = (options: ICalendarTimeGridOptions, day: dayjs.Dayjs) 
         // Pixel-exact: top/height come straight from the minute range, width/left
         // from the overlap packer. Nothing is snapped to a row.
         const style = `top:${range.topPx}px;height:${range.heightPx}px;left:${box.leftPercent}%;width:${box.widthPercent}%`;
-        return `<div class="${CALENDAR_TIMED_EVENT_CLASS}${continuation}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${dayKey(day)}" data-start-minute="${range.startMinute}" data-end-minute="${range.endMinute}" data-column="${box.column}" data-column-count="${box.columnCount}" data-column-span="${box.columnSpan}" style="${style}">${handles.start}${options.renderEventChip(event, day, options.editable)}${handles.end}</div>`;
+        return `<div class="${CALENDAR_TIMED_EVENT_CLASS}${continuation}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${dayKey(day)}" data-start-minute="${range.startMinute}" data-end-minute="${range.endMinute}" data-column="${box.column}" data-column-count="${box.columnCount}" data-column-span="${box.columnSpan}" style="${style}">${handles.start}${options.renderEventChip(event, day, options.editable, "timed")}${handles.end}</div>`;
     }).join("");
 };
 
@@ -132,7 +145,7 @@ const renderDayColumn = (options: ICalendarTimeGridOptions, day: dayjs.Dayjs, in
 
 const renderAllDayRow = (options: ICalendarTimeGridOptions) => {
     const days = options.days;
-    const allDayEvents = sortCalendarEvents(options.events.filter(event => event.isAllDay &&
+    const allDayEvents = sortCalendarEvents(options.events.filter(event => belongsInAllDayLane(event) &&
         days.some(day => eventOverlapsDay(event, day))));
     const laneItems: IAllDayLaneItem[] = [];
     const eventByKey = new Map<string, ICalendarNormalizedEvent>();
@@ -150,19 +163,20 @@ const renderAllDayRow = (options: ICalendarTimeGridOptions) => {
         laneItems.push({key, startIndex: covered[0], endIndex: covered[covered.length - 1]});
     });
     const {bars, laneCount} = packAllDayLanes(laneItems);
-    const visibleLaneCount = Math.max(Math.min(laneCount, CALENDAR_ALL_DAY_VISIBLE_LANES), 1);
+    const visibleLaneLimit = options.expandAllDay ? Math.max(laneCount, 1) : CALENDAR_ALL_DAY_VISIBLE_LANES;
+    const visibleLaneCount = Math.max(Math.min(laneCount, visibleLaneLimit), 1);
     const hiddenByDay = days.map((unused, index) => bars.filter(bar => bar.lane >= CALENDAR_ALL_DAY_VISIBLE_LANES && bar.startIndex <= index && bar.startIndex + bar.spanCount > index).length);
-    const hasHiddenLanes = hiddenByDay.some(count => count > 0);
+    const hasHiddenLanes = !options.expandAllDay && hiddenByDay.some(count => count > 0);
     const renderedLaneCount = visibleLaneCount + (hasHiddenLanes ? 1 : 0);
     const cells = days.map((day, index) =>
-        `<div class="av__calendar-allday-cell${day.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${isWeekend(day) ? " av__calendar-time-day--weekend" : ""}" data-date="${dayKey(day)}" data-day-index="${index}" data-type="calendar-drop-day" style="grid-column:${index + 1} / span 1;grid-row:1 / -1"></div>`).join("");
-    const barHTML = bars.filter(bar => bar.lane < CALENDAR_ALL_DAY_VISIBLE_LANES).map(bar => {
+        `<div class="av__calendar-allday-cell${day.isSame(dayjs(), "day") ? " av__calendar-day--today" : ""}${isWeekend(day) ? " av__calendar-time-day--weekend" : ""}" data-date="${dayKey(day)}" data-day-index="${index}" data-type="calendar-drop-day"${options.editable ? ` role="button" tabindex="0" aria-label="${escapeAttr(`${options.labels.createEvent} ${options.formatFullDate(day)} (${options.labels.allDay})`)}"` : ""} style="grid-column:${index + 1} / span 1;grid-row:1 / -1"></div>`).join("");
+    const barHTML = bars.filter(bar => bar.lane < visibleLaneLimit).map(bar => {
         const event = eventByKey.get(bar.key);
         if (!event) {
             return "";
         }
         const barDay = days[bar.startIndex];
-        return `<div class="av__calendar-allday-bar" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${dayKey(barDay)}" data-day-index="${bar.startIndex}" data-span-count="${bar.spanCount}" data-lane="${bar.lane}" style="grid-column:${bar.startIndex + 1} / span ${bar.spanCount};grid-row:${bar.lane + 1}">${options.renderEventChip(event, barDay, options.editable)}</div>`;
+        return `<div class="av__calendar-allday-bar" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-date="${dayKey(barDay)}" data-day-index="${bar.startIndex}" data-span-count="${bar.spanCount}" data-lane="${bar.lane}" style="grid-column:${bar.startIndex + 1} / span ${bar.spanCount};grid-row:${bar.lane + 1}">${options.renderEventChip(event, barDay, options.editable, "all-day")}</div>`;
     }).join("");
     const moreHTML = hasHiddenLanes ? hiddenByDay.map((count, index) => count > 0 ?
         `<button class="av__calendar-allday-more" data-type="calendar-more" data-date="${dayKey(days[index])}" style="grid-column:${index + 1};grid-row:${renderedLaneCount}" aria-label="+${count} ${escapeAttr(window.siyuan.languages.calendarEvents || "Events")}">+${count} ${escapeHtml(window.siyuan.languages.more || "more")}</button>` : "").join("") : "";

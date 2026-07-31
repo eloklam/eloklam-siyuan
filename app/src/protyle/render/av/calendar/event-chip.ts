@@ -10,7 +10,7 @@ import {getEventDocumentID, ICalendarEventDraft, ICalendarNormalizedEvent} from 
  * (context-menu.ts), and duration is now changed by dragging the chip's edges
  * (interactions.ts). What must NOT change is everything the rest of the app and
  * the smoke suite reads off a chip - the class list, the data attributes, the
- * tooltip/aria-label text, the recurring/occurrence marker, the pending class and the draggable/read-only
+ * tooltip/aria-label text, the pending class and the draggable/read-only
  * attributes. Those are reproduced here exactly as render.ts emitted them.
  */
 
@@ -111,8 +111,6 @@ export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
     const inlineStyle = `${getChipColorStyle(event, variant)}${options.style || ""}`;
     const colorStyle = inlineStyle ? ` style="${inlineStyle}"` : "";
     const eventTooltip = getEventTooltip(event);
-    const recurrenceMarker = event.recurrenceRaw || event.recurrence || event.isOccurrence ?
-        `<span class="av__calendar-recurring" aria-hidden="true">${event.isOccurrence ? "O" : "R"}</span>` : "";
     const documentID = getEventDocumentID(event);
 
     // The all-day shape is a filled bar, so a leading dot would be noise on it.
@@ -129,9 +127,11 @@ export const renderCalendarEventChip = (options: ICalendarChipOptions) => {
         `${dotMarker}${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(`${multiDayPrefix}${event.title}`)}</span>` :
         variant === "list" ?
             `${dotMarker}<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.end && !event.start.isSame(event.end, "day") ? `<span class="av__calendar-event-meta">${escapeHtml(getEventDateLabel(event))}</span>` : secondary}` :
-            `${dotMarker}<span class="av__calendar-event-content"><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}${secondary}</span>`;
+            variant === "all-day" ?
+                `${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(event.start.format("HH:mm"))}</span>`}<span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">→ ${(event.end || event.start.add(30, "minute")).format("HH:mm")}</span>`}` :
+                `${dotMarker}<span class="av__calendar-event-content"><span class="av__calendar-event-title">${escapeHtml(event.title)}</span>${event.isAllDay ? "" : `<span class="av__calendar-event-time">${escapeHtml(timeRange)}</span>`}${secondary}</span>`;
     return `<button class="av__calendar-event${variantClass}${densityClass}${continuationClass}${editable ? "" : " av__calendar-event--readonly"}${documentID ? " av__calendar-event--page" : ""}${options.className ? ` ${options.className}` : ""}" draggable="${editable ? "true" : "false"}" data-id="${escapeAttr(event.baseEventID || event.id)}" data-occurrence="${escapeAttr(event.occurrenceID || "")}" data-page="${escapeAttr(documentID)}" data-date="${options.displayDate?.format("YYYY-MM-DD") || event.start.format("YYYY-MM-DD")}" data-variant="${variant}" data-all-day="${event.isAllDay ? "true" : "false"}" data-time="${escapeAttr(event.isAllDay ? "" : event.start.format("HH:mm"))}" data-duration-minutes="${durationMinutes}" title="${escapeAttr(eventTooltip)}" aria-label="${escapeAttr(eventTooltip)}"${colorStyle}>
-    ${content}${recurrenceMarker}
+    ${content}
 </button>`;
 };
 
