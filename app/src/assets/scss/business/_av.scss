@@ -2701,6 +2701,10 @@ img.av__cellassetimg {
     display: grid;
     grid-column: 2 / -1;
     grid-template-columns: repeat(var(--calendar-day-count, 7), minmax(var(--calendar-day-min-width, 104px), 1fr));
+    // Gesture rects are measured from this layer. Keep it as the containing
+    // block too, otherwise a columns-local left value is applied from the grid
+    // body's origin and every ghost shifts left by the sticky time gutter.
+    position: relative;
   }
 
   &-quick-create {
@@ -2797,6 +2801,7 @@ img.av__cellassetimg {
 
   // top/height/left/width all arrive inline, in exact pixels and percentages.
   &-timed-event {
+    box-sizing: border-box;
     display: flex;
     min-width: 0;
     padding: 0 3px 2px;
@@ -2870,6 +2875,7 @@ img.av__cellassetimg {
     background-color: var(--b3-theme-primary-lighter);
     border: 1px dashed var(--b3-theme-primary);
     border-radius: var(--b3-border-radius);
+    box-sizing: border-box;
     color: var(--b3-theme-on-background);
     font-size: 12px;
     line-height: 15px;
