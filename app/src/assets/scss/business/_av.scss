@@ -1707,7 +1707,16 @@ img.av__cellassetimg {
         width: 100%;
 
         .b3-list-item__text {
+            display: block;
+            -webkit-line-clamp: unset;
+            overflow: visible;
+            overflow-wrap: anywhere;
             white-space: normal;
+            text-overflow: clip;
+        }
+
+        .av__calendar-dock-event-title {
+            overflow-wrap: anywhere;
         }
     }
 
@@ -1796,6 +1805,16 @@ img.av__cellassetimg {
         font-weight: 600;
         padding: 6px 8px 2px;
         text-align: left;
+    }
+
+    .av__calendar-dock-agenda-today {
+        border-top: 1px solid var(--b3-theme-primary);
+        margin-top: 4px;
+        padding-top: 4px;
+
+        .av__calendar-dock-agenda-date {
+            color: var(--b3-theme-primary);
+        }
     }
 
     .av__calendar-dock-empty {

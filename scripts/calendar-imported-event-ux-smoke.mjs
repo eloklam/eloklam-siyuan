@@ -103,7 +103,12 @@ assert(calendarDock.includes("openFileById({app: this.app"), "dock event clicks 
 assert(calendarDock.includes("getSafeCalendarColor(event.color)"), "dock event colours must be sanitized before entering an inline style");
 assert(calendarDock.includes("this.eventOccursOn(item, this.anchor)"), "Day and Month dock views must include events spanning the selected date");
 assert(calendarDock.includes("void this.refresh();") && calendarDock.includes('case "select-source"'), "changing dock sources must reload selected calendar data");
+assert(calendarDock.includes('class="av__calendar-dock-event-title"'), "dock events need a dedicated title element that can wrap independently");
+assert(calendarDock.includes('eventEnd.isBefore(monthStart, "day")') && calendarDock.includes('item.event.start.isAfter(monthEnd, "day")'), "Schedule must exclude calendar-grid spillover events outside the displayed month");
+assert(calendarDock.includes('if (view === "agenda")') && calendarDock.includes('this.anchor = dayjs();') && calendarDock.includes('this.agendaScrollDate = this.anchor.format("YYYY-MM-DD")'), "switching to Schedule must return to today's month and queue a today scroll");
+assert(calendarDock.includes('data-calendar-agenda-scroll-target="true"') && calendarDock.includes('av__calendar-dock-agenda-today') && calendarDock.includes('content.scrollTop = Math.max(0, target.offsetTop - content.offsetTop)'), "Schedule must render a today marker and scroll to it after rendering");
 assert(scss.includes(".av__calendar-dock-views") && scss.includes("grid-template-columns: repeat(3"), "dock view switch must render as three stable options");
+assert(/\.av__calendar-dock-event[\s\S]*?-webkit-line-clamp:\s*unset;[\s\S]*?overflow:\s*visible;[\s\S]*?overflow-wrap:\s*anywhere;[\s\S]*?text-overflow:\s*clip;/.test(scss), "dock event titles must wrap without a misleading ellipsis");
 assert(/\.av__calendar-dock-mini[\s\S]*?\.av__calendar-mini-day[\s\S]*?aspect-ratio:\s*1 \/ 1;[\s\S]*?height:\s*24px;[\s\S]*?width:\s*24px;/.test(scss), "dock selected-day indicator must stay a 24px circle");
 assert(interactions.includes("export const TOUCH_DRAG_THRESHOLD_PX = 8"), "touch taps need the same drift allowance as Calendar long press");
 assert(interactions.includes('moveEvent.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD_PX : DRAG_THRESHOLD_PX'), "touch and mouse gestures must use distinct measured thresholds");

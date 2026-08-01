@@ -70,6 +70,7 @@ export class Calendar extends Model {
     private events = new Map<string, ICalendarDockEvent>();
     private anchor = dayjs();
     private view: TCalendarDockView = "agenda";
+    private agendaScrollDate = "";
     private loading = false;
 
     constructor(app: App, tab: Tab) {
@@ -87,9 +88,7 @@ export class Calendar extends Model {
             const stored = window.siyuan.storage?.[STORAGE_KEY] as ICalendarDockStorage | string[] | undefined;
             if (Array.isArray(stored)) {
                 this.selected = stored.filter(item => typeof item === "string");
-                return;
-            }
-            if (stored && typeof stored === "object") {
+            } else if (stored && typeof stored === "object") {
                 this.selected = Array.isArray(stored.sources) ? stored.sources.filter(item => typeof item === "string") : [];
                 this.view = VALID_VIEWS.has(stored.view) ? stored.view : "agenda";
                 const anchor = dayjs(stored.anchor);
@@ -99,6 +98,10 @@ export class Calendar extends Model {
             this.selected = [];
             this.view = "agenda";
             this.anchor = dayjs();
+        }
+        if (this.view === "agenda") {
+            this.anchor = dayjs();
+            this.agendaScrollDate = this.anchor.format("YYYY-MM-DD");
         }
     }
 
@@ -132,6 +135,7 @@ export class Calendar extends Model {
                     break;
                 case "today":
                     this.anchor = dayjs();
+                    if (this.view === "agenda") this.agendaScrollDate = this.anchor.format("YYYY-MM-DD");
                     this.saveState();
                     void this.render();
                     break;
@@ -159,6 +163,12 @@ export class Calendar extends Model {
                     const view = target.dataset.view as TCalendarDockView;
                     if (!VALID_VIEWS.has(view) || view === this.view) return;
                     this.view = view;
+                    if (view === "agenda") {
+                        this.anchor = dayjs();
+                        this.agendaScrollDate = this.anchor.format("YYYY-MM-DD");
+                    } else {
+                        this.agendaScrollDate = "";
+                    }
                     this.saveState();
                     void this.render();
                     break;
@@ -191,6 +201,7 @@ export class Calendar extends Model {
 
     private moveAnchor(direction: -1 | 1) {
         this.anchor = this.view === "day" ? this.anchor.add(direction, "day") : this.anchor.add(direction, "month");
+        this.agendaScrollDate = "";
         this.saveState();
         void this.render();
     }
@@ -268,7 +279,7 @@ export class Calendar extends Model {
         const time = event.isAllDay ? lang("calendarAllDay", "All day") : `${event.start.format("HH:mm")}${event.end ? `–${event.end.format("HH:mm")}` : ""}`;
         return `<button type="button" class="b3-list-item b3-list-item--narrow av__calendar-dock-event" data-type="calendar-open-event" data-event-key="${escape(item.key)}" title="${escape(lang("calendarOpenSource", "Open source"))}">
             <span class="av__calendar-dock-event-dot" style="color:${escape(getSafeCalendarColor(event.color))}">●</span>
-            <span class="b3-list-item__text"><strong>${escape(time)}</strong> ${escape(event.title)}<small>${escape(item.source.ref.databaseName)}</small></span>
+            <span class="b3-list-item__text"><strong>${escape(time)}</strong> <span class="av__calendar-dock-event-title">${escape(event.title)}</span><small>${escape(item.source.ref.databaseName)}</small></span>
         </button>`;
     }
 
@@ -304,17 +315,29 @@ export class Calendar extends Model {
     }
 
     private renderAgenda(events: ICalendarDockEvent[]) {
+        const monthStart = this.anchor.startOf("month");
+        const monthEnd = this.anchor.endOf("month");
         const grouped = new Map<string, ICalendarDockEvent[]>();
         events.forEach(item => {
-            const key = item.event.start.format("YYYY-MM-DD");
+            const eventEnd = item.event.end || item.event.start;
+            if (eventEnd.isBefore(monthStart, "day") || item.event.start.isAfter(monthEnd, "day")) return;
+            const key = (item.event.start.isBefore(monthStart, "day") ? monthStart : item.event.start).format("YYYY-MM-DD");
             grouped.set(key, [...(grouped.get(key) || []), item]);
         });
-        if (!grouped.size) return this.renderEmpty();
+        const scrollDate = this.agendaScrollDate && this.anchor.isSame(dayjs(this.agendaScrollDate), "month") ? this.agendaScrollDate : "";
+        const dates = [...grouped.keys()];
+        const hasTodayGroup = !!scrollDate && grouped.has(scrollDate);
+        const todayMarker = scrollDate && !hasTodayGroup ? `<div class="av__calendar-dock-agenda-day av__calendar-dock-agenda-today" data-calendar-agenda-scroll-target="true">
+                <button type="button" class="av__calendar-dock-agenda-date" data-type="calendar-dock-date" data-date="${scrollDate}">${escape(lang("calendarToday", "Today"))} · ${escape(formatDate(dayjs(scrollDate), {weekday: "short", month: "short", day: "numeric"}))}</button>
+            </div>` : "";
+        if (!grouped.size) return `<section class="av__calendar-dock-agenda">${todayMarker}${this.renderEmpty()}</section>`;
+        const todayMarkerIndex = todayMarker ? dates.findIndex(date => date > scrollDate) : -1;
+        const scrollTarget = hasTodayGroup ? scrollDate : "";
         return `<section class="av__calendar-dock-agenda">
-            ${[...grouped.entries()].map(([date, items]) => `<div class="av__calendar-dock-agenda-day">
+            ${[...grouped.entries()].map(([date, items], index) => `${index === todayMarkerIndex ? todayMarker : ""}<div class="av__calendar-dock-agenda-day"${date === scrollTarget ? ' data-calendar-agenda-scroll-target="true"' : ""}>
                 <button type="button" class="av__calendar-dock-agenda-date" data-type="calendar-dock-date" data-date="${date}">${escape(formatDate(dayjs(date), {weekday: "short", month: "short", day: "numeric"}))}</button>
                 <div class="av__calendar-dock-events">${items.map(item => this.renderEvent(item)).join("")}</div>
-            </div>`).join("")}
+            </div>`).join("")}${todayMarker && todayMarkerIndex === -1 ? todayMarker : ""}
         </section>`;
     }
 
@@ -333,6 +356,13 @@ export class Calendar extends Model {
         // pass through getSafeCalendarColor before insertion.
         content.innerHTML = `${this.renderViewSwitch()}${this.renderSourcePicker()}<div class="av__calendar-dock-period" aria-live="polite">${escape(title)}</div>${body}`;
         if (this.view === "month") this.markMiniMonthEventDays(events);
+        if (this.view === "agenda" && this.agendaScrollDate) {
+            this.agendaScrollDate = "";
+            requestAnimationFrame(() => {
+                const target = content.querySelector("[data-calendar-agenda-scroll-target]") as HTMLElement;
+                if (target) content.scrollTop = Math.max(0, target.offsetTop - content.offsetTop);
+            });
+        }
     }
 
     private openEvent(key: string) {
