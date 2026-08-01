@@ -48,6 +48,16 @@ const getViewID = (options: IEventDialogOptions) => options.blockElement.getAttr
 
 const getCalendarLocale = () => window.siyuan.config.lang;
 
+/**
+ * Recurrence weekday buttons are deliberately one glyph wide. Chinese Intl
+ * labels share a 周／週／星期 prefix, so taking the first glyph turns every day
+ * into the same 周. Strip that prefix before choosing the compact glyph.
+ */
+export const getCompactWeekdayLabel = (label: string) => {
+    const withoutChinesePrefix = label.replace(/^(?:星期|週|周)/u, "");
+    return Array.from(withoutChinesePrefix || label)[0] || label;
+};
+
 const getWeekdayLabels = () => {
     const formatter = new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "short"});
     return [0, 1, 2, 3, 4, 5, 6].map(index => formatter.format(new Date(2020, 5, 7 + index)));
@@ -184,7 +194,7 @@ const renderRecurrenceFields = (event: ICalendarNormalizedEvent | undefined, rea
             <div class="av__calendar-weekday">
                 ${weekdays.map(day => `<label class="av__calendar-weekday-item">
                     <input type="checkbox" data-type="calendar-recurrence-weekday" value="${day.value}"${recurrence.byDay.includes(day.value) ? " checked" : ""}${disabledAttr}>
-                    <span>${escapeHtml(day.label.slice(0, 1))}</span>
+                    <span>${escapeHtml(getCompactWeekdayLabel(day.label))}</span>
                 </label>`).join("")}
             </div>
         </div>

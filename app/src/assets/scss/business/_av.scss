@@ -2749,6 +2749,9 @@ img.av__cellassetimg {
   // it are absolutely positioned from real minutes (G3/G6).
   &-time-day {
     background-image:
+      linear-gradient(to right,
+        var(--b3-theme-surface-lighter) 0 1px,
+        transparent 1px),
       repeating-linear-gradient(to bottom,
         var(--b3-border-color) 0 1px,
         transparent 1px var(--calendar-hour-height, 48px)),
@@ -2759,7 +2762,6 @@ img.av__cellassetimg {
         var(--calendar-off-hours-color) 0 var(--calendar-business-start, 37.5%),
         transparent var(--calendar-business-start, 37.5%) var(--calendar-business-end, 75%),
         var(--calendar-off-hours-color) var(--calendar-business-end, 75%) 100%);
-    border-left: 1px solid var(--b3-theme-surface-lighter);
     min-width: 0;
     position: relative;
 

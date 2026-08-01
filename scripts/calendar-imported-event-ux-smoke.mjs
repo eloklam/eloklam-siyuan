@@ -74,6 +74,8 @@ assert(eventDialog.includes('event.key === "Enter" && !event.isComposing'), "IME
 assert(eventDialog.includes("let previousPreset = presetSelect?.value"), "preset-to-custom transitions must track the previous recurrence preset");
 assert(eventDialog.includes("shouldResetCustomWeekdays(previousPreset, preset)"), "entering Custom from a preset must reset preset-derived weekdays");
 assert(eventDialog.includes("checkbox.checked = false"), "preset-derived weekday checkboxes must be cleared before custom weekday selection");
+assert(eventDialog.includes("getCompactWeekdayLabel(day.label)") && !eventDialog.includes("day.label.slice(0, 1)"), "CJK weekday buttons must not collapse every label to 周／週");
+assert(eventDialog.includes('label.replace(/^(?:星期|週|周)/u, "")'), "compact Chinese weekday labels must remove the shared prefix");
 assert(render.includes("getISOCalendarWeekNumber"), "calendar toolbar must calculate an ISO calendar week number");
 assert(render.includes('class="av__calendar-week-number"'), "calendar week number must render after the date title");
 assert(render.includes('calendarFiveDayView || "5 Days"') && !render.includes('german ? "5 Tage" : "5 Days"'), "five-day view label must come from locale data");
@@ -81,6 +83,7 @@ assert(scss.includes("flex: 0 1 192px") && scss.includes("max-width: 192px"), "s
 assert(/&-time-columns\s*\{[\s\S]*?position:\s*relative;/.test(scss), "timed gesture ghosts need the columns layer as their containing block");
 assert(/&-timed-event\s*\{[\s\S]*?box-sizing:\s*border-box;/.test(scss), "timed event padding must stay inside its packed column width");
 assert(/&-ghost\s*\{[\s\S]*?box-sizing:\s*border-box;/.test(scss), "gesture ghost border and padding must stay inside the measured day width");
+assert(/&-time-day\s*\{[\s\S]*?linear-gradient\(to right,[\s\S]*?surface-lighter[\s\S]*?transparent 1px\)/.test(scss), "day separators must be painted without consuming event width");
 assert(eventChip.includes('calendarEditEvent || "Edit event"'), "right-click editor action must use the unified event terminology");
 assert(render.includes("seriesEvent = baseEvents.get") && render.includes("seriesEvent,"), "opening a generated occurrence must pass its base series event into the editor");
 const saveEventSource = eventDialog.slice(eventDialog.indexOf("const saveEvent = async"), eventDialog.indexOf("const saveFutureEvent = async"));
