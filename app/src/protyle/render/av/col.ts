@@ -22,7 +22,7 @@ import {hasClosestByClassName} from "../../util/hasClosest";
 export const getColId = (element: Element, viewType: TAVView) => {
     if (viewType === "table" || hasClosestByClassName(element, "custom-attr")) {
         return element.getAttribute("data-col-id");
-    } else if (["gallery", "kanban"].includes(viewType)) {
+    } else if (["gallery", "kanban", "calendar"].includes(viewType)) {
         return element.getAttribute("data-field-id");
     }
 };
