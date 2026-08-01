@@ -28,6 +28,8 @@ interface IRecurrenceFormValue {
 
 export interface IEventDialogOptions {
     event?: ICalendarNormalizedEvent;
+    /** Base row for whole-series edits opened from a generated occurrence. */
+    seriesEvent?: ICalendarNormalizedEvent;
     draft?: Partial<ICalendarEventDraft>;
     date: string;
     protyle: IProtyle;
@@ -544,6 +546,25 @@ const getDraftFromDialog = (dialog: Dialog) => {
     };
 };
 
+const getEventScheduleDraft = (event: ICalendarNormalizedEvent) => ({
+    date: event.start.format("YYYY-MM-DD"),
+    endDate: (event.end || event.start).format("YYYY-MM-DD"),
+    isAllDay: event.isAllDay,
+    startTime: event.start.format("HH:mm"),
+    endTime: (event.end || event.start.add(1, "hour")).format("HH:mm"),
+});
+
+export const getWholeSeriesDraft = (
+    draft: ICalendarEventDraft,
+    selectedEvent?: ICalendarNormalizedEvent,
+    seriesEvent?: ICalendarNormalizedEvent,
+): ICalendarEventDraft => {
+    if (!selectedEvent?.isOccurrence || !seriesEvent) {
+        return draft;
+    }
+    return {...draft, ...getEventScheduleDraft(seriesEvent)};
+};
+
 const withPendingSave = (dialog: Dialog, saveType: string, callback: () => Promise<boolean>) => withCalendarDialogOperationFeedback(dialog, saveType, window.siyuan.languages.calendarSaveFailed || "Save failed.", callback);
 
 const withCalendarDialogOperationFeedback = async (dialog: Dialog, actionType: string, failureMessage: string, callback: () => Promise<boolean>) => {
@@ -619,15 +640,17 @@ export const openRecurrenceScopeDialog = (options: {
     disabledScopes: Partial<Record<CalendarRecurrenceScope, string>>;
     onSelect: (scope: CalendarRecurrenceScope) => void;
 }) => {
+    const isGerman = /^de(?:-|$)/i.test(window.siyuan.config.lang || "");
+    const seriesTitle = options.action === "delete" ?
+        (isGerman ? "Alle löschen" : (window.siyuan.languages.calendarDeleteSeries || "Delete all")) :
+        (isGerman ? "Alle bearbeiten" : (window.siyuan.languages.calendarRecurrenceScopeSeries || window.siyuan.languages.all || "All"));
     const title = options.action === "delete" ?
         (window.siyuan.languages.calendarRecurrenceScopeDeleteTitle || "Delete recurring item") :
         (window.siyuan.languages.calendarRecurrenceScopeEditTitle || "Edit recurring item");
     const labels: Array<{scope: CalendarRecurrenceScope, title: string, description: string}> = [
         {scope: "occurrence", title: window.siyuan.languages.calendarRecurrenceScopeOccurrence || "This occurrence", description: window.siyuan.languages.calendarRecurrenceScopeOccurrenceDesc || "Only the selected occurrence."},
         {scope: "future", title: window.siyuan.languages.calendarThisAndFuture || "This and future", description: window.siyuan.languages.calendarRecurrenceScopeFutureDesc || "This occurrence and following items in the series."},
-        {scope: "series", title: options.action === "delete" ?
-            (window.siyuan.languages.calendarDeleteSeries || "Delete all") :
-            (window.siyuan.languages.calendarRecurrenceScopeSeries || "All events"), description: window.siyuan.languages.calendarRecurrenceScopeSeriesDesc || "Every item in the recurring series."},
+        {scope: "series", title: seriesTitle, description: window.siyuan.languages.calendarRecurrenceScopeSeriesDesc || "Every item in the recurring series."},
     ];
     const availableLabels = labels.filter(item => !options.disabledScopes[item.scope]);
     if (availableLabels.length === 1 && options.action !== "delete") {
@@ -768,6 +791,8 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
             options.onSave?.();
             return true;
         }
+        const eventToUpdate = scope === "series" ? (options.seriesEvent || options.event) : options.event;
+        const draftToUpdate = scope === "series" ? getWholeSeriesDraft(draft, options.event, options.seriesEvent) : draft;
         if (!await updateCalendarEvent({
             protyle: options.protyle,
             avID,
@@ -775,8 +800,8 @@ const saveEvent = async (dialog: Dialog, options: IEventDialogOptions, scope: Ca
             dateFieldID: mapping.dateFieldID,
             fields: calendarData.fields,
             mapping,
-            event: options.event,
-            draft,
+            event: eventToUpdate,
+            draft: draftToUpdate,
             viewID: getViewID(options),
             previousUpdated: options.blockElement.getAttribute("updated") || "",
             })) {

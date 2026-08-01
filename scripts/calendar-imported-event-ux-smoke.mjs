@@ -47,7 +47,7 @@ assert(timedStyle.includes("color: var(--b3-theme-on-primary);"),
   "timed event text must retain contrast on the complete colour fill");
 assert(!timedStyle.includes("inset 3px 0 0"), "timed events must not restore the left accent bar");
 
-assert(eventDialog.includes("calendarRecurrenceScopeSeries || \"All events\""), "edit scope needs a non-destructive All events label");
+assert(eventDialog.includes('calendarRecurrenceScopeSeries || window.siyuan.languages.all || "All"'), "edit scope needs a localized non-destructive all-events label");
 assert(eventDialog.includes('class="av__calendar-dialog-endpoint"'), "event editor must group each date with its matching time");
 assert(eventDialog.includes('id="av-event-schedule"'), "event editor needs one endpoint-based schedule group");
 assert(eventDialog.includes("av__calendar-dialog-schedule--all-day"), "all-day mode must hide time fields without separating endpoint dates");
@@ -79,6 +79,7 @@ assert(render.includes('class="av__calendar-week-number"'), "calendar week numbe
 assert(render.includes('calendarFiveDayView || "5 Days"') && !render.includes('german ? "5 Tage" : "5 Days"'), "five-day view label must come from locale data");
 assert(scss.includes("flex: 0 1 192px") && scss.includes("max-width: 192px"), "search control must use the measured half-width target");
 assert(eventChip.includes('calendarEditEvent || "Edit event"'), "right-click editor action must use the unified event terminology");
+assert(render.includes("seriesEvent = baseEvents.get") && render.includes("seriesEvent,"), "opening a generated occurrence must pass its base series event into the editor");
 const saveEventSource = eventDialog.slice(eventDialog.indexOf("const saveEvent = async"), eventDialog.indexOf("const saveFutureEvent = async"));
 assert(saveEventSource.indexOf("showInvalidDraftMessage") < saveEventSource.indexOf("ensureRecurrenceStorage"), "validation must run before recurrence storage can mutate the AV schema");
 assert(eventDialog.includes('options.action === "delete" ?'), "delete and edit series labels must be distinct");

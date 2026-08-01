@@ -29,6 +29,9 @@ assert(eventDialog.includes("mapping.exceptionFieldID") && eventDialog.includes(
 assert(eventDialog.includes("mapping.recurrenceFieldID") && eventDialog.includes("calendarRecurrenceScopeFutureDisabled"), "future scope must require mapped recurrence field with visible reason");
 assert(eventDialog.includes("deleteCalendarEventThisAndFuture"), "this-and-future delete must use a real truncation transaction");
 assert(!eventDialog.includes("calendarRecurrenceScopeFutureDeleteDisabled ||"), "this-and-future delete must not be disabled as unsupported");
+assert(eventDialog.includes("seriesEvent?: ICalendarNormalizedEvent") && eventDialog.includes("getWholeSeriesDraft"), "whole-series edits from an occurrence must keep a separate base-series identity");
+assert(eventDialog.includes("options.seriesEvent || options.event") && eventDialog.includes("draftToUpdate"), "whole-series saves must target the base row and preserve its unchanged schedule");
+assert(eventDialog.includes('calendarRecurrenceScopeSeries || window.siyuan.languages.all || "All"') && !eventDialog.includes('calendarRecurrenceScopeSeries || "All events"'), "scope fallback must use an already localized label");
 assert(eventDialog.includes("runRecurringEventAction"), "recurring edit/delete must route through scope selection");
 assert(eventDialog.includes("CalendarRecurrenceScope") && eventDialog.includes("saveEventWithScope"), "save flow must accept selected recurrence scope");
 assert(eventDialog.includes("deleteEventWithScope"), "delete flow must accept selected recurrence scope");

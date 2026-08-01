@@ -781,6 +781,7 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
     const openCalendarEventDialog = (dialogOptions: {
         date: string;
         event?: ICalendarNormalizedEvent;
+        seriesEvent?: ICalendarNormalizedEvent;
         draft?: Partial<ICalendarEventDraft>;
         readOnly?: boolean;
         onSave?: () => void;
@@ -1555,7 +1556,8 @@ const bindCalendarEvents = (options: IRenderCalendarOptions, data: IAV) => {
             return;
         }
         const eventForDialog = getEditableEvent(calendarEvent);
-        openCalendarEventDialog({event: eventForDialog, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
+        const seriesEvent = baseEvents.get(calendarEvent.baseEventID || calendarEvent.id) || calendarEvent;
+        openCalendarEventDialog({event: eventForDialog, seriesEvent, date: eventForDialog.start.format("YYYY-MM-DD"), onSave: rerender, onDelete: rerender});
     };
     /**
      * Right-click / long-press on a chip. The menu itself writes nothing: it
