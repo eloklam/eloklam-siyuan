@@ -1669,6 +1669,130 @@ img.av__cellassetimg {
             white-space: nowrap;
         }
     }
+
+    .av__calendar-dock-views {
+        display: grid;
+        gap: 4px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-bottom: 8px;
+
+        .b3-button {
+            justify-content: center;
+            min-width: 0;
+            padding-left: 6px;
+            padding-right: 6px;
+        }
+    }
+
+    .av__calendar-dock-period {
+        color: var(--b3-theme-on-surface);
+        font-size: 12px;
+        font-weight: 600;
+        margin: 4px 0 8px;
+        text-align: center;
+    }
+
+    .av__calendar-dock-events,
+    .av__calendar-dock-agenda {
+        display: grid;
+        gap: 4px;
+    }
+
+    .av__calendar-dock-event {
+        align-items: flex-start;
+        border: 0;
+        height: auto;
+        min-height: 38px;
+        text-align: left;
+        width: 100%;
+
+        .b3-list-item__text {
+            white-space: normal;
+        }
+    }
+
+    .av__calendar-dock-event-dot {
+        flex: 0 0 auto;
+        font-size: 10px;
+        line-height: 20px;
+    }
+
+    .av__calendar-dock-event-date {
+        color: var(--b3-theme-on-surface-light);
+        margin-right: 4px;
+    }
+
+    .av__calendar-dock-date {
+        align-items: center;
+        background: transparent;
+        border: 0;
+        color: inherit;
+        cursor: pointer;
+        display: grid;
+        gap: 2px;
+        grid-template-columns: 1fr auto;
+        margin-bottom: 8px;
+        padding: 8px;
+        text-align: left;
+        width: 100%;
+
+        &:hover {
+            background-color: var(--b3-list-hover);
+        }
+
+        span,
+        small {
+            color: var(--b3-theme-on-surface-light);
+        }
+
+        strong {
+            font-size: 32px;
+            grid-row: 1 / span 2;
+            line-height: 1;
+        }
+    }
+
+    .av__calendar-dock-mini {
+        margin-bottom: 8px;
+
+        .av__calendar-mini-day--has-events::after {
+            background-color: currentColor;
+            border-radius: 50%;
+            bottom: 2px;
+            content: "";
+            height: 3px;
+            position: absolute;
+            width: 3px;
+        }
+    }
+
+    .av__calendar-dock-selected-day {
+        border-top: 1px solid var(--b3-border-color);
+        margin: 8px 0 4px;
+        padding-top: 8px;
+    }
+
+    .av__calendar-dock-agenda-day {
+        display: grid;
+        gap: 3px;
+    }
+
+    .av__calendar-dock-agenda-date {
+        background: transparent;
+        border: 0;
+        color: var(--b3-theme-on-surface);
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 8px 2px;
+        text-align: left;
+    }
+
+    .av__calendar-dock-empty {
+        padding: 18px 8px;
+        text-align: center;
+    }
 }
 
 .av__calendar {

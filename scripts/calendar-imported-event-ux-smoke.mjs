@@ -16,6 +16,7 @@ const timeGrid = read("app/src/protyle/render/av/calendar/time-grid.ts");
 const render = read("app/src/protyle/render/av/calendar/render.ts");
 const eventChip = read("app/src/protyle/render/av/calendar/event-chip.ts");
 const eventDialog = read("app/src/protyle/render/av/calendar/event-dialog.ts");
+const calendarDock = read("app/src/layout/dock/Calendar.ts");
 const scss = read("app/src/assets/scss/business/_av.scss");
 const german = JSON.parse(read("app/appearance/langs/de.json"));
 
@@ -91,6 +92,16 @@ assert(saveEventSource.indexOf("showInvalidDraftMessage") < saveEventSource.inde
 assert(eventDialog.includes('options.action === "delete" ?'), "delete and edit series labels must be distinct");
 assert(eventDialog.includes("preset !== \"custom\""), "recurrence preset must override hidden custom controls");
 assert(eventDialog.includes("getRecurrencePresetRule(preset)"), "Does not repeat must save an empty recurrence rule");
+assert(calendarDock.includes('type TCalendarDockView = "day" | "month" | "agenda"'), "calendar dock must expose Day, Month, and Schedule views");
+assert(calendarDock.includes('data-type="calendar-dock-view"'), "calendar dock needs an explicit view switch control");
+assert(calendarDock.includes("renderCalendarMiniMonth"), "Month dock view must reuse the calendar mini-month navigator");
+assert(calendarDock.includes('data-type="calendar-open-event"'), "dock event rows must be actionable");
+assert(calendarDock.includes("getEventDocumentID(item.event)"), "dock event clicks must resolve the bound source document");
+assert(calendarDock.includes("openFileById({app: this.app"), "dock event clicks must open the source page");
+assert(calendarDock.includes("getSafeCalendarColor(event.color)"), "dock event colours must be sanitized before entering an inline style");
+assert(calendarDock.includes("this.eventOccursOn(item, this.anchor)"), "Day and Month dock views must include events spanning the selected date");
+assert(calendarDock.includes("void this.refresh();") && calendarDock.includes('case "select-source"'), "changing dock sources must reload selected calendar data");
+assert(scss.includes(".av__calendar-dock-views") && scss.includes("grid-template-columns: repeat(3"), "dock view switch must render as three stable options");
 
 const langDir = path.join(root, "app/appearance/langs");
 for (const file of fs.readdirSync(langDir).filter((item) => item.endsWith(".json"))) {
