@@ -16,6 +16,7 @@ const timeGrid = read("app/src/protyle/render/av/calendar/time-grid.ts");
 const render = read("app/src/protyle/render/av/calendar/render.ts");
 const eventChip = read("app/src/protyle/render/av/calendar/event-chip.ts");
 const eventDialog = read("app/src/protyle/render/av/calendar/event-dialog.ts");
+const interactions = read("app/src/protyle/render/av/calendar/interactions.ts");
 const calendarDock = read("app/src/layout/dock/Calendar.ts");
 const scss = read("app/src/assets/scss/business/_av.scss");
 const german = JSON.parse(read("app/appearance/langs/de.json"));
@@ -94,6 +95,7 @@ assert(eventDialog.includes("preset !== \"custom\""), "recurrence preset must ov
 assert(eventDialog.includes("getRecurrencePresetRule(preset)"), "Does not repeat must save an empty recurrence rule");
 assert(calendarDock.includes('type TCalendarDockView = "day" | "month" | "agenda"'), "calendar dock must expose Day, Month, and Schedule views");
 assert(calendarDock.includes('data-type="calendar-dock-view"'), "calendar dock needs an explicit view switch control");
+assert(calendarDock.includes('label: lang("calendarSchedule", "Schedule")') && !calendarDock.includes('label: lang("calendarScheduleView", "Schedule")'), "dock Schedule must not reuse the database view label");
 assert(calendarDock.includes("renderCalendarMiniMonth"), "Month dock view must reuse the calendar mini-month navigator");
 assert(calendarDock.includes('data-type="calendar-open-event"'), "dock event rows must be actionable");
 assert(calendarDock.includes("getEventDocumentID(item.event)"), "dock event clicks must resolve the bound source document");
@@ -102,6 +104,12 @@ assert(calendarDock.includes("getSafeCalendarColor(event.color)"), "dock event c
 assert(calendarDock.includes("this.eventOccursOn(item, this.anchor)"), "Day and Month dock views must include events spanning the selected date");
 assert(calendarDock.includes("void this.refresh();") && calendarDock.includes('case "select-source"'), "changing dock sources must reload selected calendar data");
 assert(scss.includes(".av__calendar-dock-views") && scss.includes("grid-template-columns: repeat(3"), "dock view switch must render as three stable options");
+assert(/\.av__calendar-dock-mini[\s\S]*?\.av__calendar-mini-day[\s\S]*?aspect-ratio:\s*1 \/ 1;[\s\S]*?height:\s*24px;[\s\S]*?width:\s*24px;/.test(scss), "dock selected-day indicator must stay a 24px circle");
+assert(interactions.includes("export const TOUCH_DRAG_THRESHOLD_PX = 8"), "touch taps need the same drift allowance as Calendar long press");
+assert(interactions.includes('moveEvent.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD_PX : DRAG_THRESHOLD_PX'), "touch and mouse gestures must use distinct measured thresholds");
+assert(scss.includes("@media (max-width: 750px)") && scss.includes("min-height: 42px"), "mobile Calendar toolbar must follow SiYuan's existing narrow-screen control size");
+assert(scss.includes("@media (pointer: coarse)") && scss.includes("touch-action: none"), "coarse-pointer event drag and resize must not be cancelled by native scrolling");
+assert(scss.includes("height: 21px") && scss.includes("top: -10px") && scss.includes("bottom: -10px"), "mobile resize handles need a measured half-toolbar hit area around each edge");
 
 const langDir = path.join(root, "app/appearance/langs");
 for (const file of fs.readdirSync(langDir).filter((item) => item.endsWith(".json"))) {

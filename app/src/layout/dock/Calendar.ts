@@ -250,7 +250,7 @@ export class Calendar extends Model {
         const views: Array<{id: TCalendarDockView, label: string}> = [
             {id: "day", label: lang("calendarDay", "Day")},
             {id: "month", label: lang("calendarMonth", "Month")},
-            {id: "agenda", label: lang("calendarScheduleView", "Schedule")},
+            {id: "agenda", label: lang("calendarSchedule", "Schedule")},
         ];
         return `<div class="av__calendar-dock-views" role="tablist" aria-label="${escape(lang("calendarShortcutsViews", "Views"))}">
             ${views.map(item => `<button type="button" class="b3-button${this.view === item.id ? " b3-button--primary" : " b3-button--outline"}" data-type="calendar-dock-view" data-view="${item.id}" role="tab" aria-selected="${this.view === item.id}">${escape(item.label)}</button>`).join("")}

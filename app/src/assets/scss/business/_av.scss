@@ -1755,6 +1755,15 @@ img.av__cellassetimg {
     .av__calendar-dock-mini {
         margin-bottom: 8px;
 
+        .av__calendar-mini-day {
+            aspect-ratio: 1 / 1;
+            height: 24px;
+            justify-self: center;
+            min-height: 24px;
+            padding: 0;
+            width: 24px;
+        }
+
         .av__calendar-mini-day--has-events::after {
             background-color: currentColor;
             border-radius: 50%;
@@ -2990,6 +2999,36 @@ img.av__cellassetimg {
     }
   }
 
+  // Coarse pointers cannot reveal hover-only handles and need enough surface to
+  // hold an event edge without covering the event content with visible chrome.
+  @media (pointer: coarse) {
+    &-event,
+    &-resize-handle {
+      touch-action: none;
+    }
+
+    &-resize-handle {
+      height: 21px;
+
+      &--start {
+        top: -10px;
+      }
+
+      &--end {
+        bottom: -10px;
+      }
+
+      &::after {
+        margin: 9px auto;
+        opacity: .6;
+      }
+    }
+
+    &--gesturing {
+      user-select: none;
+    }
+  }
+
   &-timed-event:hover &-resize-handle::after,
   &-timed-event:focus-within &-resize-handle::after {
     opacity: .6;
@@ -3364,6 +3403,43 @@ img.av__cellassetimg {
 
     &--danger {
       color: var(--b3-theme-error);
+    }
+  }
+
+  // Mobile uses the same Calendar renderer and transaction path as desktop.
+  // Keep these overrides last so the desktop base rules above cannot win by
+  // source order at SiYuan's existing narrow-screen breakpoint.
+  @media (max-width: 750px) {
+    &-toolbar {
+      align-items: stretch;
+
+      & > .block__icon,
+      & > .b3-button {
+        min-height: 42px;
+      }
+    }
+
+    &-title-control {
+      flex: 1 1 calc(100% - 144px);
+      min-height: 42px;
+      min-width: 0;
+    }
+
+    &-search-control {
+      flex: 1 1 100%;
+      max-width: none;
+    }
+
+    &-sidebar {
+      display: none;
+    }
+
+    &-body {
+      display: block;
+    }
+
+    &-main {
+      overflow-x: auto;
     }
   }
 }
