@@ -328,7 +328,7 @@ export class Calendar extends Model {
         const dates = [...grouped.keys()];
         const hasTodayGroup = !!scrollDate && grouped.has(scrollDate);
         const todayMarker = scrollDate && !hasTodayGroup ? `<div class="av__calendar-dock-agenda-day av__calendar-dock-agenda-today" data-calendar-agenda-scroll-target="true">
-                <button type="button" class="av__calendar-dock-agenda-date" data-type="calendar-dock-date" data-date="${scrollDate}">${escape(lang("calendarToday", "Today"))} · ${escape(formatDate(dayjs(scrollDate), {weekday: "short", month: "short", day: "numeric"}))}</button>
+                <button type="button" class="av__calendar-dock-agenda-date" data-type="calendar-dock-date" data-date="${scrollDate}">${escape(window.siyuan.languages.today || "Today")} · ${escape(formatDate(dayjs(scrollDate), {weekday: "short", month: "short", day: "numeric"}))}</button>
             </div>` : "";
         if (!grouped.size) return `<section class="av__calendar-dock-agenda">${todayMarker}${this.renderEmpty()}</section>`;
         const todayMarkerIndex = todayMarker ? dates.findIndex(date => date > scrollDate) : -1;
