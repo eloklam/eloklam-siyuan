@@ -1285,6 +1285,7 @@ export const removeCol = (options: {
     blockElement: Element
     avPanelElement: Element
     tabRect: DOMRect,
+    viewType?: string,
     isTwoWay: boolean
 }) => {
     const colId = options.menuElement.querySelector(".b3-menu__item").getAttribute("data-col-id");
@@ -1324,7 +1325,7 @@ export const removeCol = (options: {
     if (options.isCustomAttr) {
         options.avPanelElement.remove();
     } else {
-        options.menuElement.innerHTML = getPropertiesHTML(options.fields);
+        options.menuElement.innerHTML = getPropertiesHTML(options.fields, options.viewType);
         setPosition(options.menuElement,
             options.tabRect.right - options.menuElement.clientWidth, options.tabRect.bottom,
             options.tabRect.height, 0, true);

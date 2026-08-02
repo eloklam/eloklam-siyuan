@@ -128,7 +128,7 @@ export const openMenuPanel = (options: {
         if (options.type === "config") {
             html = getViewHTML(data);
         } else if (options.type === "properties") {
-            html = getPropertiesHTML(fields);
+            html = getPropertiesHTML(fields, data.viewType);
         } else if (options.type === "sorts") {
             html = getSortsHTML(fields, data.view.sorts);
         } else if (options.type === "switcher") {
@@ -484,7 +484,7 @@ export const openMenuPanel = (options: {
                         }
                     });
                 }
-                menuElement.innerHTML = getPropertiesHTML(fields);
+                menuElement.innerHTML = getPropertiesHTML(fields, data.viewType);
                 return;
             }
             // 分组项拖拽排序
@@ -718,7 +718,7 @@ export const openMenuPanel = (options: {
                     // 复制列后点击返回到属性面板，宽度不一致，需重新计算
                     tabRect = options.blockElement.querySelector(".av__views").getBoundingClientRect();
                     menuElement.classList.remove("av__filter-panel");
-                    menuElement.innerHTML = getPropertiesHTML(fields);
+                    menuElement.innerHTML = getPropertiesHTML(fields, data.viewType);
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                     window.siyuan.menus.menu.remove();
                     event.preventDefault();
@@ -1021,7 +1021,7 @@ export const openMenuPanel = (options: {
                     event.preventDefault();
                     event.stopPropagation();
                     break;
-                } else if (type === "newCol") {
+                } else if (type === "newCol" && data.viewType !== "calendar") {
                     avPanelElement.remove();
                     const addMenu = addCol(options.protyle, options.blockElement);
                     addMenu.open({
@@ -1153,7 +1153,7 @@ export const openMenuPanel = (options: {
                     });
                     if (doOperations.length > 0) {
                         transaction(options.protyle, doOperations, undoOperations);
-                        menuElement.innerHTML = getPropertiesHTML(fields);
+                        menuElement.innerHTML = getPropertiesHTML(fields, data.viewType);
                         setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                     }
                     event.preventDefault();
@@ -1183,7 +1183,7 @@ export const openMenuPanel = (options: {
                     });
                     if (doOperations.length > 0) {
                         transaction(options.protyle, doOperations, undoOperations);
-                        menuElement.innerHTML = getPropertiesHTML(fields);
+                        menuElement.innerHTML = getPropertiesHTML(fields, data.viewType);
                         setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                     }
                     event.preventDefault();
@@ -1383,7 +1383,7 @@ export const openMenuPanel = (options: {
                         });
                         bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
                     } else {
-                        menuElement.innerHTML = getPropertiesHTML(fields);
+                        menuElement.innerHTML = getPropertiesHTML(fields, data.viewType);
                     }
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                     event.preventDefault();
@@ -1415,7 +1415,7 @@ export const openMenuPanel = (options: {
                         });
                         bindEditEvent({protyle: options.protyle, data, menuElement, isCustomAttr, blockID});
                     } else {
-                        menuElement.innerHTML = getPropertiesHTML(fields);
+                        menuElement.innerHTML = getPropertiesHTML(fields, data.viewType);
                     }
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                     event.preventDefault();
@@ -1476,6 +1476,7 @@ export const openMenuPanel = (options: {
                                         isCustomAttr,
                                         blockElement: options.blockElement,
                                         avPanelElement,
+                                        viewType: data.viewType,
                                         tabRect,
                                         isTwoWay: true
                                     });
@@ -1491,6 +1492,7 @@ export const openMenuPanel = (options: {
                                         isCustomAttr,
                                         blockElement: options.blockElement,
                                         avPanelElement,
+                                        viewType: data.viewType,
                                         tabRect,
                                         isTwoWay: false
                                     });
@@ -1514,6 +1516,7 @@ export const openMenuPanel = (options: {
                             isCustomAttr,
                             blockElement: options.blockElement,
                             avPanelElement,
+                            viewType: data.viewType,
                             tabRect,
                             isTwoWay: false
                         });
@@ -1902,7 +1905,7 @@ export const openMenuPanel = (options: {
     }
 };
 
-export const getPropertiesHTML = (fields: IAVColumn[]) => {
+export const getPropertiesHTML = (fields: IAVColumn[], viewType?: string) => {
     let showHTML = "";
     let hideHTML = "";
     fields.forEach((item: IAVColumn) => {
@@ -1962,10 +1965,10 @@ ${hideHTML}`;
 </button>
 ${showHTML}
 ${hideHTML}
-<button class="b3-menu__separator"></button>
+${viewType === "calendar" ? "" : `<button class="b3-menu__separator"></button>
 <button class="b3-menu__item" data-type="newCol">
     <svg class="b3-menu__icon"><use xlink:href="#iconAdd"></use></svg>
     <span class="b3-menu__label">${window.siyuan.languages.new}</span>
-</button>
+</button>`}
 </div>`;
 };
