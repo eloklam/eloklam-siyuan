@@ -11,6 +11,7 @@ import {getEventDocumentID, ICalendarNormalizedEvent} from "../../protyle/render
 import {getCalendarMiniMonthEventDays, renderCalendarMiniMonth} from "../../protyle/render/av/calendar/mini-month";
 import {openFileById} from "../../editor/util";
 import {showMessage} from "../../dialog/message";
+import {renderCalendarDockPeriod} from "./calendar-period";
 
 interface ICalendarViewRef {
     avID: string;
@@ -354,7 +355,7 @@ export class Calendar extends Model {
         const body = this.view === "day" ? this.renderDay(events) : this.view === "month" ? this.renderMonth(events) : this.renderAgenda(events);
         // Markup is static; every user-derived value is escaped and inline colours
         // pass through getSafeCalendarColor before insertion.
-        content.innerHTML = `${this.renderViewSwitch()}${this.renderSourcePicker()}<div class="av__calendar-dock-period" aria-live="polite">${escape(title)}</div>${body}`;
+        content.innerHTML = `${this.renderViewSwitch()}${this.renderSourcePicker()}${renderCalendarDockPeriod(this.view, title)}${body}`;
         if (this.view === "month") this.markMiniMonthEventDays(events);
         if (this.view === "agenda" && this.agendaScrollDate) {
             this.agendaScrollDate = "";
