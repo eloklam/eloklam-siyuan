@@ -49,6 +49,13 @@ import {CALENDAR_RESIZE_HANDLE_TYPE, CALENDAR_TIME_DAY_CLASS, CALENDAR_TIME_GRID
 /** Pointer travel, in CSS pixels, before a press stops being a click. */
 const DRAG_THRESHOLD_PX = 4;
 
+/**
+ * Touch input needs the same drift allowance as the chip long-press menu. A
+ * smaller threshold turns a normal finger tap into an accidental move before
+ * the click handler can open the scheduling dialog.
+ */
+export const TOUCH_DRAG_THRESHOLD_PX = 8;
+
 /** Where a chip edge stops being an edge, when the chip has no handle element. */
 const EDGE_FALLBACK_PX = 6;
 
@@ -557,7 +564,8 @@ export const bindCalendarPointerInteractions = (options: ICalendarInteractionOpt
             }
             if (!gesture.started) {
                 const travelled = Math.hypot(moveEvent.clientX - gesture.startClientX, moveEvent.clientY - gesture.startClientY);
-                if (travelled < DRAG_THRESHOLD_PX) {
+                const threshold = moveEvent.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD_PX : DRAG_THRESHOLD_PX;
+                if (travelled < threshold) {
                     return;
                 }
                 startGesture(gesture);
