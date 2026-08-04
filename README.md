@@ -26,7 +26,7 @@ Attribute View rows and properties remain the source of truth. The calendar read
 The calendar work lives on the `feat/av-calendar` branch and is also merged into `master` here. Run it from source:
 
 ```bash
-git clone https://github.com/eloklam/siyuan.git
+git clone https://github.com/eloklam/siyuan-database-calendar.git
 cd siyuan
 git checkout feat/av-calendar
 
