@@ -1,6 +1,16 @@
 # SiYuan with Attribute View (Database) Calendar
 
-A fork of [SiYuan](https://github.com/siyuan-note/siyuan) that adds a calendar to the Attribute View (Database). The calendar lives inside an Attribute View (Database) block and offers month, week, multi-day, day and agenda layouts, with all-day and timed events, recurrence, drag and resize, search and filter, keyboard navigation, mobile touch, a Calendar dock, ICS import and 21 locales.
+**This is a personal fork of [SiYuan](https://github.com/siyuan-note/siyuan) — not the official release.** It adds a calendar to the Attribute View (Database). The calendar lives inside an Attribute View (Database) block and offers month, week, multi-day, day and agenda layouts, with all-day and timed events, recurrence, drag and resize, search and filter, keyboard navigation, mobile touch, a Calendar dock, ICS import and 21 locales.
+
+## Differences from upstream / 與上游的差異
+
+This personal fork (hosted as `eloklam/eloklam-siyuan`) tracks upstream `master`/`dev` and adds the following on top:
+
+- **Attribute View Calendar** — a calendar view for Attribute View (Database) blocks: month / week / multi-day / day / agenda layouts, all-day and timed events, drag & resize, recurrence, an event editor, source navigation, and a global Calendar sidebar (dock). This work was proposed upstream but was **not accepted**, so it exists only in this personal fork.
+- **Daily note target database** — a new per-notebook setting `dailyNoteDatabaseID`. When a new daily note is created, it is automatically added as a row to the configured target database (Attribute View); the notebook settings dialog gains a database block picker. The insertion is idempotent and best-effort — it never fails daily note creation. This feature is also prepared as a standalone upstream PR branch (`feat/daily-note-db-add`, not pushed yet).
+- **Local dev convenience** — Electron dev mode honors an explicit `--port` argument, so a second instance can run alongside the official app without port conflicts.
+
+中文简介：这是 SiYuan 的**个人 fork**，并非官方版本，托管于 `eloklam/eloklam-siyuan`。主要差异：1) **属性视图日历**——月/周/多日/日/议程布局、全天与定时事件、拖拽调整、重复事件、事件编辑器、来源导航、全局日历侧栏；该工作曾向上游提议但未被接受，仅存在于本 fork。2) **日记目标数据库**——新增笔记本级设置 `dailyNoteDatabaseID`，新建日记时自动作为行添加到配置的数据库（属性视图），笔记本设置中通过块选择器选择；幂等且尽力而为，绝不影响日记创建；已整理为独立上游 PR 分支 `feat/daily-note-db-add`，尚未推送。3) **本地开发便利**——Electron 开发模式支持显式 `--port`，可与官方应用并存运行。
 
 ![Calendar month view with the Schedule dock](screenshots/calendar-view.png)
 
@@ -26,8 +36,8 @@ Attribute View (Database) rows and properties remain the source of truth. The ca
 The calendar work lives on the `feat/av-calendar` branch and is also merged into `master` here. Run it from source:
 
 ```bash
-git clone https://github.com/eloklam/siyuan-database-calendar.git
-cd siyuan-database-calendar
+git clone https://github.com/eloklam/eloklam-siyuan.git
+cd eloklam-siyuan
 git checkout feat/av-calendar
 
 # terminal 1: build and start the kernel
