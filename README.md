@@ -27,7 +27,7 @@ The calendar work lives on the `feat/av-calendar` branch and is also merged into
 
 ```bash
 git clone https://github.com/eloklam/siyuan-database-calendar.git
-cd siyuan
+cd siyuan-database-calendar
 git checkout feat/av-calendar
 
 # terminal 1: build and start the kernel
