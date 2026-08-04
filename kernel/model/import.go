@@ -275,6 +275,7 @@ func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (c
 			boxConf.DocCreateSavePath = importedBoxConf.DocCreateSavePath
 			boxConf.DailyNoteSavePath = importedBoxConf.DailyNoteSavePath
 			boxConf.DailyNoteTemplatePath = importedBoxConf.DailyNoteTemplatePath
+			boxConf.DailyNoteDatabaseID = importedBoxConf.DailyNoteDatabaseID
 			boxConf.SortMode = importedBoxConf.SortMode
 			if err = box.SaveConf(boxConf); err != nil {
 				return createdBoxID, err
