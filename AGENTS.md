@@ -28,7 +28,7 @@ Rules:
 1. Do not access `/mnt/recoveryssd` or `/media/eloklam/Extreme SSD` except to read already copied recovery summaries if absolutely necessary.
 2. Do not search raw recovery files.
 3. Do not read, print, or recover secrets.
-4. Do not touch `/home/eloklam/SiYuan`, because that is the note vault and is backed up elsewhere.
+4. Before using `/home/eloklam/SiYuan` (the note vault), ask the user for explicit approval first.
 5. Use Hermes via Orca for execution. Orca implementation terminals must launch `hermes --profile fixer`; review terminals must launch `hermes --profile reviewer`.
 6. Do not launch Claude, Claude Code, Codex, OpenClaw, OpenCode CLI, or another external coding-agent CLI. A model provider used inside a Hermes profile remains a Hermes execution lane.
 7. Do not do broad rewrites.
