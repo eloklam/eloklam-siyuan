@@ -556,18 +556,6 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                 mountHelp();
             }
         }).element);
-        window.siyuan.menus.menu.append(new MenuItem({
-            id: "feedback",
-            label: window.siyuan.languages.feedback,
-            icon: "iconFeedback",
-            click: () => {
-                if ("zh-CN" === window.siyuan.config.lang || "zh-TW" === window.siyuan.config.lang) {
-                    window.open("https://ld246.com/article/1649901726096");
-                } else {
-                    window.open("https://liuyun.io/article/1686530886208");
-                }
-            }
-        }).element);
         /// #if !BROWSER
         window.siyuan.menus.menu.append(new MenuItem({
             id: "debug",
