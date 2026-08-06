@@ -855,6 +855,7 @@ type="checkbox">
                             packageName: pkgItem.name,
                             repoHash: pkgItem.repoHash,
                             mode: pkgItem.modes?.toString() === "dark" ? 1 : 0,
+                            modeOS: false,
                             frontend: getFrontend()
                         }, response => {
                             if (response.code !== 0) {
@@ -921,6 +922,7 @@ type="checkbox">
                                 packageName: pkgItem.name,
                                 repoHash: pkgItem.repoHash,
                                 mode: pkgItem.modes?.toString() === "dark" ? 1 : 0,
+                                modeOS: false,
                                 frontend: getFrontend()
                             }, response => {
                                 this._genMyHTML(pkgType, app);
