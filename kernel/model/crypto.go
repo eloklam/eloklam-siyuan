@@ -1458,6 +1458,10 @@ func unlockBoxHeld(boxID string, password string, boxEnc *conf.BoxEncryption) (e
 			logging.LogWarnf("write notebook crypt backup [%s] failed: %s", boxID, err)
 		}
 	}
+	if err = recoverCalendarItemCommitJournal(boxID); err != nil {
+		logging.LogErrorf("recover calendar item transaction after unlocking box [%s] failed: %s", boxID, err)
+		return err
+	}
 	finalState = EncryptedBoxStateUnlocked
 	return nil
 }
