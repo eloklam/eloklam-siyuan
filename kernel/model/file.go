@@ -1434,8 +1434,6 @@ func CreateDailyNote(boxID string) (p string, existed bool, err error) {
 
 	addDailyNoteToDatabase(boxConf.DailyNoteDatabaseID, id)
 
-	addDailyNoteToDatabase(boxConf.DailyNoteDatabaseID, id)
-
 	return
 }
 
