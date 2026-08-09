@@ -2377,7 +2377,18 @@ type AvSearchTempResult struct {
 	Score     float64
 }
 
-func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, currentBlockID string) (ret []*AvSearchResult) {
+// SearchAttributeViewDefaultLimit 是搜索数据库时默认返回的最大结果数
+const SearchAttributeViewDefaultLimit = 12
+
+// SearchAttributeViewLimitAll 表示返回全部匹配结果，不限制数量
+const SearchAttributeViewLimitAll = -1
+
+func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, currentBlockID string) []*AvSearchResult {
+	return SearchAttributeViewWithLimit(keyword, excludeAvIDs, currentAvID, currentBlockID, 0)
+}
+
+// SearchAttributeViewWithLimit 按指定上限搜索数据库，limit 为 0 时使用默认上限 SearchAttributeViewDefaultLimit，为 -1 时不限制数量。
+func SearchAttributeViewWithLimit(keyword string, excludeAvIDs []string, currentAvID, currentBlockID string, limit int) (ret []*AvSearchResult) {
 	waitForSyncingStorages()
 
 	ret = []*AvSearchResult{}
@@ -2467,8 +2478,11 @@ func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, cur
 			return avSearchTmpResults[i].Score > avSearchTmpResults[j].Score
 		})
 	}
-	if 12 <= len(avSearchTmpResults) {
-		avSearchTmpResults = avSearchTmpResults[:12]
+	if limit == 0 {
+		limit = SearchAttributeViewDefaultLimit
+	}
+	if 0 < limit && limit < len(avSearchTmpResults) {
+		avSearchTmpResults = avSearchTmpResults[:limit]
 	}
 
 	for _, tmpResult := range avSearchTmpResults {

@@ -21,6 +21,9 @@ declare interface INotebookConf {
     }
 }
 
+// 与内核 SearchAttributeViewLimitAll 保持一致，表示返回全部匹配结果，不限制数量
+const SEARCH_ATTRIBUTE_VIEW_LIMIT_ALL = -1;
+
 export const genNotebookOption = (id: string, notebookId?: string, noCurrent?: boolean) => {
     let html = "";
     if (!noCurrent) {
@@ -126,7 +129,7 @@ const bindSettingEvent = (contentElement: Element, data: INotebookConf) => {
     const dailyNoteDatabaseIdElement = contentElement.querySelector("#dailyNoteDatabaseId") as HTMLInputElement;
     dailyNoteDatabaseIdElement.dataset.id = data.conf.dailyNoteDatabaseID || "";
     if (data.conf.dailyNoteDatabaseID) {
-        fetchSyncPost("/api/av/searchAttributeView", {keyword: "", avID: "", blockID: "", excludes: []}).then((response) => {
+        fetchSyncPost("/api/av/searchAttributeView", {keyword: "", avID: "", blockID: "", excludes: [], limit: SEARCH_ATTRIBUTE_VIEW_LIMIT_ALL}).then((response) => {
             const results = (response?.data?.results || []) as Array<{avID: string, avName: string, blockID: string, hPath: string}>;
             const result = results.find((item) => item.blockID === data.conf.dailyNoteDatabaseID);
             if (result) {
@@ -157,7 +160,7 @@ const bindSettingEvent = (contentElement: Element, data: INotebookConf) => {
         });
     });
     dailyNoteDatabasePickElement.addEventListener("click", () => {
-        fetchSyncPost("/api/av/searchAttributeView", {keyword: "", avID: "", blockID: "", excludes: []}).then((response) => {
+        fetchSyncPost("/api/av/searchAttributeView", {keyword: "", avID: "", blockID: "", excludes: [], limit: SEARCH_ATTRIBUTE_VIEW_LIMIT_ALL}).then((response) => {
             const results = (response?.data?.results || []) as Array<{avID: string, avName: string, blockID: string, hPath: string}>;
             const nameById = new Map(results.map(item => [item.blockID, item.avName]));
             const listHTML = results.map((item) => {

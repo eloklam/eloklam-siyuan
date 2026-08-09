@@ -865,7 +865,11 @@ func searchAttributeView(c *gin.Context) {
 			excludes = append(excludes, e.(string))
 		}
 	}
-	results := model.SearchAttributeView(keyword, excludes, currentAvID, currentBlockID)
+	limit := 0
+	if nil != arg["limit"] {
+		limit = int(arg["limit"].(float64))
+	}
+	results := model.SearchAttributeViewWithLimit(keyword, excludes, currentAvID, currentBlockID, limit)
 	ret.Data = map[string]any{
 		"results": results,
 	}
