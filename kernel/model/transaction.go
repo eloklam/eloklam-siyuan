@@ -1357,15 +1357,37 @@ func deleteAttrView(n *ast.Node, changedAvIDs []string) []string {
 			continue
 		}
 
+		removedItemID := ""
 		for i, blockValue := range blockValues.Values {
 			if nil == blockValue.Block {
 				continue
 			}
 
 			if blockValue.Block.ID == n.ID {
+				removedItemID = blockValue.BlockID
 				blockValues.Values = append(blockValues.Values[:i], blockValues.Values[i+1:]...)
 				changedAv = true
 				break
+			}
+		}
+
+		if "" != removedItemID {
+			// 条目 ID 与绑定块 ID 自 v3.7.3 起不同，只删主键值会把该条目其余字段的值留成孤儿：
+			// 它们不再属于任何行，界面上看不见也无法恢复。这里一并清掉。
+			for _, keyValues := range attrView.KeyValues {
+				if nil == keyValues || keyValues == blockValues {
+					continue
+				}
+				values := keyValues.Values[:0]
+				for i, value := range keyValues.Values {
+					if nil == value || value.BlockID != removedItemID {
+						values = append(values, keyValues.Values[i])
+					}
+				}
+				keyValues.Values = values
+			}
+			for _, view := range attrView.Views {
+				view.ItemIDs = gulu.Str.RemoveElem(view.ItemIDs, removedItemID)
 			}
 		}
 
