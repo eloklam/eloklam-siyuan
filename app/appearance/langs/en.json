@@ -1603,7 +1603,7 @@
 	"fileTree15": "Daily note template path (for example, <code class='fn__code'>dailynote.md</code>; leave blank to apply no template; the file needs to be placed under workspace/data/templates/)",
 	"dailyNoteDatabaseId": "Target database",
 	"dailyNoteDatabaseIdHint": "Storage database",
-	"dailyNoteDatabasePick": "Select database…",
+	"dailyNoteDatabasePick": "Select database...",
 	"fileTree16": "Maximum number to list",
 	"fileTree17": "If there are too many sub-docs/tags, this restriction can be used to improve performance",
 	"fileTree18": "Allows creation of sub-documents deeper than 7 levels",

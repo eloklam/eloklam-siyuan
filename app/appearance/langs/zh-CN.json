@@ -1603,7 +1603,7 @@
 	"fileTree15": "日记模板路径（例如 <code class='fn__code'>dailynote.md</code>，留空时不应用模板，需要将该文件放置于工作空间/data/templates/ 下）",
 	"dailyNoteDatabaseId": "目标数据库",
 	"dailyNoteDatabaseIdHint": "存放数据库",
-	"dailyNoteDatabasePick": "选择数据库…",
+	"dailyNoteDatabasePick": "选择数据库...",
 	"fileTree16": "最大列出数量",
 	"fileTree17": "如果子文档/标签非常多，可通过该项限制以提升性能",
 	"fileTree18": "允许创建深度大于 7 层的子文档",
