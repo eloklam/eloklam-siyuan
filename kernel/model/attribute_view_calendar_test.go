@@ -445,12 +445,11 @@ func TestCalendarSetterResolvesViewByOperationViewID(t *testing.T) {
 	second := av.NewCalendarView()
 	second.ID = "20240101000000-view0002"
 	attrView := &av.AttributeView{
-		ID:     "20240101000000-avavav1",
-		ViewID: first.ID,
-		Views:  []*av.View{first, second},
+		ID:    "20240101000000-avavav1",
+		Views: []*av.View{first, second},
 	}
 
-	view, err := resolveAttrViewViewByOperation(attrView, &Operation{ViewID: second.ID})
+	view, err := getAttrViewOperationView(attrView, &Operation{ViewID: second.ID})
 	if err != nil {
 		t.Fatalf("explicit view ID should resolve: %v", err)
 	}
@@ -458,7 +457,7 @@ func TestCalendarSetterResolvesViewByOperationViewID(t *testing.T) {
 		t.Fatalf("explicit view ID must target the second view, got %s", view.ID)
 	}
 
-	view, err = resolveAttrViewViewByOperation(attrView, &Operation{ViewID: first.ID})
+	view, err = getAttrViewOperationView(attrView, &Operation{ViewID: first.ID})
 	if err != nil {
 		t.Fatalf("explicit view ID should resolve: %v", err)
 	}
@@ -466,12 +465,12 @@ func TestCalendarSetterResolvesViewByOperationViewID(t *testing.T) {
 		t.Fatalf("explicit view ID must target the first view, got %s", view.ID)
 	}
 
-	if _, err = resolveAttrViewViewByOperation(attrView, &Operation{ViewID: "20240101000000-missing"}); !errors.Is(err, av.ErrViewNotFound) {
+	if _, err = getAttrViewOperationView(attrView, &Operation{ViewID: "20240101000000-missing"}); !errors.Is(err, av.ErrViewNotFound) {
 		t.Fatalf("unknown explicit view ID should return ErrViewNotFound, got %v", err)
 	}
 
 	// 旧版载荷不带 ViewID，回退到当前视图
-	view, err = resolveAttrViewViewByOperation(attrView, &Operation{})
+	view, err = getAttrViewOperationView(attrView, &Operation{})
 	if err != nil {
 		t.Fatalf("legacy payload without view ID should fall back: %v", err)
 	}

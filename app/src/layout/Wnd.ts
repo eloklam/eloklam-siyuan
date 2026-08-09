@@ -5,6 +5,7 @@ import {
     getInstanceById,
     getWndByLayout,
     JSONToCenter, layoutToJSON,
+    isSensitiveTab,
     newModelByInitData,
     pdfIsLoading,
     saveLayout,
@@ -41,7 +42,7 @@ import {getFrontend, isWindow} from "../util/functions";
 import {hideAllElements} from "../protyle/ui/hideElements";
 import {focusByOffset, getSelectionOffset} from "../protyle/util/selection";
 import {Custom} from "./dock/Custom";
-import {App} from "../index";
+import type {App} from "../index";
 import {unicode2Emoji} from "../emoji";
 import {closeWindow} from "../window/closeWin";
 import {newCenterEmptyTab, resizeTabs, setTabPosition} from "./tabUtil";
@@ -50,7 +51,7 @@ import {setPadding} from "../protyle/ui/initUI";
 import {setPosition} from "../util/setPosition";
 import {clearOBG} from "./dock/util";
 import {recordBeforeResizeTop} from "../protyle/util/resize";
-import {setStorageVal} from "../protyle/util/compatibility";
+import {sanitizeClosedTabs, setStorageVal} from "../protyle/util/compatibility";
 import {setTitle} from "../util/processTitle";
 import {dragOverScroll} from "../boot/globalEvent/dragover";
 
@@ -318,6 +319,12 @@ export class Wnd {
         this.element.addEventListener("dragenter", (event: DragEvent & { target: HTMLElement }) => {
             elementDragCounter++;
             if (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB)) {
+                if (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_DOCUMENT_TAB) &&
+                    hasClosestByClassName(event.target, "sy__file")) {
+                    dragElement.classList.add("fn__none");
+                    dragElement.removeAttribute("style");
+                    return;
+                }
                 const tabHeadersElement = hasClosestByClassName(event.target, "layout-tab-bar");
                 if (tabHeadersElement) {
                     return;
@@ -746,12 +753,11 @@ export class Wnd {
                     item.destroy();
                 }
             });
-            model.editor.destroy();
+            model.destroy();
             return;
         }
         if (model instanceof Search) {
-            model.editors.edit.destroy();
-            model.editors.unRefEdit.destroy();
+            model.destroy();
             return;
         }
         if (model instanceof Asset) {
@@ -772,15 +778,17 @@ export class Wnd {
             if (item.id !== id) {
                 return;
             }
+            window.siyuan.storage[Constants.LOCAL_CLOSED_TABS] =
+                sanitizeClosedTabs(window.siyuan.storage[Constants.LOCAL_CLOSED_TABS]);
             if (window.siyuan.storage[Constants.LOCAL_CLOSED_TABS].length > Constants.SIZE_UNDO) {
                 window.siyuan.storage[Constants.LOCAL_CLOSED_TABS].pop();
             }
-            if (item.headElement) {
+            if (item.headElement && !isSensitiveTab(item)) {
                 const tabJSON = {};
                 layoutToJSON(item, tabJSON);
                 window.siyuan.storage[Constants.LOCAL_CLOSED_TABS].push(tabJSON);
-                setStorageVal(Constants.LOCAL_CLOSED_TABS, window.siyuan.storage[Constants.LOCAL_CLOSED_TABS]);
             }
+            setStorageVal(Constants.LOCAL_CLOSED_TABS, window.siyuan.storage[Constants.LOCAL_CLOSED_TABS]);
             if (item.model instanceof Custom && item.model.beforeDestroy) {
                 item.model.beforeDestroy();
             }

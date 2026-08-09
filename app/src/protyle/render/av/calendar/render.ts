@@ -1931,7 +1931,7 @@ export const renderCalendar = async (options: IRenderCalendarOptions) => {
         scrollElement.innerHTML = body;
     } else {
         e.firstElementChild.outerHTML = `<div class="av__container">
-    ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, editable)}
+    ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, editable, e)}
     <div class="av__scroll">${body}</div>
 </div>`;
     }

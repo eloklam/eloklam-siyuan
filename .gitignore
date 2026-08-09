@@ -27,7 +27,6 @@ electron/dist
 
 # IDE
 .idea/
-app/.calendar-tx-smoke-*/
 .vscode/
 .zcode/
 

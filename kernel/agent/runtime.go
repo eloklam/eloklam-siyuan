@@ -46,6 +46,7 @@ type agentRuntimeTurn struct {
 	UserEntryID       string         `json:"userEntryID"`
 	TargetUserEntryID string         `json:"targetUserEntryID,omitempty"`
 	UserContent       string         `json:"userContent,omitempty"`
+	UserBlockHTML     *string        `json:"userBlockHTML,omitempty"`
 	UserReferences    *[]Reference   `json:"userReferences,omitempty"`
 	UserEditorContext *EditorContext `json:"userEditorContext,omitempty"`
 	BaseRevision      int64          `json:"baseRevision"`
@@ -63,9 +64,12 @@ type agentRuntimeTurn struct {
 }
 
 type runtimeCompaction struct {
+	Version           int    `json:"version"`
 	Summary           string `json:"summary"`
 	CoveredEntryCount int    `json:"coveredEntryCount"`
+	NextEntryID       string `json:"nextEntryID"`
 	CoveredDigest     string `json:"coveredDigest"`
+	UpdatedAt         int64  `json:"updatedAt"`
 }
 
 func runtimePath(sessionID string) string {
@@ -218,6 +222,24 @@ func saveRuntimeTurn(sessionID string, turn *agentRuntimeTurn, alwaysAllow bool)
 	return writeRuntimeLocked(sessionID, runtime)
 }
 
+func saveRuntimeCompaction(sessionID string, compaction *runtimeCompaction) error {
+	if sessionID == "" || compaction == nil {
+		return errContextCannotBeCompacted
+	}
+	if !isValidSessionID(sessionID) {
+		return fmt.Errorf("invalid session id")
+	}
+	lock := sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	runtime, err := loadRuntimeLocked(sessionID)
+	if err != nil {
+		return err
+	}
+	runtime.Compaction = cloneRuntimeCompaction(compaction)
+	return writeRuntimeLocked(sessionID, runtime)
+}
+
 func loadRuntimeState(sessionID string) (*agentRuntime, error) {
 	if sessionID == "" || !isValidSessionID(sessionID) {
 		return nil, nil
@@ -326,6 +348,13 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 	if turn.Mode == "regenerate" && turn.UserContent != "" {
 		entry, _ := entries[anchor].(map[string]any)
 		entry["content"] = turn.UserContent
+		if turn.UserBlockHTML != nil {
+			if *turn.UserBlockHTML != "" {
+				entry["blockHTML"] = *turn.UserBlockHTML
+			} else {
+				delete(entry, "blockHTML")
+			}
+		}
 		if turn.UserReferences != nil {
 			if len(*turn.UserReferences) > 0 {
 				entry["references"] = *turn.UserReferences
@@ -355,6 +384,9 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 		if message.Content != "" {
 			entry["content"] = message.Content
 		}
+		if message.ReasoningContent != "" {
+			entry["reasoningContent"] = message.ReasoningContent
+		}
 		if len(message.ToolCalls) > 0 {
 			calls := make([]map[string]any, 0, len(message.ToolCalls))
 			for _, call := range message.ToolCalls {
@@ -366,12 +398,22 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 						result = toolUnknownResult
 					}
 				}
-				calls = append(calls, map[string]any{
+				persistedCall := map[string]any{
 					"name":      call.Name,
 					"arguments": call.Arguments,
 					"result":    result,
 					"state":     call.State,
-				})
+				}
+				if call.ID != "" {
+					persistedCall["id"] = call.ID
+				}
+				if call.ArgumentsJSON != "" {
+					persistedCall["argumentsJSON"] = call.ArgumentsJSON
+				}
+				if len(call.Attachments) > 0 {
+					persistedCall["attachments"] = call.Attachments
+				}
+				calls = append(calls, persistedCall)
 			}
 			entry["toolCalls"] = calls
 		}

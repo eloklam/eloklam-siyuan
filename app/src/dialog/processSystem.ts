@@ -5,7 +5,7 @@ import {exportLayout} from "../layout/util";
 import {getDockByType} from "../layout/tabUtil";
 import {Files} from "../layout/dock/Files";
 /// #endif
-import {getAllEditor} from "../layout/getAll";
+import {getAllEditor, getAllModels} from "../layout/getAll";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
 /// #endif
@@ -16,10 +16,26 @@ import {confirmDialog} from "./confirmDialog";
 import {escapeHtml} from "../util/escape";
 import {needSubscribe} from "../util/needSubscribe";
 import {hideAllElements} from "../protyle/ui/hideElements";
-import {App} from "../index";
+import type {App} from "../index";
 import {saveScroll} from "../protyle/scroll/saveScroll";
 import {isInAndroid, isInHarmony, isInIOS, setStorageVal} from "../protyle/util/compatibility";
 import {Plugin} from "../plugin";
+
+export const processBacklinkIndexCommit = (data: {
+    rootIDs?: string[],
+    backlinkChanged?: boolean,
+    backlinkFull?: boolean,
+}) => {
+    /// #if !MOBILE
+    if (!data?.backlinkChanged) {
+        return;
+    }
+    getAllModels().backlink.forEach(item => {
+        item.markIndexDirty(data);
+        item.refreshAfterIndex();
+    });
+    /// #endif
+};
 
 export const setRefDynamicText = (data: {
     "blockID": string,
@@ -37,6 +53,7 @@ export const setRefDynamicText = (data: {
 
 export const setDefRefCount = (data: {
     "blockID": string,
+    "defIDs"?: string[],
     "refCount": number,
     "rootRefCount": number,
     "rootID": string
@@ -412,7 +429,7 @@ export const downloadProgress = (data: { id: string, percent: number }) => {
     if (!bazaarSideElement) {
         return;
     }
-    if (data.id !== bazaarSideElement.getAttribute("data-repourl")) {
+    if (data.id !== (bazaarSideElement.getAttribute("data-progress-id") || bazaarSideElement.getAttribute("data-repourl"))) {
         return;
     }
     const installBtnElement = bazaarSideElement.querySelector('[data-type="install"]') as HTMLElement;

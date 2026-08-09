@@ -21,6 +21,7 @@ import (
 	"io"
 	"io/fs"
 	"mime"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -214,6 +215,93 @@ func LastID(p string) (name, id string) {
 
 func IsValidUploadFileName(name string) bool {
 	return name == FilterUploadFileName(name)
+}
+
+func IsNetworkIconURL(icon string) bool {
+	u, err := url.Parse(icon)
+	return nil == err && "" != u.Host && ("http" == strings.ToLower(u.Scheme) || "https" == strings.ToLower(u.Scheme))
+}
+
+func FilterIconValue(icon string) (ret string, valid bool) {
+	ret = strings.TrimSpace(icon)
+	if strings.HasPrefix(ret, "api/icon/") || IsNetworkIconURL(ret) {
+		return ret, true
+	}
+
+	u, err := url.Parse(ret)
+	if strings.HasPrefix(ret, "//") || (nil == err && "" != u.Scheme) {
+		return "", false
+	}
+	if strings.Contains(ret, ".") {
+		ret = FilterUploadEmojiFileName(ret)
+	}
+	if !strings.ContainsAny(ret, "./") && !IsValidIconUnicode(ret) {
+		return "", false
+	}
+	return ret, true
+}
+
+// IsValidIconUnicode 校验图标值是否为合法的十六进制码点序列（连字符分隔）：
+// 解码后不允许包含 HTML 元字符，防止图标值被渲染为可执行标记
+// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-vx5w-qrvp-mmcq
+func IsValidIconUnicode(icon string) bool {
+	parts := strings.Split(icon, "-")
+	if 32 < len(parts) {
+		return false
+	}
+	isHexSequence := true
+	for _, part := range parts {
+		if "" == part || 6 < len(part) {
+			return false
+		}
+		if _, parseErr := strconv.ParseUint(part, 16, 32); nil != parseErr {
+			isHexSequence = false
+			break
+		}
+	}
+	if !isHexSequence {
+		// 不是十六进制码点序列，比如直接存储的 emoji 字符，保持原有行为
+		return true
+	}
+	for _, part := range parts {
+		n, _ := strconv.ParseUint(part, 16, 32)
+		if 0x10FFFF < n || (0xD800 <= n && 0xDFFF >= n) {
+			return false
+		}
+		r := rune(n)
+		if '<' == r || '>' == r || '"' == r || '\'' == r || '&' == r {
+			return false
+		}
+	}
+	return true
+}
+
+func FilterRecentIconValue(icon string) (ret string, valid bool) {
+	ret, valid = FilterIconValue(icon)
+	if !valid || !strings.HasPrefix(ret, "api/icon/getDynamicIcon") {
+		return
+	}
+
+	u, err := url.Parse(ret)
+	if nil != err {
+		return "", false
+	}
+	query := u.Query()
+	query.Del("id")
+	u.RawQuery = query.Encode()
+	return u.String(), true
+}
+
+func FilterRecentIconValues(icons []string) (ret []string) {
+	ret = make([]string, 0, len(icons))
+	seen := map[string]bool{}
+	for _, icon := range icons {
+		if icon, valid := FilterRecentIconValue(icon); valid && !seen[icon] {
+			ret = append(ret, icon)
+			seen[icon] = true
+		}
+	}
+	return
 }
 
 func FilterUploadEmojiFileName(name string) string {

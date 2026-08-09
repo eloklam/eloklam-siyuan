@@ -2,7 +2,6 @@
 
 .protyle-wysiwyg {
   padding: 16px 16px 16px 24px;
-  cursor: text;
   box-sizing: border-box;
   // 移除三击无法选中整个 https://github.com/siyuan-note/siyuan/issues/8511
   user-select: auto;
@@ -11,10 +10,15 @@
   &--empty:empty::before {
     color: var(--b3-empty-color);
     content: attr(placeholder);
+    cursor: text;
   }
 
   .protyle-breadcrumb__bar {
     font-size: 14px;
+  }
+
+  .sy__backlink & > .protyle-breadcrumb__bar {
+    user-select: none;
   }
 
   &:focus {
@@ -23,6 +27,16 @@
 
   [data-node-id] {
     position: relative;
+
+    &[data-type="NodeHeading"] {
+      & > .protyle-heading-number__measure {
+        position: absolute;
+        visibility: hidden;
+        white-space: pre;
+        color: var(--b3-theme-on-surface-light);
+        pointer-events: none;
+      }
+    }
 
     &.dragover {
       &__left::after,
@@ -544,6 +558,7 @@
     &.table[custom-pinthead="true"] {
       table {
         max-height: 50vh;
+        overflow: auto;
       }
 
       thead {
@@ -557,11 +572,6 @@
           border-top: 0;
         }
       }
-    }
-
-    &.table table {
-      display: inline-block;
-      vertical-align: top;
     }
 
     .img {
@@ -874,6 +884,15 @@
 
 // 导出 html 不需要编辑样式
 .protyle-wysiwyg[data-readonly="false"] {
+  &[contenteditable="true"] [data-node-id].table {
+    padding-right: 20px;
+    padding-bottom: 20px;
+  }
+
+  caption {
+    cursor: pointer;
+  }
+
   span[data-type~="inline-math"],
   .protyle-action__language,
   .render-node:not([data-type="NodeBlockQueryEmbed"]) {
@@ -978,7 +997,7 @@
       }
     }
 
-    .av__row .av__cell[data-dtype="block"] > .block__icon[data-type="copy"] {
+    .av__row .av__cell[data-dtype="block"] > .av__cell-action[data-type="copy"] {
       display: flex;
     }
   }

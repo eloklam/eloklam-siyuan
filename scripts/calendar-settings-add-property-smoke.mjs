@@ -32,7 +32,7 @@ const blockAttr = read("app/src/protyle/render/av/blockAttr.ts");
 
 // 1. The properties panel must know the active view type so it can drop the
 //    add-property button for calendar only.
-assert(openMenuPanel.includes("export const getPropertiesHTML = (fields: IAVColumn[], viewType?: string)"),
+assert(openMenuPanel.includes("export const getPropertiesHTML = (fields: IAVColumn[], viewType: TAVView)"),
   "getPropertiesHTML must accept the active view type");
 assert(openMenuPanel.includes('viewType === "calendar" ? "" : `<button class="b3-menu__separator"></button>'),
   "the add-property (newCol) button must be suppressed for calendar views");
@@ -42,7 +42,7 @@ const threadedCalls = openMenuPanel.split("getPropertiesHTML(fields, data.viewTy
 assert(threadedCalls === 7, `all 7 openMenuPanel call sites must pass data.viewType (found ${threadedCalls})`);
 assert(!openMenuPanel.includes("getPropertiesHTML(fields)"),
   "no openMenuPanel call site may render the properties panel without the view type");
-assert(col.includes("getPropertiesHTML(options.fields, options.viewType)"),
+assert(col.includes('options.blockElement.getAttribute("data-av-type") as TAVView'),
   "removeCol must re-render the properties panel with the view type");
 assert(!col.includes("getPropertiesHTML(options.fields)"),
   "removeCol may not re-render the properties panel without the view type");
@@ -50,8 +50,13 @@ assert(!col.includes("getPropertiesHTML(options.fields)"),
 // 3. The add-property action path must be unreachable from calendar settings.
 assert(openMenuPanel.includes('type === "newCol" && data.viewType !== "calendar"'),
   "the newCol action handler must refuse calendar views");
-assert(openMenuPanel.split("viewType: data.viewType,").length - 1 === 3,
-  "all removeCol call sites must pass the active view type");
+// 3.7.4 removeCol reads the active view type from the block element's
+// data-av-type instead of threading a viewType option through openMenuPanel.
+assert(openMenuPanel.split("removeCol({").length - 1 === 3,
+  "all removeCol call sites must remain reachable");
+assert(col.includes("blockElement: Element") &&
+  col.includes('options.blockElement.getAttribute("data-av-type") as TAVView'),
+  "removeCol must re-render the properties panel with the active view type");
 
 // 4. Existing property selection/mapping must be preserved: the settings
 //    Fields entry, the field rows and the show/hide controls stay for every

@@ -6,6 +6,7 @@ import {genBreadcrumb, improveBreadcrumbAppearance} from "../wysiwyg/renderBackl
 import {avRender} from "./av/render";
 import {genRenderFrame} from "./util";
 import {isEncryptedBox} from "../../util/pathName";
+import {disabledWYSIWYG} from "../util/disabledWYSIWYG";
 
 /**
  * 渲染嵌入块
@@ -43,44 +44,35 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number, o
         }
 
         if (content.startsWith("//!js")) {
+            const renderError = (error: unknown) => {
+                console.error(error);
+                renderEmbed([], protyle, item, top, String(error), onEmbedRender);
+            };
             try {
-                const includeIDs = new Function(
+                const includeIDsPromise = new Function(
                     "fetchSyncPost",
                     "item",
                     "protyle",
                     "top",
-                    content)(fetchSyncPost, item, protyle, top);
-                if (includeIDs instanceof Promise) {
-                    includeIDs.then((promiseIds) => {
-                        if (Array.isArray(promiseIds)) {
-                            fetchPost("/api/search/getEmbedBlock", {
-                                embedBlockID: item.getAttribute("data-node-id"),
-                                includeIDs: promiseIds,
-                                headingMode: ["0", "1", "2"].includes(item.getAttribute("custom-heading-mode")) ? parseInt(item.getAttribute("custom-heading-mode")) : window.siyuan.config.editor.headingEmbedMode,
-                                breadcrumb
-                            }, (response) => {
-                                renderEmbed(response.data.blocks || [], protyle, item, top, undefined, onEmbedRender);
-                            });
-                        } else {
-                            return;
-                        }
-                    }).catch((e) => {
-                        renderEmbed([], protyle, item, top, e, onEmbedRender);
-                    });
-                } else if (Array.isArray(includeIDs)) {
+                    `return (async () => {
+${content}
+})();`)(fetchSyncPost, item, protyle, top);
+                includeIDsPromise.then((includeIDs: unknown) => {
+                    if (!Array.isArray(includeIDs)) {
+                        return;
+                    }
                     fetchPost("/api/search/getEmbedBlock", {
                         embedBlockID: item.getAttribute("data-node-id"),
                         includeIDs,
                         headingMode: ["0", "1", "2"].includes(item.getAttribute("custom-heading-mode")) ? parseInt(item.getAttribute("custom-heading-mode")) : window.siyuan.config.editor.headingEmbedMode,
-                        breadcrumb
+                        breadcrumb,
+                        notebook: isEncryptedBox(protyle.notebookId) ? protyle.notebookId : ""
                     }, (response) => {
                         renderEmbed(response.data.blocks || [], protyle, item, top, undefined, onEmbedRender);
                     });
-                } else {
-                    return;
-                }
+                }).catch(renderError);
             } catch (e) {
-                renderEmbed([], protyle, item, top, e, onEmbedRender);
+                renderError(e);
             }
         } else {
             fetchPost("/api/search/searchEmbedBlock", {
@@ -122,7 +114,8 @@ const renderEmbed = (blocks: {
             }
         }
         const childOperationAttr = blocksItem.allowChildOperation ? " data-allow-child-operation=\"true\"" : "";
-        html += `<div class="protyle-wysiwyg__embed" data-id="${blocksItem.block.id}"${childOperationAttr}>
+        const rootIDAttr = blocksItem.block.rootID ? ` data-root-id="${blocksItem.block.rootID}"` : "";
+        html += `<div class="protyle-wysiwyg__embed" data-id="${blocksItem.block.id}"${rootIDAttr}${childOperationAttr}>
 ${popover}${breadcrumbHTML}${blocksItem.block.content}
 </div>`;
     });
@@ -136,6 +129,10 @@ ${popover}${breadcrumbHTML}${blocksItem.block.content}
     processRender(item);
     highlightRender(item);
     avRender(item, protyle);
+    if (protyle.disabled) {
+        // 嵌入块异步渲染可能晚于只读状态设置，需同步禁用新插入的可编辑节点
+        disabledWYSIWYG(item);
+    }
     if (top) {
         // 前进后退定位 https://ld246.com/article/1667652729995
         protyle.contentElement.scrollTop = top;

@@ -8,9 +8,9 @@ import {showMessage} from "../../dialog/message";
 /// #if !BROWSER
 import {shell} from "electron";
 /// #endif
-import {isInMobileApp, saveExportFile} from "../../protyle/util/compatibility";
+import {isInAndroid, isInHarmony, isInIOS, isInMobileApp, saveExportFile} from "../../protyle/util/compatibility";
 import {openByMobile} from "../../editor/openLink";
-import {genConfigItemMainHtml} from "../render/fragments";
+import {bindPasswordIconaToggle, genConfigItemMainHtml} from "../render/fragments";
 import {renderPublishAuthAccounts, savePublish, sendAccessSetting, updatePublishConfig} from "./accessRuntime";
 import {sendAppSetting} from "./appRuntime";
 import zxcvbn = require("zxcvbn");
@@ -66,11 +66,314 @@ const registerAccessAuthGroup = (tab: SettingTabBuilder) => {
             save: (value) => sendAppSetting("system.lockScreenMode", value),
         });
     }
+    if (!window.siyuan.config.readonly) {
+        group.button({
+            id: "oidcConfig",
+            title: window.siyuan.languages.oidcLogin,
+            desc: window.siyuan.languages.oidcLoginTip,
+            label: window.siyuan.languages.config,
+            icon: "iconKey",
+            afterMount: mountOIDCButton,
+        });
+    }
     group.text("api.token", {
         title: window.siyuan.languages.about13,
         desc: window.siyuan.languages.about14.replace("${token}", window.siyuan.config.api.token),
         save: (value) => sendAccessSetting("api.token", value),
         afterMount: bindApiTokenInput,
+    });
+};
+
+const mountOIDCButton = (root: HTMLElement) => {
+    root.querySelector("#oidcConfig")?.addEventListener("click", () => {
+        const config = window.siyuan.config.oidc;
+        const escape = (value: string) => Lute.EscapeHTMLStr(value);
+        let destroyOIDCDialog: () => void = () => undefined;
+        const dialog = new Dialog({
+            title: window.siyuan.languages.oidcLogin,
+            content: `<div class="b3-dialog__content" id="oidcConfigForm">
+    <label class="b3-label b3-label--inner fn__flex">
+        <div class="fn__flex-1"><div class="config-name">${window.siyuan.languages.oidcEnabled}</div></div>
+        <span class="fn__space"></span>
+        <input type="checkbox" data-field="enabled" class="b3-switch fn__flex-center"${config.enabled ? " checked" : ""}>
+    </label>
+    <div class="b3-label b3-label--inner">
+        <div class="config-name">${window.siyuan.languages.oidcProvider}</div>
+        <div class="fn__hr"></div>
+        <select data-field="provider" class="b3-select fn__block"><option value="custom"${config.provider === "custom" ? " selected" : ""}>${window.siyuan.languages.custom}</option><option value="google"${config.provider === "google" ? " selected" : ""}>Google</option><option value="microsoft"${config.provider === "microsoft" ? " selected" : ""}>Microsoft</option><option value="github"${config.provider === "github" ? " selected" : ""}>GitHub</option></select>
+        <div class="b3-label__text ft__error${config.provider === "google" ? "" : " fn__none"}" data-section="mobileCallbackWarning">${window.siyuan.languages["_kernel"]["368"]}</div>
+    </div>
+    <div class="b3-label b3-label--inner" data-section="issuer">
+        <div class="config-name">${window.siyuan.languages.oidcIssuerURL}</div>
+        <div class="fn__hr"></div>
+        <input data-field="issuerURL" class="b3-text-field fn__block" spellcheck="false" value="${escape(config.issuerURL)}">
+    </div>
+    <div class="b3-label b3-label--inner">
+        <div class="config-name">${window.siyuan.languages.oidcClientID}</div>
+        <div class="fn__hr"></div>
+        <input data-field="clientID" class="b3-text-field fn__block" spellcheck="false" value="${escape(config.clientID)}">
+    </div>
+    <div class="b3-label b3-label--inner">
+        <div class="config-name">${window.siyuan.languages.oidcClientSecret}</div>
+        <div class="fn__hr"></div>
+        <div class="b3-form__icona fn__block">
+            <input id="oidcClientSecret" data-field="clientSecret" type="password" class="b3-text-field b3-form__icona-input" spellcheck="false" autocomplete="off" value="${escape(config.clientSecret)}">
+            <svg class="b3-form__icona-icon" data-action="togglePassword"><use xlink:href="#iconEye"></use></svg>
+        </div>
+    </div>
+    <div class="b3-label b3-label--inner">
+        <div class="config-name">${window.siyuan.languages.oidcScopes}</div>
+        <div class="fn__hr"></div>
+        <input data-field="scopes" class="b3-text-field fn__block" spellcheck="false" value="${escape(config.scopes.join(", "))}">
+    </div>
+    <div class="b3-label b3-label--inner">
+        <div class="config-name">${window.siyuan.languages.oidcRedirectURL}</div>
+        <div class="fn__hr"></div>
+        <input data-field="redirectURL" class="b3-text-field fn__block" spellcheck="false" value="${escape(config.redirectURL)}">
+    </div>
+    <label class="b3-label b3-label--inner fn__flex">
+        <div class="fn__flex-1"><div class="config-name ft__error">${window.siyuan.languages.oidcAllowAll}</div></div>
+        <span class="fn__space"></span>
+        <input type="checkbox" data-field="allowAll" class="b3-switch fn__flex-center"${config.allowAll ? " checked" : ""}>
+    </label>
+    <div class="b3-label b3-label--inner" data-section="claimRules">
+        <div class="config-name">${window.siyuan.languages.oidcClaimRules}</div>
+        <div class="b3-label__text">${window.siyuan.languages.oidcClaimRulesTip}</div>
+        <div class="fn__hr"></div>
+        <textarea data-field="claimRules" class="b3-text-field fn__block" rows="5" style="resize: vertical;">${escape(JSON.stringify(config.claimRules, null, 2))}</textarea>
+    </div>
+    <div class="b3-label__text fn__none" data-section="validationStatus">${window.siyuan.languages.oidcVerificationTip}</div>
+</div>
+<div class="b3-dialog__action"><button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div><button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button></div>`,
+            width: isMobile() ? "92vw" : "620px",
+            height: "80vh",
+            disableClose: true,
+            destroyCallback: () => destroyOIDCDialog(),
+        });
+        const form = dialog.element.querySelector<HTMLElement>("#oidcConfigForm");
+        const buttons = dialog.element.querySelectorAll<HTMLButtonElement>(".b3-dialog__action .b3-button");
+        const clientSecretInput = form.querySelector<HTMLInputElement>('[data-field="clientSecret"]');
+        bindPasswordIconaToggle(form, "oidcClientSecret");
+        let validationPollTimer = 0;
+        let validationWindow: Window | null = null;
+        let validationCancelled = false;
+        let validationPollToken = "";
+        let validationPollInFlight = false;
+        let validationActivating = false;
+        let mobileCallbackInstalled = false;
+        let previousMobileCallback: ((callbackURL: string) => void) | undefined;
+        let previousMobileAuthError: ((message: string) => void) | undefined;
+        const refreshSections = () => {
+            const provider = form.querySelector<HTMLSelectElement>('[data-field="provider"]').value;
+            const enabled = form.querySelector<HTMLInputElement>('[data-field="enabled"]').checked;
+            const allowAll = form.querySelector<HTMLInputElement>('[data-field="allowAll"]').checked;
+            form.querySelector<HTMLElement>('[data-section="issuer"]').classList.toggle("fn__none",
+                provider !== "custom" && provider !== "microsoft");
+            form.querySelector<HTMLElement>('[data-section="mobileCallbackWarning"]').classList.toggle("fn__none",
+                provider !== "google");
+            form.querySelector<HTMLElement>('[data-section="claimRules"]').classList.toggle("fn__none", allowAll);
+            buttons[1].textContent = enabled ? window.siyuan.languages.oidcVerifyAndSave : window.siyuan.languages.confirm;
+        };
+        form.querySelector<HTMLSelectElement>('[data-field="provider"]').addEventListener("change", refreshSections);
+        form.querySelector<HTMLInputElement>('[data-field="enabled"]').addEventListener("change", refreshSections);
+        form.querySelector<HTMLInputElement>('[data-field="allowAll"]').addEventListener("change", refreshSections);
+        refreshSections();
+        const stopValidation = () => {
+            window.clearInterval(validationPollTimer);
+            validationPollTimer = 0;
+        };
+        const restoreMobileCallback = () => {
+            if (!mobileCallbackInstalled) {
+                return;
+            }
+            window.handleOIDCCallback = previousMobileCallback;
+            window.handleOIDCAuthError = previousMobileAuthError;
+            previousMobileCallback = undefined;
+            previousMobileAuthError = undefined;
+            mobileCallbackInstalled = false;
+        };
+        const cancelValidation = () => {
+            validationCancelled = true;
+            stopValidation();
+            validationWindow?.close();
+            validationWindow = null;
+            restoreMobileCallback();
+            if (validationPollToken && !validationActivating) {
+                void fetchSyncPost("/api/system/oidc/validateCancel", {
+                    pollToken: validationPollToken,
+                }, undefined, false).catch(() => undefined);
+            }
+            validationPollToken = "";
+        };
+        destroyOIDCDialog = cancelValidation;
+        const setValidationPending = (pending: boolean) => {
+            buttons[1].disabled = pending;
+            form.querySelector<HTMLElement>('[data-section="validationStatus"]').classList.toggle("fn__none", !pending);
+            if (!pending) {
+                refreshSections();
+            }
+        };
+        const validationFailed = (message?: string) => {
+            validationActivating = false;
+            buttons[0].disabled = false;
+            cancelValidation();
+            if (dialog.element.isConnected) {
+                setValidationPending(false);
+            }
+            showMessage(message || window.siyuan.languages.oidcVerificationFailed, 6000, "error");
+        };
+        const installMobileCallback = () => {
+            if (!isInMobileApp() || mobileCallbackInstalled) {
+                return;
+            }
+            previousMobileCallback = window.handleOIDCCallback;
+            previousMobileAuthError = window.handleOIDCAuthError;
+            mobileCallbackInstalled = true;
+            const handleMobileCallback = (callbackURL: string, retryCount = 0) => {
+                if (validationCancelled || !dialog.element.isConnected) {
+                    return;
+                }
+                void fetchSyncPost("/api/system/oidc/mobileCallback", {callbackURL}, undefined, false).then((response) => {
+                    if (validationCancelled || !dialog.element.isConnected) {
+                        return;
+                    }
+                    if (response.code !== 0) {
+                        validationFailed(response.msg);
+                    }
+                }).catch((error) => {
+                    if (retryCount < 4 && !validationCancelled && dialog.element.isConnected) {
+                        window.setTimeout(() => handleMobileCallback(callbackURL, retryCount + 1), 1000 * (retryCount + 1));
+                        return;
+                    }
+                    validationFailed(error instanceof Error ? error.message : String(error));
+                });
+            };
+            window.handleOIDCCallback = handleMobileCallback;
+            window.handleOIDCAuthError = (message: string) => validationFailed(message);
+        };
+        const openValidationURL = (url: string) => {
+            if (validationWindow) {
+                validationWindow.location.href = url;
+                return;
+            }
+            if (isInAndroid()) {
+                window.JSAndroid.openAuthURL(url);
+                return;
+            }
+            if (isInIOS()) {
+                window.webkit.messageHandlers.openAuthURL.postMessage(url);
+                return;
+            }
+            if (isInHarmony()) {
+                window.JSHarmony.openAuthURL(url);
+                return;
+            }
+            /// #if !BROWSER
+            void shell.openExternal(url).catch((error: Error) => validationFailed(error.message));
+            /// #else
+            openByMobile(url);
+            /// #endif
+        };
+        const pollValidation = async (pollToken: string) => {
+            if (validationCancelled || validationPollInFlight || validationActivating) {
+                return;
+            }
+            validationPollInFlight = true;
+            try {
+                const response = await fetchSyncPost("/api/system/oidc/validatePoll", {pollToken}, undefined, false);
+                if (validationCancelled || !dialog.element.isConnected) {
+                    return;
+                }
+                if (response.code !== 0) {
+                    validationFailed(response.msg);
+                    return;
+                }
+                if (response.data.status !== "completed") {
+                    return;
+                }
+                stopValidation();
+                validationWindow?.close();
+                validationActivating = true;
+                buttons[0].disabled = true;
+                const activation = await fetchSyncPost("/api/system/oidc/validateActivate", {pollToken}, undefined, false);
+                if (activation.code !== 0) {
+                    validationFailed(activation.msg);
+                    return;
+                }
+                validationPollToken = "";
+                restoreMobileCallback();
+                window.siyuan.config.oidc = activation.data.config;
+                showMessage(window.siyuan.languages.oidcVerificationSuccess);
+                dialog.destroy();
+            } catch (error) {
+                validationFailed(error instanceof Error ? error.message : String(error));
+            } finally {
+                validationPollInFlight = false;
+            }
+        };
+        buttons[0].addEventListener("click", () => {
+            cancelValidation();
+            dialog.destroy();
+        });
+        buttons[1].addEventListener("click", () => {
+            try {
+                const field = <T extends HTMLElement>(name: string) => form.querySelector<T>(`[data-field="${name}"]`);
+                const claimRules = JSON.parse(field<HTMLTextAreaElement>("claimRules").value) as Config.IOIDCClaimRule[];
+                const nextConfig: Config.IOIDC = {
+                    enabled: field<HTMLInputElement>("enabled").checked,
+                    provider: field<HTMLSelectElement>("provider").value as Config.IOIDC["provider"],
+                    issuerURL: field<HTMLInputElement>("issuerURL").value,
+                    clientID: field<HTMLInputElement>("clientID").value,
+                    clientSecret: clientSecretInput.value,
+                    scopes: field<HTMLInputElement>("scopes").value.split(/[ ,]+/).filter(Boolean),
+                    redirectURL: field<HTMLInputElement>("redirectURL").value,
+                    allowAll: field<HTMLInputElement>("allowAll").checked,
+                    claimRules,
+                };
+                if (nextConfig.enabled) {
+                    validationCancelled = false;
+                    validationActivating = false;
+                    setValidationPending(true);
+                    buttons[1].textContent = window.siyuan.languages.oidcVerifying;
+                    if (isBrowser() && !isInMobileApp()) {
+                        validationWindow = window.open("about:blank", "_blank");
+                        if (!validationWindow) {
+                            validationFailed();
+                            return;
+                        }
+                        validationWindow.opener = null;
+                    }
+                    void fetchSyncPost("/api/system/oidc/validate", nextConfig, undefined, false).then((response) => {
+                        if (validationCancelled || !dialog.element.isConnected) {
+                            validationWindow?.close();
+                            if (response.code === 0 && response.data.pollToken) {
+                                void fetchSyncPost("/api/system/oidc/validateCancel", {
+                                    pollToken: response.data.pollToken,
+                                }, undefined, false).catch(() => undefined);
+                            }
+                            return;
+                        }
+                        if (response.code !== 0) {
+                            validationFailed(response.msg);
+                            return;
+                        }
+                        validationPollToken = response.data.pollToken;
+                        installMobileCallback();
+                        openValidationURL(response.data.authURL);
+                        validationPollTimer = window.setInterval(() => {
+                            void pollValidation(response.data.pollToken);
+                        }, 1000);
+                    }).catch((error) => validationFailed(error instanceof Error ? error.message : String(error)));
+                    return;
+                }
+                fetchPost("/api/system/setOIDC", nextConfig, (response) => {
+                    window.siyuan.config.oidc = response.data;
+                    dialog.destroy();
+                });
+            } catch (error) {
+                showMessage(window.siyuan.languages.oidcConfigInvalid, 6000, "error");
+            }
+        });
     });
 };
 
@@ -417,11 +720,10 @@ const mountEncryptedNotebook = (root: HTMLElement) => {
     const migrationAlertElement = root.querySelector("#encryptedNotebookMigrationAlert");
     const refresh = () => {
         fetchPost("/api/notebook/getEncryptedNotebookStatus", {}, (response) => {
-            const enabled = response.data.enabled;
+            const enabled = response.data.state === "Enabled";
             switchElement.checked = enabled;
             window.siyuan.config.notebookCrypto.enabled = enabled;
-            // 修改主密码/导出密钥仅在启用时可见；导入密钥仅在未启用时可见（详见设计 §4.1，
-            // 已启用时导入会用导入备份的 MasterSalt/KEKVerifier 覆盖当前配置，孤立现有 WrappedDEK）
+            // 修改主密码和导出密钥仅在配置完整时可见；Disabled 或 RecoveryRequired 状态提供导入恢复入口。
             enabledActionsElement.classList.toggle("fn__none", !enabled);
             importCryptoBackupBtnElement.classList.toggle("fn__none", enabled);
             actionsElement.classList.remove("fn__none");
@@ -440,8 +742,10 @@ const mountEncryptedNotebook = (root: HTMLElement) => {
                 showMessage(response.msg, 6000, "error");
                 return;
             }
-            await saveExportFile(response.data.file);
-            showMessage(window.siyuan.languages.exportNotebookCryptoBackupTip);
+            const result = await saveExportFile(response.data.file);
+            if (result.status === "success") {
+                showMessage(window.siyuan.languages.exportNotebookCryptoBackupTip);
+            }
         });
     });
 
@@ -627,9 +931,9 @@ const openChangeMasterPasswordDialog = (onChanged?: () => void) => {
             if (response.code === 0) {
                 showMessage(window.siyuan.languages.changeMasterPasswordSuccessTip);
                 dialog.destroy();
+                onChanged?.();
             } else {
                 showMessage(response.msg, 6000, "error");
-                onChanged?.();
             }
         });
     });

@@ -73,6 +73,9 @@ func initDatabase(forceRebuild bool) {
 		}
 	}
 	if !forceRebuild {
+		if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_blocktrees_box_id ON blocktrees(box_id)"); err != nil {
+			logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create blocktree box index failed: %s", err)
+		}
 		return
 	}
 
@@ -100,6 +103,11 @@ func initDBTables() {
 	_, err = db.Exec("CREATE INDEX idx_blocktrees_root_id ON blocktrees(root_id)")
 	if err != nil {
 		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create index [idx_blocktrees_root_id] failed: %s", err)
+	}
+
+	_, err = db.Exec("CREATE INDEX idx_blocktrees_box_id ON blocktrees(box_id)")
+	if err != nil {
+		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create index [idx_blocktrees_box_id] failed: %s", err)
 	}
 }
 
@@ -148,6 +156,30 @@ func closeDatabase() {
 func GetBlockTreesByType(typ string) (ret []*BlockTree) {
 	sqlStmt := "SELECT * FROM blocktrees WHERE type = ?"
 	rows, err := query(sqlStmt, typ)
+	if err != nil {
+		logging.LogErrorf("sql query [%s] failed: %s", sqlStmt, err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var block BlockTree
+		if err = rows.Scan(&block.ID, &block.RootID, &block.ParentID, &block.BoxID, &block.Path, &block.HPath, &block.Updated, &block.Type); err != nil {
+			logging.LogErrorf("query scan field failed: %s", err)
+			return
+		}
+		ret = append(ret, &block)
+	}
+	return
+}
+
+// GetBlockTreesByTypeInBox 按类型在指定笔记本的块树数据库中查询块。
+func GetBlockTreesByTypeInBox(typ, boxID string) (ret []*BlockTree) {
+	if boxID == "" {
+		return GetBlockTreesByType(typ)
+	}
+
+	sqlStmt := "SELECT * FROM blocktrees WHERE type = ? AND box_id = ?"
+	rows, err := queryForBox(boxID, sqlStmt, typ, boxID)
 	if err != nil {
 		logging.LogErrorf("sql query [%s] failed: %s", sqlStmt, err)
 		return
@@ -615,6 +647,25 @@ func GetBlockTreesByBoxID(boxID string) (ret []*BlockTree) {
 	return
 }
 
+func GetRootBlockIDsByBoxID(boxID string) (ret []string) {
+	sqlStmt := "SELECT id FROM blocktrees WHERE box_id = ? AND id = root_id AND type = 'd'"
+	rows, err := queryForBox(boxID, sqlStmt, boxID)
+	if err != nil {
+		logging.LogErrorf("sql query [%s] failed: %s", sqlStmt, err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			logging.LogErrorf("query scan field failed: %s", err)
+			return
+		}
+		ret = append(ret, id)
+	}
+	return
+}
+
 func RemoveBlockTreesByBoxID(boxID string) (ids []string) {
 	sqlStmt := "SELECT id FROM blocktrees WHERE box_id = ?"
 	rows, err := queryForBox(boxID, sqlStmt, boxID)
@@ -974,6 +1025,7 @@ func initEncryptedBlockTreeTables(boxDB *sql.DB) (err error) {
 		"CREATE TABLE IF NOT EXISTS blocktrees (id, root_id, parent_id, box_id, path, hpath, updated, type)",
 		"CREATE INDEX IF NOT EXISTS idx_blocktrees_id ON blocktrees(id)",
 		"CREATE INDEX IF NOT EXISTS idx_blocktrees_root_id ON blocktrees(root_id)",
+		"CREATE INDEX IF NOT EXISTS idx_blocktrees_box_id ON blocktrees(box_id)",
 	}
 	for _, s := range stmts {
 		if _, err = boxDB.Exec(s); err != nil {
@@ -1046,6 +1098,31 @@ func GetBlockTreeInBox(id, boxID string) (ret *BlockTree) {
 			logging.LogErrorf("sql query [%s] failed: %s", sqlStmt, err)
 		}
 		return
+	}
+	return
+}
+
+// GetBlockTreeInExactBox 只在指定笔记本边界内查询块树；boxID 为空时只查全局数据库，不遍历加密笔记本。
+func GetBlockTreeInExactBox(id, boxID string) (ret *BlockTree) {
+	if id == "" {
+		return
+	}
+	if boxID != "" {
+		ret = GetBlockTreeInBox(id, boxID)
+		if ret != nil && ret.BoxID != boxID {
+			return nil
+		}
+		return
+	}
+
+	ret = &BlockTree{}
+	sqlStmt := "SELECT * FROM blocktrees WHERE id = ?"
+	err := queryRow(sqlStmt, id).Scan(&ret.ID, &ret.RootID, &ret.ParentID, &ret.BoxID, &ret.Path, &ret.HPath, &ret.Updated, &ret.Type)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			logging.LogErrorf("sql query [%s] failed: %v\n\t%s", sqlStmt, err, logging.ShortStack())
+		}
+		return nil
 	}
 	return
 }

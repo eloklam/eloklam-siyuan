@@ -164,7 +164,7 @@ export const buildCalendarGhost = (label: string, title?: string) => {
     ghost.className = "av__calendar-ghost";
     ghost.dataset.type = "calendar-ghost";
     ghost.setAttribute("aria-hidden", "true");
-    ghost.innerHTML = `<span class="av__calendar-ghost-label"></span><span class="av__calendar-ghost-title"></span>`;
+    ghost.innerHTML = "<span class=\"av__calendar-ghost-label\"></span><span class=\"av__calendar-ghost-title\"></span>";
     updateCalendarGhost(ghost, label, title);
     return ghost;
 };

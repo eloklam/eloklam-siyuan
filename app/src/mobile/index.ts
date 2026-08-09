@@ -36,7 +36,6 @@ import {initRightMenu} from "./menu";
 import {openChangelog} from "../boot/openChangelog";
 import {registerServiceWorker} from "../util/serviceWorker";
 import {loadPlugins} from "../plugin/loader";
-import {saveScroll} from "../protyle/scroll/saveScroll";
 import {removeBlock} from "../protyle/wysiwyg/remove";
 import {isNotEditBlock} from "../protyle/wysiwyg/getBlock";
 import {updateCardHV} from "../card/util";
@@ -49,6 +48,7 @@ import {hideAllElements} from "../protyle/ui/hideElements";
 import {initTouchDragBridge} from "../util/touchDragBridge";
 import {appearanceConfigApi} from "../config/tabs/appearanceRuntime";
 import {openByMobile} from "../editor/openLink";
+import {initHarmonyTextSelectionMenu} from "../util/harmonyTextSelectionMenu";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -60,6 +60,7 @@ class App {
         }
         registerServiceWorker(`${Constants.SERVICE_WORKER_PATH}?v=${Constants.SIYUAN_VERSION}`);
         addBaseURL();
+        initHarmonyTextSelectionMenu();
         this.appId = Constants.SIYUAN_APPID;
 
         const mainWs = new Model({app: this});
@@ -76,6 +77,7 @@ class App {
 
         window.siyuan = {
             zIndex: 10,
+            isReady: false,
             notebooks: [],
             reqIds: {},
             backStack: [],
@@ -96,8 +98,9 @@ class App {
         };
         // 不能使用 touchstart，否则会被 event.stopImmediatePropagation() 阻塞
         window.addEventListener("click", (event: MouseEvent & { target: HTMLElement }) => {
-            if (!window.siyuan.menus.menu.element.contains(event.target) && !hasClosestByAttribute(event.target, "data-menu", "true")) {
-                window.siyuan.menus.menu.remove();
+            const menu = window.siyuan.menus?.menu;
+            if (menu && !menu.element.contains(event.target) && !hasClosestByAttribute(event.target, "data-menu", "true")) {
+                menu.remove();
             }
             const copyElement = hasTopClosestByClassName(event.target, "protyle-action__copy");
             if (copyElement) {
@@ -107,14 +110,15 @@ class App {
                 showMessage(window.siyuan.languages.copied, 2000);
                 event.preventDefault();
             }
-            if (["INPUT", "TEXTAREA"].includes(event.target.tagName)) {
+            const editableElement = canInput(event.target);
+            if (editableElement && ["INPUT", "TEXTAREA"].includes(editableElement.tagName)) {
                 setTimeout(() => {
-                    event.target.scrollIntoView({
+                    editableElement.scrollIntoView({
                         block: "center",
                     });
                 }, Constants.TIMEOUT_TRANSITION);
             }
-            if (canInput(event.target)) {
+            if (editableElement) {
                 // 原生 App 通过桥接主动唤起键盘；移动端浏览器没有桥接，但点击可编辑区域后也会立刻触发 resize，
                 // 进而调用 activeBlur 关闭键盘（比如三星键盘 https://github.com/siyuan-note/siyuan/issues/18078），所以此处也需要上锁
                 if (window.JSAndroid && window.JSAndroid.showKeyboard || window.JSHarmony && window.JSHarmony.showKeyboard) {
@@ -148,10 +152,10 @@ class App {
             };
         }
         window.addEventListener("beforeunload", () => {
-            saveScroll(window.siyuan.mobile.editor.protyle);
+            window.siyuan.mobile.tabs?.save();
         }, false);
         window.addEventListener("pagehide", () => {
-            saveScroll(window.siyuan.mobile.editor.protyle);
+            window.siyuan.mobile.tabs?.save();
         }, false);
         // 判断手机横竖屏状态
         window.matchMedia("(orientation:portrait)").addEventListener("change", () => {
@@ -190,13 +194,18 @@ class App {
                     fetchPost("/api/setting/getCloudUser", {}, async userResponse => {
                         window.siyuan.user = userResponse.data;
                         await ensureOnboarding();
-                        fetchPost("/api/system/getEmojiConf", {}, emojiResponse => {
+                        fetchPost("/api/system/getEmojiConf", {}, async emojiResponse => {
                             window.siyuan.emojis = emojiResponse.data as IEmoji[];
-                            setNoteBook(() => {
-                                initFramework(this, confResponse.data.start);
+                            await setNoteBook();
+                            try {
+                                await initFramework(this, confResponse.data.start);
                                 initRightMenu(this);
                                 openChangelog();
-                            });
+                                window.siyuan.isReady = true;
+                                mainWs.flushMainMessages();
+                            } catch (error) {
+                                console.error("Failed to initialize mobile framework:", error);
+                            }
                         });
                     });
                 });
@@ -262,7 +271,7 @@ window.reconnectWebSocket = () => {
     tryPing(window.siyuan.mobile.popEditor?.protyle.ws);
 };
 window.lockscreenByMode = () => {
-    if (window.siyuan.config.system.lockScreenMode === 1) {
+    if (window.siyuan.config?.system.lockScreenMode === 1) {
         lockScreen(siyuanApp);
     }
 };

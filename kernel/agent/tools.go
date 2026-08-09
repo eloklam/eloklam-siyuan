@@ -19,10 +19,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
+	kernelModel "github.com/siyuan-note/siyuan/kernel/model"
 )
 
 func convertMCPToolsToOpenAI() []openai.Tool {
@@ -41,21 +43,30 @@ func convertMCPToolsToOpenAI() []openai.Tool {
 	return result
 }
 
+type executedToolResult struct {
+	Text             string
+	ModelAttachments []tools.ModelAttachment
+	IsError          bool
+	ExecutionUnknown bool
+}
+
 // executeTool 执行单次工具调用。
-// 返回值：结果文本（已展平为字符串），isErr 表示工具是否返回错误结果，executionUnknown 表示副作用结果无法确定。
-func executeTool(ctx context.Context, tc openai.ToolCall, sessionID string) (resultText string, isErr, executionUnknown bool) {
-	t := tools.GetTool(tc.Function.Name)
+func executeTool(ctx context.Context, tc openai.ToolCall, sessionID string) executedToolResult {
+	t, validator := tools.LookupToolWithValidator(tc.Function.Name)
 	if t == nil {
-		return "unknown tool: " + tc.Function.Name, true, false
+		return executedToolResult{Text: "unknown tool: " + tc.Function.Name, IsError: true}
 	}
 	if t.ContextHandler == nil && t.Handler == nil {
-		return "tool handler unavailable: " + tc.Function.Name, true, false
+		return executedToolResult{Text: "tool handler unavailable: " + tc.Function.Name, IsError: true}
 	}
 	if ctx.Err() != nil {
-		return "tool execution was cancelled before it started", true, false
+		return executedToolResult{Text: "tool execution was cancelled before it started", IsError: true}
 	}
 
 	args := parseToolArgs(tc.Function.Arguments)
+	if err := validator.ValidateInputContext(ctx, args); err != nil {
+		return executedToolResult{Text: "invalid tool arguments: " + err.Error(), IsError: true}
+	}
 	// _sessionID 和 _toolCallID 是原生工具专用的内部字段，用于关联会话状态和实现幂等操作。
 	// 仅注入给原生工具；MCP/插件工具的参数会原样转发给外部服务端，
 	// 严格校验（additionalProperties:false）的服务端（如 Flomo MCP）会因这个多余字段报错。
@@ -69,35 +80,77 @@ func executeTool(ctx context.Context, tc openai.ToolCall, sessionID string) (res
 		err    error
 	}
 	executionCh := make(chan executionResult, 1)
+	executionLifetimeDone := make(chan struct{})
+	defer close(executionLifetimeDone)
 	go func() {
 		var result tools.CallToolResult
 		var err error
+		releaseBoxLeases := func() {}
+		if t.BoxLeaseResolver != nil {
+			releaseBoxLeases, err = kernelModel.AcquireEncryptedBoxOperations(ctx, t.BoxLeaseResolver(args))
+			if err != nil {
+				executionCh <- executionResult{
+					result: tools.CallToolResult{
+						Content: []tools.ContentItem{{Type: "text", Text: "encrypted notebook is locked, please unlock it first"}},
+						IsError: true,
+					},
+				}
+				return
+			}
+		}
+		defer releaseBoxLeases()
 		if t.ContextHandler != nil {
 			result, err = t.ContextHandler(ctx, args)
 		} else {
 			result, err = t.Handler(args)
 		}
 		executionCh <- executionResult{result: result, err: err}
+		<-executionLifetimeDone
 	}()
 
 	var execution executionResult
 	select {
 	case execution = <-executionCh:
 	case <-ctx.Done():
-		return "tool execution was interrupted; execution result is unknown and must not be retried automatically", true, true
+		return executedToolResult{
+			Text:             "tool execution was interrupted; execution result is unknown and must not be retried automatically",
+			IsError:          true,
+			ExecutionUnknown: true,
+		}
 	}
 	result, err := execution.result, execution.err
 	if err != nil {
 		if ctx.Err() != nil {
-			return "tool execution was interrupted; execution result is unknown and must not be retried automatically", true, true
+			return executedToolResult{
+				Text:             "tool execution was interrupted; execution result is unknown and must not be retried automatically",
+				IsError:          true,
+				ExecutionUnknown: true,
+			}
 		}
-		return "tool execution error: " + err.Error(), true, false
+		return executedToolResult{Text: "tool execution error: " + err.Error(), IsError: true}
+	}
+	if err = validator.ValidateOutputContext(ctx, result); err != nil {
+		return executedToolResult{
+			Text: "invalid tool output after execution; execution result may have side effects and must not be retried automatically: " +
+				err.Error(),
+			IsError:          true,
+			ExecutionUnknown: true,
+		}
 	}
 
-	return resultToString(result), result.IsError, result.ExecutionUnknown
+	return executedToolResult{
+		Text:             resultToString(result),
+		ModelAttachments: result.ModelAttachments,
+		IsError:          result.IsError,
+		ExecutionUnknown: result.ExecutionUnknown,
+	}
 }
 
 func convertSchema(schema tools.ToolSchema) any {
+	if schema.Raw != nil {
+		return maps.Clone(schema.Raw)
+	}
+
 	// 根级 anyOf 常见于 Zod 生成的 schema，取第一个 object 变体展开。
 	if schema.Type == "" && len(schema.AnyOf) > 0 {
 		for _, variant := range schema.AnyOf {
@@ -225,12 +278,21 @@ func resultToString(result tools.CallToolResult) string {
 	for _, item := range result.Content {
 		if item.Type == "text" {
 			parts = append(parts, item.Text)
+			continue
+		}
+		if data, err := json.Marshal(item); err == nil {
+			parts = append(parts, string(data))
 		}
 	}
-	if len(parts) == 0 {
-		return "(empty result)"
+	if joined := strings.Join(parts, "\n"); joined != "" {
+		return joined
 	}
-	return strings.Join(parts, "\n")
+	if result.HasStructuredContent() {
+		if data, err := json.Marshal(result.StructuredContent); err == nil {
+			return string(data)
+		}
+	}
+	return "(empty result)"
 }
 
 func parseToolArgs(argsJSON string) map[string]any {

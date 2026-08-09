@@ -53,7 +53,7 @@ const buildIndicator = () => {
     const indicator = document.createElement("div");
     indicator.className = CALENDAR_NOW_INDICATOR_CLASS;
     indicator.setAttribute("aria-hidden", "true");
-    indicator.innerHTML = `<span class="av__calendar-now-dot"></span><span class="av__calendar-now-line"></span>`;
+    indicator.innerHTML = "<span class=\"av__calendar-now-dot\"></span><span class=\"av__calendar-now-line\"></span>";
     return indicator;
 };
 

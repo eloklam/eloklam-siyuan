@@ -37,6 +37,7 @@ const {
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const {pathToFileURL} = require("url");
 const gNet = require("net");
 const childProcess = require("child_process");
 const remote = require("@electron/remote/main");
@@ -72,9 +73,128 @@ let gracefulSystemShutdownPromise;
 let keepAppOpenDuringSystemShutdown = false;
 let updateInstallPromise;
 let keepAppOpenDuringUpdate = false;
+let richClipboardOperation;
+let richClipboardSequence = 0;
 const openDialogSingletons = new Set();
+let spellcheckContextSequence = 0;
+const spellcheckContexts = new Map();
+const pendingSpellcheckRequests = new Map();
+const pendingNativeContextMenuRequests = new Map();
+const spellcheckContextMenuContents = new Set();
+const normalizeClipboardText = (text) => text.replace(/\r\n?/g, "\n");
 const isOpenAsHidden = function () {
     return 1 === workspaces.length && openAsHidden;
+};
+
+const isMatchingContextMenuRequest = (context, request) => {
+    return Number.isFinite(request.requestedAt) &&
+        context.createdAt >= request.requestedAt &&
+        context.createdAt - request.requestedAt < 1000;
+};
+
+const popupNativeTextContextMenu = (contents, context, request) => {
+    const params = context?.params;
+    const template = [];
+    if (params?.misspelledWord) {
+        params.dictionarySuggestions.forEach((suggestion) => {
+            template.push(new MenuItem({
+                label: suggestion,
+                click: () => contents.replaceMisspelling(suggestion),
+            }));
+        });
+        template.push(new MenuItem({
+            label: request.addToDictionary,
+            click: () => {
+                if (!contents.session.addWordToSpellCheckerDictionary(params.misspelledWord)) {
+                    writeLog("failed to add word to spell checker dictionary");
+                }
+            },
+        }), {type: "separator"});
+    }
+    template.push(new MenuItem({
+        role: "undo", label: request.undo
+    }), new MenuItem({
+        role: "redo", label: request.redo
+    }), {type: "separator"}, new MenuItem({
+        role: "copy", label: request.copy
+    }), new MenuItem({
+        role: "cut", label: request.cut
+    }), new MenuItem({
+        role: "delete", label: request.delete
+    }), new MenuItem({
+        role: "paste", label: request.paste
+    }), new MenuItem({
+        role: "pasteAndMatchStyle", label: request.pasteAsPlainText
+    }), new MenuItem({
+        role: "selectAll", label: request.selectAll
+    }));
+    const menu = Menu.buildFromTemplate(template);
+    const options = {
+        window: BrowserWindow.fromWebContents(contents),
+    };
+    if (params) {
+        options.x = params.x;
+        options.y = params.y;
+        options.sourceType = params.menuSourceType;
+        if (params.frame) {
+            options.frame = params.frame;
+        }
+    }
+    menu.popup(options);
+};
+
+const dispatchContextMenuRequests = (contents) => {
+    const context = spellcheckContexts.get(contents.id);
+    if (!context || context.delivered) {
+        return;
+    }
+    const spellcheckRequest = pendingSpellcheckRequests.get(contents.id);
+    if (spellcheckRequest && isMatchingContextMenuRequest(context, spellcheckRequest)) {
+        context.delivered = true;
+        pendingSpellcheckRequests.delete(contents.id);
+        contents.send("siyuan-spellcheck-context", {
+            contextId: context.contextId,
+            x: spellcheckRequest.x,
+            y: spellcheckRequest.y,
+            misspelledWord: context.params.misspelledWord,
+            dictionarySuggestions: context.params.dictionarySuggestions,
+        });
+        return;
+    }
+    const nativeRequest = pendingNativeContextMenuRequests.get(contents.id);
+    if (nativeRequest && isMatchingContextMenuRequest(context, nativeRequest)) {
+        context.delivered = true;
+        pendingNativeContextMenuRequests.delete(contents.id);
+        popupNativeTextContextMenu(contents, context, nativeRequest);
+    }
+};
+
+const bindSpellcheckContextMenu = (contents) => {
+    if (spellcheckContextMenuContents.has(contents.id)) {
+        return;
+    }
+    spellcheckContextMenuContents.add(contents.id);
+    contents.on("context-menu", (event, params) => {
+        const context = {
+            contextId: ++spellcheckContextSequence,
+            params,
+            createdAt: Date.now(),
+            delivered: false,
+        };
+        spellcheckContexts.set(contents.id, context);
+        dispatchContextMenuRequests(contents);
+        setTimeout(() => {
+            if (spellcheckContexts.get(contents.id) === context && !context.delivered) {
+                spellcheckContexts.delete(contents.id);
+            }
+        }, 200);
+    });
+    contents.once("destroyed", () => {
+        spellcheckContextMenuContents.delete(contents.id);
+        spellcheckContexts.delete(contents.id);
+        pendingSpellcheckRequests.delete(contents.id);
+        pendingNativeContextMenuRequests.delete(contents.id);
+    });
 };
 
 remote.initialize();
@@ -907,6 +1027,7 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
         icon: path.join(appDir, "stage", "icon-large.png"),
     });
     remote.enable(currentWindow.webContents);
+    bindSpellcheckContextMenu(currentWindow.webContents);
 
     if (resetToCenter) {
         currentWindow.center();
@@ -1392,25 +1513,48 @@ app.whenReady().then(() => {
         return BrowserWindow.getAllWindows().find((win) => win.webContents.id === id);
     };
     ipcMain.on("siyuan-context-menu", (event, langs) => {
-        const template = [new MenuItem({
-            role: "undo", label: langs.undo
-        }), new MenuItem({
-            role: "redo", label: langs.redo
-        }), {type: "separator"}, new MenuItem({
-            role: "copy", label: langs.copy
-        }), new MenuItem({
-            role: "cut", label: langs.cut
-        }), new MenuItem({
-            role: "delete", label: langs.delete
-        }), new MenuItem({
-            role: "paste", label: langs.paste
-        }), new MenuItem({
-            role: "pasteAndMatchStyle", label: langs.pasteAsPlainText
-        }), new MenuItem({
-            role: "selectAll", label: langs.selectAll
-        })];
-        const menu = Menu.buildFromTemplate(template);
-        menu.popup({window: BrowserWindow.fromWebContents(event.sender)});
+        pendingSpellcheckRequests.delete(event.sender.id);
+        pendingNativeContextMenuRequests.set(event.sender.id, langs);
+        dispatchContextMenuRequests(event.sender);
+        setTimeout(() => {
+            if (pendingNativeContextMenuRequests.get(event.sender.id) === langs) {
+                pendingNativeContextMenuRequests.delete(event.sender.id);
+                if (!event.sender.isDestroyed()) {
+                    popupNativeTextContextMenu(event.sender, undefined, langs);
+                }
+            }
+        }, 100);
+    });
+    ipcMain.on("siyuan-spellcheck-context", (event, position) => {
+        pendingNativeContextMenuRequests.delete(event.sender.id);
+        pendingSpellcheckRequests.set(event.sender.id, position);
+        dispatchContextMenuRequests(event.sender);
+        setTimeout(() => {
+            if (pendingSpellcheckRequests.get(event.sender.id) === position) {
+                pendingSpellcheckRequests.delete(event.sender.id);
+            }
+        }, 200);
+    });
+    ipcMain.handle("siyuan-spellcheck-action", (event, data) => {
+        const context = spellcheckContexts.get(event.sender.id);
+        if (!context || context.contextId !== data.contextId || !context.params.misspelledWord) {
+            return false;
+        }
+        if (data.action === "replace") {
+            if (typeof data.suggestion !== "string" ||
+                !context.params.dictionarySuggestions.includes(data.suggestion)) {
+                return false;
+            }
+            event.sender.replaceMisspelling(data.suggestion);
+            spellcheckContexts.delete(event.sender.id);
+            return true;
+        }
+        if (data.action === "addToDictionary") {
+            const result = event.sender.session.addWordToSpellCheckerDictionary(context.params.misspelledWord);
+            spellcheckContexts.delete(event.sender.id);
+            return result;
+        }
+        return false;
     });
     ipcMain.on("siyuan-confirm-dialog", (event, options) => {
         event.returnValue = dialog.showMessageBoxSync(BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow(), options);
@@ -1425,6 +1569,70 @@ app.whenReady().then(() => {
     ipcMain.handle("siyuan-get", (event, data) => {
         if (data.cmd === "clipboardRead") {
             return clipboard.read(data.format);
+        }
+        if (data.cmd === "beginRichClipboard") {
+            richClipboardOperation = undefined;
+            const text = clipboard.readText();
+            const html = clipboard.readHTML();
+            if (typeof data.text !== "string" || typeof data.marker !== "string" ||
+                normalizeClipboardText(text) !== normalizeClipboardText(data.text) ||
+                !data.marker || !html.includes(data.marker)) {
+                return;
+            }
+
+            richClipboardSequence++;
+            const token = `${Date.now()}-${richClipboardSequence}`;
+            richClipboardOperation = {
+                token,
+                senderId: event.sender.id,
+                requestedText: data.text,
+                text,
+                html
+            };
+            return token;
+        }
+        if (data.cmd === "completeRichClipboard") {
+            const operation = richClipboardOperation;
+            if (!operation || operation.token !== data.token || operation.senderId !== event.sender.id) {
+                return false;
+            }
+            if (operation.requestedText !== data.text || clipboard.readText() !== operation.text ||
+                clipboard.readHTML() !== operation.html || typeof data.html !== "string" ||
+                !Array.isArray(data.replacements) || 1024 < data.replacements.length) {
+                richClipboardOperation = undefined;
+                return false;
+            }
+
+            let html = data.html;
+            for (const replacement of data.replacements) {
+                let isFile = false;
+                if (replacement && typeof replacement.path === "string" && path.isAbsolute(replacement.path)) {
+                    try {
+                        isFile = fs.statSync(replacement.path).isFile();
+                    } catch {
+                        isFile = false;
+                    }
+                }
+                if (!replacement || typeof replacement.placeholder !== "string" || !replacement.placeholder ||
+                    !isFile || !html.includes(replacement.placeholder)) {
+                    richClipboardOperation = undefined;
+                    return false;
+                }
+                const fileURL = pathToFileURL(replacement.path).href.replaceAll("&", "&amp;");
+                html = html.split(replacement.placeholder).join(fileURL);
+            }
+
+            richClipboardOperation = undefined;
+            clipboard.write({
+                text: data.text,
+                html
+            });
+            return true;
+        }
+        if (data.cmd === "cancelRichClipboard") {
+            if (richClipboardOperation?.token === data.token && richClipboardOperation.senderId === event.sender.id) {
+                richClipboardOperation = undefined;
+            }
         }
         if (data.cmd === "showOpenDialog") {
             if (data.singleton) {
@@ -1703,17 +1911,8 @@ app.whenReady().then(() => {
         });
     });
     ipcMain.on("siyuan-export-pdf", (event, data) => {
-        dialog.showOpenDialog({
-            title: data.title, properties: ["createDirectory", "openDirectory"],
-        }).then((result) => {
-            if (result.canceled) {
-                event.sender.destroy();
-                return;
-            }
-            data.filePaths = result.filePaths;
-            data.webContentsId = event.sender.id;
-            getWindowByContentId(data.parentWindowId).send("siyuan-export-pdf", data);
-        });
+        data.webContentsId = event.sender.id;
+        getWindowByContentId(data.parentWindowId).send("siyuan-export-pdf", data);
     });
     ipcMain.on("siyuan-export-newwindow", (event, data) => {
         // The PDF/Word export preview window automatically adjusts according to the size of the main window https://github.com/siyuan-note/siyuan/issues/10554
@@ -1783,6 +1982,7 @@ app.whenReady().then(() => {
             },
         });
         remote.enable(win.webContents);
+        bindSpellcheckContextMenu(win.webContents);
 
         if (data.position) {
             win.setPosition(data.position.x, data.position.y);

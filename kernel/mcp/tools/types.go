@@ -16,7 +16,10 @@
 
 package tools
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 const (
 	EffectScopeLocal    = "local"
@@ -41,8 +44,9 @@ type Tool struct {
 	// ActionEffects 按 action 描述本地读写、数据外发与外部计费，供智能体精确执行确认和快照策略。
 	ActionEffects map[string]ToolEffects `json:"-"`
 
-	Handler        func(args map[string]any) (CallToolResult, error)                      `json:"-"`
-	ContextHandler func(ctx context.Context, args map[string]any) (CallToolResult, error) `json:"-"`
+	Handler          func(args map[string]any) (CallToolResult, error)                      `json:"-"`
+	ContextHandler   func(ctx context.Context, args map[string]any) (CallToolResult, error) `json:"-"`
+	BoxLeaseResolver func(args map[string]any) []string                                     `json:"-"`
 }
 
 type ToolEffects struct {
@@ -69,6 +73,35 @@ type ToolSchema struct {
 	AllOf      []ToolSchema          `json:"allOf,omitempty"`
 	Ref        string                `json:"$ref,omitempty"`
 	Defs       map[string]ToolSchema `json:"$defs,omitempty"`
+	Raw        map[string]any        `json:"-"`
+}
+
+func (s ToolSchema) MarshalJSON() ([]byte, error) {
+	if s.Raw != nil {
+		return json.Marshal(s.Raw)
+	}
+	type plain ToolSchema
+	return json.Marshal(plain(s))
+}
+
+func (s *ToolSchema) UnmarshalJSON(data []byte) error {
+	raw := map[string]any{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	type plain ToolSchema
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err == nil {
+		*s = ToolSchema(decoded)
+	} else {
+		*s = ToolSchema{}
+		if schemaType, ok := raw["type"].(string); ok {
+			s.Type = schemaType
+		}
+	}
+	s.Raw = raw
+	return nil
 }
 
 type Property struct {
@@ -85,12 +118,82 @@ type Property struct {
 }
 
 type CallToolResult struct {
-	Content          []ContentItem `json:"content"`
-	IsError          bool          `json:"isError,omitempty"`
-	ExecutionUnknown bool          `json:"-"`
+	Content              []ContentItem     `json:"content"`
+	StructuredContent    any               `json:"structuredContent,omitempty"`
+	StructuredContentSet bool              `json:"-"`
+	ModelAttachments     []ModelAttachment `json:"-"`
+	IsError              bool              `json:"isError,omitempty"`
+	ExecutionUnknown     bool              `json:"-"`
+}
+
+// ModelAttachment 描述工具希望在下一轮模型请求中附加的多模态输入。
+// Data 只在当前运行期内存中传递，持久化时仅保存可重新解析资源的元数据。
+type ModelAttachment struct {
+	Type       string `json:"type"`
+	Data       []byte `json:"-"`
+	MIMEType   string `json:"mimeType,omitempty"`
+	Path       string `json:"path,omitempty"`
+	DocumentID string `json:"documentId,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+	Width      int    `json:"width,omitempty"`
+	Height     int    `json:"height,omitempty"`
+}
+
+func (r CallToolResult) HasStructuredContent() bool {
+	return r.StructuredContentSet || r.StructuredContent != nil
+}
+
+func (r CallToolResult) MarshalJSON() ([]byte, error) {
+	type plain CallToolResult
+	if r.StructuredContentSet && r.StructuredContent == nil {
+		return json.Marshal(struct {
+			plain
+			StructuredContent json.RawMessage `json:"structuredContent"`
+		}{
+			plain:             plain(r),
+			StructuredContent: json.RawMessage("null"),
+		})
+	}
+	return json.Marshal(plain(r))
+}
+
+func (r *CallToolResult) UnmarshalJSON(data []byte) error {
+	type plain CallToolResult
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = CallToolResult(decoded)
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, r.StructuredContentSet = fields["structuredContent"]
+	return nil
 }
 
 type ContentItem struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	raw  json.RawMessage
+}
+
+func (item ContentItem) MarshalJSON() ([]byte, error) {
+	if len(item.raw) > 0 {
+		return item.raw, nil
+	}
+	type plain ContentItem
+	return json.Marshal(plain(item))
+}
+
+func (item *ContentItem) UnmarshalJSON(data []byte) error {
+	type plain ContentItem
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*item = ContentItem(decoded)
+	item.raw = append(item.raw[:0], data...)
+	return nil
 }

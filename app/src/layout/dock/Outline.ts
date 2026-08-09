@@ -4,6 +4,7 @@ import {Tree} from "../../util/Tree";
 import {getInstanceById, setPanelFocus} from "../util";
 import {getDockByType} from "../tabUtil";
 import {fetchPost} from "../../util/fetch";
+import {confirmBlockRef} from "../../util/checkBlockRef";
 import {getAllModels} from "../getAll";
 import {hasClosestBlock, hasClosestByClassName, hasTopClosestByClassName} from "../../protyle/util/hasClosest";
 import {
@@ -19,17 +20,21 @@ import {MenuItem} from "../../menus/Menu";
 import {escapeAttr, escapeHtml} from "../../util/escape";
 import {unicode2Emoji} from "../../emoji";
 import {getPreviousBlock} from "../../protyle/wysiwyg/getBlock";
-import {App} from "../../index";
+import type {App} from "../../index";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {transaction, turnsIntoTransaction} from "../../protyle/wysiwyg/transaction";
 import {goHome} from "../../protyle/wysiwyg/commonHotkey";
 import {isEncryptedBox} from "../../util/pathName";
-import {Editor} from "../../editor";
+import type {Editor} from "../../editor";
 import {mathRender} from "../../protyle/render/mathRender";
 import {genEmptyElement} from "../../block/util";
 import {focusBlock, focusByWbr} from "../../protyle/util/selection";
 import {dragOverScroll, stopScrollAnimation} from "../../boot/globalEvent/dragover";
 import {getDocDisplayName} from "../../util/pathName";
+import {
+    operationsMayChangeOutline,
+    transactionsMayChangeRootHeadingNumberSetting
+} from "../../protyle/util/headingNumberCore";
 
 export class Outline extends Model {
     public tree: Tree;
@@ -37,14 +42,17 @@ export class Outline extends Model {
     public headerElement: HTMLElement;
     public type: "pin" | "local";
     public blockId: string;
+    public notebookId: string;
     public isPreview: boolean;
     public protyle: IProtyle;
     private preFilterExpandIds: string[] | null = null;
+    private refreshId = 0;
 
     constructor(options: {
         app: App,
         tab: Tab,
         blockId: string,
+        notebookId?: string,
         type: "pin" | "local",
         isPreview: boolean
     }) {
@@ -57,6 +65,7 @@ export class Outline extends Model {
         });
         this.isPreview = options.isPreview;
         this.blockId = options.blockId;
+        this.notebookId = options.notebookId || "";
         this.type = options.type;
         options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__outline", "dockPanel");
         options.tab.panelElement.innerHTML = `<div class="block__icons fn__hidescrollbar">
@@ -102,16 +111,13 @@ export class Outline extends Model {
                 filterIconElement.classList.remove("block__icon--active");
                 filterIconElement.setAttribute("aria-label", window.siyuan.languages.filter);
             }
-            if (inputElement.dataset.value !== value) {
+        });
+        inputElement.addEventListener("input", (event: InputEvent) => {
+            if (!event.isComposing) {
                 this.setFilter();
             }
         });
-        inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
-            if (!event.isComposing && event.key === "Enter") {
-                inputElement.dataset.value = inputElement.value;
-                this.setFilter();
-            }
-        });
+        inputElement.addEventListener("compositionend", () => this.setFilter());
         this.tree = new Tree({
             element: this.element,
             data: null,
@@ -303,18 +309,16 @@ export class Outline extends Model {
             id: this.blockId,
             preview: this.isPreview
         };
-        // 解析当前大纲面板所属 box：按 blockId 在已打开的编辑器里查找
-        let notebookId: string;
-        getAllModels().editor.some(item => {
-            if (item.editor.protyle.block.rootID === this.blockId) {
-                notebookId = item.editor.protyle.notebookId;
-                return true;
-            }
-        });
+        const notebookId = this.getNotebookId();
         if (isEncryptedBox(notebookId)) {
             outlineParam.notebook = notebookId;
         }
+        const refreshId = ++this.refreshId;
+        const blockId = this.blockId;
         fetchPost("/api/outline/getDocOutline", outlineParam, response => {
+            if (refreshId !== this.refreshId || blockId !== this.blockId) {
+                return;
+            }
             this.update(response);
             if (this.blockId) {
                 this.updateDocTitle((options.tab.model as Editor)?.editor?.protyle?.background?.ial, response.data?.length || 0);
@@ -337,6 +341,11 @@ export class Outline extends Model {
             switch (data.cmd) {
                 case "savedoc":
                     this.onTransaction(data);
+                    break;
+                case "transactions":
+                    if (transactionsMayChangeRootHeadingNumberSetting(data.data, this.blockId)) {
+                        this.refresh();
+                    }
                     break;
                 case "rename":
                     if (this.type === "local" && this.blockId === data.data.id) {
@@ -548,48 +557,25 @@ export class Outline extends Model {
         if (data.data.rootID !== this.blockId) {
             return;
         }
-        let needReload = false;
         const ops = data.data.sources[0];
-        ops.doOperations.find((item: IOperation) => {
-            if (item.action === "update" &&
-                (this.element.querySelector(`.b3-list-item[data-node-id="${item.id}"]`) || item.data.indexOf('data-type="NodeHeading"') > -1)) {
-                needReload = true;
-                return true;
-            } else if (item.action === "insert" && item.data.indexOf('data-type="NodeHeading"') > -1) {
-                needReload = true;
-                return true;
-            } else if (item.action === "delete" || item.action === "move") {
-                needReload = true;
-                return true;
-            }
-        });
-        if (!needReload && ops.undoOperations) {
-            ops.undoOperations.find((item: IOperation) => {
-                if (item.action === "update" && item.data?.indexOf('data-type="NodeHeading"') > -1) {
-                    needReload = true;
-                    return true;
-                }
-            });
-        }
+        const headingIDs = new Set(Array.from(this.element.querySelectorAll<HTMLElement>(
+            ".b3-list-item[data-node-id]"
+        )).map(item => item.dataset.nodeId!));
+        const needReload = operationsMayChangeOutline(ops.doOperations, headingIDs) ||
+            operationsMayChangeOutline(ops.undoOperations, headingIDs);
         if (needReload) {
             const outlineParam: IObject = {
                 id: this.blockId,
                 preview: this.isPreview
             };
-            // 解析当前大纲面板所属 box：按 blockId 在已打开的编辑器里查找
-            let notebookId: string;
-            getAllModels().editor.some(item => {
-                if (item.editor.protyle.block.rootID === this.blockId) {
-                    notebookId = item.editor.protyle.notebookId;
-                    return true;
-                }
-            });
+            const notebookId = this.getNotebookId();
             if (isEncryptedBox(notebookId)) {
                 outlineParam.notebook = notebookId;
             }
+            const refreshId = ++this.refreshId;
             fetchPost("/api/outline/getDocOutline", outlineParam, response => {
                 // 文档切换后不再更新原有推送 https://github.com/siyuan-note/siyuan/issues/13409
-                if (data.data.rootID !== this.blockId) {
+                if (refreshId !== this.refreshId || data.data.rootID !== this.blockId) {
                     return;
                 }
                 this.update(response);
@@ -631,14 +617,7 @@ export class Outline extends Model {
                     id: nodeElement.getAttribute("data-node-id"),
                     excludeTypes: []
                 };
-                // 解析当前大纲面板所属 box：按 blockId 在已打开的编辑器里查找
-                let notebookId: string;
-                getAllModels().editor.some(editorItem => {
-                    if (editorItem.editor.protyle.block.rootID === this.blockId) {
-                        notebookId = editorItem.editor.protyle.notebookId;
-                        return true;
-                    }
-                });
+                const notebookId = this.getNotebookId();
                 if (isEncryptedBox(notebookId)) {
                     breadcrumbParam.notebook = notebookId;
                 }
@@ -701,7 +680,7 @@ export class Outline extends Model {
         }
     }
 
-    public update(data: IWebSocketData, callbackId?: string) {
+    public update(data: IWebSocketData, callbackId?: string, notebookId?: string) {
         let currentElement = this.element.querySelector(".b3-list-item--focus");
         let currentId;
         if (currentElement) {
@@ -710,6 +689,7 @@ export class Outline extends Model {
         const scrollTop = this.element.scrollTop;
         if (typeof callbackId !== "undefined") {
             this.blockId = callbackId;
+            this.notebookId = typeof notebookId === "undefined" ? "" : notebookId;
         }
         this.tree.updateData(data.data);
 
@@ -731,6 +711,49 @@ export class Outline extends Model {
             }
         }
         this.element.removeAttribute("data-loading");
+    }
+
+    private getNotebookId() {
+        if (this.notebookId) {
+            return this.notebookId;
+        }
+        getAllModels().editor.some(item => {
+            if (item.editor.protyle.block.rootID === this.blockId) {
+                this.notebookId = item.editor.protyle.notebookId;
+                return true;
+            }
+        });
+        return this.notebookId;
+    }
+
+    public refresh() {
+        if (!this.blockId) {
+            return;
+        }
+        const blockId = this.blockId;
+        const refreshId = ++this.refreshId;
+        const outlineParam: IObject = {
+            id: blockId,
+            preview: this.isPreview,
+        };
+        let protyle: IProtyle;
+        getAllModels().editor.some(item => {
+            if (item.editor.protyle.block.rootID === blockId) {
+                protyle = item.editor.protyle;
+                return true;
+            }
+        });
+        const notebookId = this.getNotebookId();
+        if (isEncryptedBox(notebookId)) {
+            outlineParam.notebook = notebookId;
+        }
+        fetchPost("/api/outline/getDocOutline", outlineParam, response => {
+            if (refreshId !== this.refreshId || blockId !== this.blockId) {
+                return;
+            }
+            this.update(response);
+            this.updateDocTitle(protyle?.background?.ial, response.data?.length || 0);
+        });
     }
 
     public saveExpendIds() {
@@ -861,6 +884,8 @@ export class Outline extends Model {
             });
         }
         this.saveExpendIds();
+        window.siyuan.storage[Constants.LOCAL_OUTLINE].expandLevel = targetLevel;
+        setStorageVal(Constants.LOCAL_OUTLINE, window.siyuan.storage[Constants.LOCAL_OUTLINE]);
     }
 
     /**
@@ -874,6 +899,7 @@ export class Outline extends Model {
                 id: `heading${i}`,
                 icon: `iconH${i}`,
                 label: window.siyuan.languages[`heading${i}`],
+                current: window.siyuan.storage[Constants.LOCAL_OUTLINE].expandLevel === i,
                 click: () => this.expandToLevel(i)
             }).element);
         }
@@ -1163,7 +1189,7 @@ export class Outline extends Model {
                 const data = this.getProtyleAndBlockElement(element);
                 fetchPost("/api/block/getHeadingChildrenDOM", {
                     id,
-                    removeFoldAttr: data.blockElement.getAttribute("fold") !== "1"
+                    removeFoldAttr: false
                 }, (response) => {
                     if (isInAndroid()) {
                         window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
@@ -1186,18 +1212,28 @@ export class Outline extends Model {
                     const data = this.getProtyleAndBlockElement(element);
                     fetchPost("/api/block/getHeadingChildrenDOM", {
                         id,
-                        removeFoldAttr: data.blockElement.getAttribute("fold") !== "1"
+                        removeFoldAttr: false
                     }, (response) => {
-                        if (isInAndroid()) {
-                            window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                        } else if (isInHarmony()) {
-                            window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                        } else {
-                            writeText(response.data + Constants.ZWSP);
-                        }
                         fetchPost("/api/block/getHeadingDeleteTransaction", {
                             id,
-                        }, (deleteResponse) => {
+                        }, async (deleteResponse) => {
+                            if (!await confirmBlockRef({
+                                scope: "blocks",
+                                ids: deleteResponse.data.doOperations.map((operation: IOperation) => operation.id),
+                                notebook: data.protyle.notebookId,
+                            }, data.protyle)) {
+                                return;
+                            }
+                            if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
+                                return;
+                            }
+                            if (isInAndroid()) {
+                                window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
+                            } else if (isInHarmony()) {
+                                window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
+                            } else {
+                                writeText(response.data + Constants.ZWSP);
+                            }
                             deleteResponse.data.doOperations.forEach((operation: IOperation) => {
                                 data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
                                     itemElement.remove();
@@ -1234,7 +1270,17 @@ export class Outline extends Model {
                     const data = this.getProtyleAndBlockElement(element);
                     fetchPost("/api/block/getHeadingDeleteTransaction", {
                         id,
-                    }, (response) => {
+                    }, async (response) => {
+                        if (!await confirmBlockRef({
+                            scope: "blocks",
+                            ids: response.data.doOperations.map((operation: IOperation) => operation.id),
+                            notebook: data.protyle.notebookId,
+                        }, data.protyle)) {
+                            return;
+                        }
+                        if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
+                            return;
+                        }
                         response.data.doOperations.forEach((operation: IOperation) => {
                             data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
                                 itemElement.remove();

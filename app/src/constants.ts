@@ -28,6 +28,7 @@ export abstract class Constants {
     public static readonly SIYUAN_DROP_GUTTER: string = "application/siyuan-gutter";
     public static readonly SIYUAN_DROP_BLOCK_REF: string = "application/siyuan-block-ref";
     public static readonly SIYUAN_DROP_TAB: string = "application/siyuan-tab";
+    public static readonly SIYUAN_DROP_DOCUMENT_TAB: string = "application/siyuan-document-tab";
     public static readonly SIYUAN_DROP_EDITOR: string = "application/siyuan-editor";
 
     // 渲染进程调主进程
@@ -54,6 +55,8 @@ export abstract class Constants {
     public static readonly SIYUAN_EXPORT_NEWWINDOW: string = "siyuan-export-newwindow";
 
     public static readonly SIYUAN_CONTEXT_MENU: string = "siyuan-context-menu";
+    public static readonly SIYUAN_SPELLCHECK_CONTEXT: string = "siyuan-spellcheck-context";
+    public static readonly SIYUAN_SPELLCHECK_ACTION: string = "siyuan-spellcheck-action";
     public static readonly SIYUAN_CONFIRM_DIALOG: string = "siyuan-confirm-dialog";
     public static readonly SIYUAN_ALERT_DIALOG: string = "siyuan-alert-dialog";
 
@@ -64,7 +67,9 @@ export abstract class Constants {
     public static readonly CUSTOM_RIFF_DECKS: string = "custom-riff-decks";
     public static readonly CUSTOM_SY_READONLY: string = "custom-sy-readonly";
     public static readonly CUSTOM_SY_FULLWIDTH: string = "custom-sy-fullwidth";
+    public static readonly CUSTOM_SY_HEADING_NUMBER: string = "custom-sy-heading-number";
     public static readonly CUSTOM_SY_AV_VIEW: string = "custom-sy-av-view";
+    public static readonly CUSTOM_SY_AV_VISIBLE_VIEWS: string = "custom-sy-av-visible-views";
     public static readonly CUSTOM_SY_TITLE_EMPTY: string = "custom-sy-title-empty";
 
     // 临时标记 DOM 属性以辅助完成其功能
@@ -153,6 +158,7 @@ export abstract class Constants {
     public static readonly LOCAL_SEARCHASSET = "local-searchasset";
     public static readonly LOCAL_SEARCHUNREF = "local-searchunref";
     public static readonly LOCAL_DOCINFO = "local-docinfo"; // only mobile
+    public static readonly LOCAL_MOBILE_TABS = "local-mobile-tabs"; // only mobile
     public static readonly LOCAL_DAILYNOTEID = "local-dailynoteid"; // string
     public static readonly LOCAL_HISTORY = "local-history";
     public static readonly LOCAL_CODELANG = "local-codelang"; // string
@@ -257,10 +263,13 @@ export abstract class Constants {
     public static readonly MENU_TITLE = "titleMenu"; // 文档块菜单
     public static readonly MENU_FROM_TITLE_PROTYLE = "title-protyle"; // 在 Protyle 触发的文档块菜单
     public static readonly MENU_FROM_TITLE_BREADCRUMB = "title-breadcrumb"; // 在面包屑触发的文档块菜单
+    public static readonly MENU_DOC_TAG = "doc-tag"; // 文档标签菜单
     public static readonly MENU_BREADCRUMB_MORE = "breadcrumbMore"; // 面包屑更多菜单
     public static readonly MENU_BREADCRUMB_MOBILE_PATH = "breadcrumb-mobile-path"; // 移动端面包屑菜单
+    public static readonly MENU_BREADCRUMB_CHILDREN = "breadcrumb-children"; // 面包屑下级块菜单
 
     public static readonly MENU_DOC_TREE_MORE = "docTreeMore"; // 侧栏文档树右键菜单
+    public static readonly MENU_DOC_TREE_PANEL_MORE = "docTreePanelMore"; // 文档树面板更多菜单
     public static readonly MENU_FROM_DOC_TREE_MORE_NOTEBOOK = "tree-notebook"; // 侧栏文档树右键菜单，单个笔记本
     public static readonly MENU_FROM_DOC_TREE_MORE_DOC = "tree-doc"; // 侧栏文档树右键菜单，单个文档
     public static readonly MENU_FROM_DOC_TREE_MORE_ITEMS = "tree-items"; // 侧栏文档树右键菜单，多个文档或笔记本
@@ -276,8 +285,10 @@ export abstract class Constants {
     public static readonly MENU_AV_ADD_SORT = "av-add-sort"; // 数据库添加排序条件菜单
     public static readonly MENU_AV_COL_OPTION = "av-col-option"; // 数据库单选多选字段的选项编辑菜单
     public static readonly MENU_AV_COL_FORMAT_NUMBER = "av-col-format-number"; // 数据库数字字段格式化菜单
+    public static readonly MENU_AV_COL_FORMAT_DATE = "av-col-format-date"; // 数据库日期字段格式化菜单
     public static readonly MENU_AV_GROUP_DATE = "avGroupDate"; // 数据库日期字段分组菜单的日期菜单
     public static readonly MENU_AV_GROUP_SORT = "avGroupSort"; // 数据库日期字段分组菜单的排序菜单
+    public static readonly MENU_AV_KANBAN_GROUP = "av-kanban-group"; // 数据库看板分组菜单
     public static readonly MENU_AV_ASSET_EDIT = "av-asset-edit"; // 数据库资源字段链接或资源文件菜单
     public static readonly MENU_AV_CALC = "av-calc"; // 数据库计算菜单
     public static readonly MENU_AV_PAGE_SIZE = "av-page-size"; // 数据库条目数菜单
@@ -309,10 +320,13 @@ export abstract class Constants {
     // timeout
     public static readonly TIMEOUT_OPENDIALOG = 50;
     public static readonly TIMEOUT_DBLCLICK = 190;
+    public static readonly TIMEOUT_DOCK_TOGGLE = 150;
     public static readonly TIMEOUT_RESIZE = 200;
     public static readonly TIMEOUT_INPUT = 256;
     public static readonly TIMEOUT_LOAD = 300;
-    public static readonly TIMEOUT_LONGPRESS = 400;
+    public static readonly TIMEOUT_SNIPPET_LOAD = 5000;
+    public static readonly TIMEOUT_LONGPRESS = 460;
+    public static readonly TIMEOUT_VIBRATION_DURATION = 20;
     // 鼠标拖拽启动的短暂时间下限：平板鼠标合成 touch 拖拽文件树/画廊/列表操作等元素时，按下后需经过该时间才进拖拽，避免点击 + 号/箭头时抖动误触发 dragstart
     public static readonly TIMEOUT_MOUSE_DRAG_DELAY = 150;
     public static readonly TIMEOUT_MULTIPLE_SELECT = 1500;
@@ -514,6 +528,8 @@ export abstract class Constants {
                 expandUp: {default: "⌥⇧↑", custom: "⌥⇧↑"},
                 expand: {default: "⌘↓", custom: "⌘↓"},
                 collapse: {default: "⌘↑", custom: "⌘↑"},
+                foldChildHeadings: {default: "", custom: ""},
+                foldSiblingHeadings: {default: "", custom: ""},
                 foldRecursive: {default: "⌥⌘↑", custom: "⌥⌘↑"},
                 insertBottom: {default: "⌥⌘.", custom: "⌥⌘."},
                 refTab: {default: "⇧⌘.", custom: "⇧⌘."},
@@ -551,6 +567,7 @@ export abstract class Constants {
                 moveToUp: {default: "⇧⌘↑", custom: "⇧⌘↑"},
                 moveToDown: {default: "⇧⌘↓", custom: "⇧⌘↓"},
                 duplicateCompletely: {default: "", custom: ""},
+                copyRichText: {default: "", custom: ""},
                 copyPlainText: {default: "", custom: ""},
                 copyID: {default: "", custom: ""},
                 copyProtocolInMd: {default: "", custom: ""},
@@ -562,6 +579,7 @@ export abstract class Constants {
                 refPopover: {default: "", custom: ""},
                 copyText: {default: "", custom: ""},
                 exitFocus: {default: "", custom: ""},
+                focusBreadcrumb: {default: "⌥⇧B", custom: "⌥⇧B"},
                 ai: {default: "", custom: ""},
                 switchReadonly: {default: "", custom: ""},
                 switchAdjust: {default: "", custom: ""},

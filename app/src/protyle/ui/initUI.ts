@@ -24,6 +24,15 @@ import {
 } from "../util/hasClosest";
 import {hideElements} from "./hideElements";
 import {AVAttributePanel} from "../render/av/attributePanel";
+import {getEditorHorizontalPadding} from "./padding";
+import {callMobileAppShowKeyboard} from "../../mobile/util/mobileAppUtil";
+
+const focusMobileAppEditor = (element: HTMLElement) => {
+    if (window.JSAndroid?.showKeyboard || window.JSHarmony?.showKeyboard) {
+        element.focus();
+        callMobileAppShowKeyboard();
+    }
+};
 
 export const initUI = (protyle: IProtyle) => {
     protyle.contentElement = document.createElement("div");
@@ -68,9 +77,12 @@ export const initUI = (protyle: IProtyle) => {
 
     protyle.element.appendChild(protyle.hint.element);
 
+    const selectContainer = document.createElement("div");
+    selectContainer.className = "protyle-select__container";
     protyle.selectElement = document.createElement("div");
     protyle.selectElement.className = "protyle-select fn__none";
-    protyle.element.appendChild(protyle.selectElement);
+    selectContainer.appendChild(protyle.selectElement);
+    protyle.element.appendChild(selectContainer);
 
     protyle.element.appendChild(protyle.toolbar.element);
     protyle.element.appendChild(protyle.toolbar.subElement);
@@ -141,6 +153,10 @@ export const initUI = (protyle: IProtyle) => {
         }, Constants.TIMEOUT_LOAD);
     }, {passive: true});
     protyle.contentElement.addEventListener("click", (event: MouseEvent & { target: HTMLElement }) => {
+        const eventProtyleElement = hasClosestByClassName(event.target, "protyle", true);
+        if (eventProtyleElement && eventProtyleElement !== protyle.element) {
+            return;
+        }
         hideElements(["hint", "util"], protyle);
         // wysiwyg 元素下方点击无效果 https://github.com/siyuan-note/siyuan/issues/12009
         if (protyle.disabled ||
@@ -184,10 +200,11 @@ export const initUI = (protyle: IProtyle) => {
                     action: "delete",
                     id: emptyElement.getAttribute("data-node-id")
                 }]);
-                const emptyEditElement = getContenteditableElement(emptyElement) as HTMLInputElement;
+                const emptyEditElement = getContenteditableElement(emptyElement) as HTMLElement;
                 range.selectNodeContents(emptyEditElement);
                 range.collapse(true);
                 focusByRange(range);
+                focusMobileAppEditor(emptyEditElement);
                 // 需等待 range 更新再次进行渲染
                 if (protyle.options.render.breadcrumb) {
                     setTimeout(() => {
@@ -198,15 +215,22 @@ export const initUI = (protyle: IProtyle) => {
                 range.selectNodeContents(lastEditElement);
                 range.collapse(false);
                 focusByRange(range);
+                focusMobileAppEditor(lastEditElement as HTMLElement);
             }
             protyle.toolbar.range = range;
         }
     });
     let overAttr = false;
-    /// #if !MOBILE
-    protyle.element.addEventListener("mouseover", (event: KeyboardEvent & {
+    protyle.element.addEventListener(isMobile() ? "pointerover" : "mouseover", (event: PointerEvent & {
         target: HTMLElement
     }) => {
+        const eventProtyleElement = hasClosestByClassName(event.target, "protyle", true);
+        if (eventProtyleElement && eventProtyleElement !== protyle.element) {
+            return;
+        }
+        if (isMobile() && event.pointerType !== "mouse") {
+            return;
+        }
         if (hasClosestByClassName(event.target, "protyle-db-attr")) {
             return;
         }
@@ -230,6 +254,10 @@ export const initUI = (protyle: IProtyle) => {
 
         const nodeElement = hasClosestBlock(event.target);
         if (protyle.options.render.gutter && nodeElement) {
+            if (!protyle.wysiwyg.element.contains(nodeElement)) {
+                hideElements(["gutter"], protyle);
+                return;
+            }
             if (nodeElement && (nodeElement.classList.contains("list") || nodeElement.classList.contains("li"))) {
                 // 光标在列表下部应显示右侧的元素，而不是列表本身。放在 windowEvent 中的 mousemove 下处理
                 return;
@@ -290,7 +318,6 @@ export const initUI = (protyle: IProtyle) => {
             }
         }
     });
-    /// #endif
 };
 
 export const addLoading = (protyle: IProtyle, msg?: string) => {
@@ -320,13 +347,20 @@ export const setPadding = (protyle: IProtyle) => {
         };
     }
     const padding = getPadding(protyle);
-    const paddingLeft = padding.left;
-    const paddingRight = padding.right;
+    protyle.preview.updatePadding(padding);
+    const paddingLeft = protyle.options.backlinkData ? 24 : padding.left;
+    const paddingRight = protyle.options.backlinkData ? 16 : padding.right;
+    const backlinkBottomElement = protyle.contentElement.querySelector(".sy__backlink--bottom") as HTMLElement;
+    const backlinkBottomVisible = backlinkBottomElement &&
+        !backlinkBottomElement.classList.contains("fn__none") &&
+        !backlinkBottomElement.classList.contains("sy__backlink--pending");
+    const backlinkBottomGap = 128;
 
     if (protyle.options.backlinkData) {
         protyle.wysiwyg.element.style.padding = `4px ${paddingRight}px 4px ${paddingLeft}px`;
     } else {
-        protyle.wysiwyg.element.style.padding = `${padding.top}px ${paddingRight}px ${padding.bottom}px ${paddingLeft}px`;
+        const paddingBottom = backlinkBottomVisible && protyle.options.typewriterMode ? backlinkBottomGap : padding.bottom;
+        protyle.wysiwyg.element.style.padding = `${padding.top}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`;
     }
     if (protyle.options.render.background) {
         protyle.background.element.querySelector(".protyle-background__ia").setAttribute("style", `margin-left:${paddingLeft}px;margin-right:${paddingRight}px`);
@@ -337,6 +371,11 @@ export const setPadding = (protyle: IProtyle) => {
     }
     if (protyle.databaseAttributePanel) {
         protyle.databaseAttributePanel.element.style.margin = `8px ${paddingRight}px 8px ${paddingLeft}px`;
+    }
+    if (backlinkBottomElement) {
+        backlinkBottomElement.style.padding = `0 ${paddingRight}px 16px ${paddingLeft}px`;
+        backlinkBottomElement.style.marginBottom = backlinkBottomVisible && protyle.options.typewriterMode ?
+            `${Math.max(padding.bottom - backlinkBottomGap, 0)}px` : "";
     }
 
     // https://github.com/siyuan-note/siyuan/issues/15021
@@ -355,7 +394,7 @@ export const getPadding = (protyle: IProtyle) => {
     let right = 16;
     let left = 24;
     let bottom = 16;
-    if (protyle.options.typewriterMode) {
+    if (protyle.options.typewriterMode && protyle.preview.element.classList.contains("fn__none")) {
         bottom = protyle.element.clientHeight / 2;
     }
     if (!isMobile()) {
@@ -363,19 +402,9 @@ export const getPadding = (protyle: IProtyle) => {
         if (!isFullWidth) {
             isFullWidth = window.siyuan.config.editor.fullWidth ? "true" : "false";
         }
-        let padding = (protyle.element.clientWidth - Constants.SIZE_EDITOR_WIDTH) / 2;
-        if (isFullWidth === "false" && padding > 96) {
-            if (padding > Constants.SIZE_EDITOR_WIDTH) {
-                // 超宽屏调整 https://ld246.com/article/1668266637363
-                padding = protyle.element.clientWidth * .382 / 1.382;
-            }
-            padding = Math.ceil(padding);
-            left = padding;
-            right = padding;
-        } else if (protyle.element.clientWidth > Constants.SIZE_EDITOR_WIDTH) {
-            left = 96;
-            right = 96;
-        }
+        const padding = getEditorHorizontalPadding(protyle.element.clientWidth, isFullWidth !== "false");
+        left = padding.left;
+        right = padding.right;
     }
     return {
         left, right, bottom, top: 16

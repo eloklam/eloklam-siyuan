@@ -28,6 +28,7 @@ type BoxConf struct {
 	RefCreateSavePath     string         `json:"refCreateSavePath"`     // 块引时新建文档存储路径
 	DocCreateSaveBox      string         `json:"docCreateSaveBox"`      // 新建文档存储笔记本
 	DocCreateSavePath     string         `json:"docCreateSavePath"`     // 新建文档存储路径
+	DocCreateTemplatePath string         `json:"docCreateTemplatePath"` // 新建文档使用的模板路径
 	DailyNoteSavePath     string         `json:"dailyNoteSavePath"`     // 新建日记存储路径
 	DailyNoteTemplatePath string         `json:"dailyNoteTemplatePath"` // 新建日记使用的模板路径
 	DailyNoteDatabaseID   string         `json:"dailyNoteDatabaseID"`   // 新建日记自动添加到的目标数据库（属性视图）块 ID
@@ -38,10 +39,11 @@ type BoxConf struct {
 
 // BoxEncryption 维护单个加密笔记本的密钥包络参数。WrappedDEK 是用全局 KEK 加密后的 DEK，本身可落盘。
 type BoxEncryption struct {
-	Spec       int    `json:"spec,omitempty"` // 包络规范版本，1 表示 WrappedDEK 已绑定 boxID AAD
-	WrappedDEK []byte `json:"wrappedDEK"`     // 用 KEK 经 AES-GCM 加密后的 DEK
-	WrapNonce  []byte `json:"wrapNonce"`      // 包络用的 GCM nonce（从加密信封中提取）
-	CreatedAt  int64  `json:"createdAt"`      // 创建时间，单位毫秒，便于未来按时间轮换密钥
+	Spec       int    `json:"spec"`               // 当前包络规范标识，WrappedDEK 绑定 boxID AAD
+	WrappedDEK []byte `json:"wrappedDEK"`         // 用 KEK 经 AES-GCM 加密后的 DEK
+	WrapNonce  []byte `json:"wrapNonce"`          // 包络用的 GCM nonce（从加密信封中提取）
+	Metadata   []byte `json:"metadata,omitempty"` // 用 DEK 加密的图标和排序元数据
+	CreatedAt  int64  `json:"createdAt"`          // 创建时间，单位毫秒，便于未来按时间轮换密钥
 }
 
 func NewBoxConf() *BoxConf {

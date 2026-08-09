@@ -18,8 +18,7 @@
 <a title="GitHub Commits" target="_blank" href="https://github.com/siyuan-note/siyuan/commits/master"><img src="https://img.shields.io/github/commit-activity/m/siyuan-note/siyuan.svg?style=flat-square"></a>
 <a title="Last Commit" target="_blank" href="https://github.com/siyuan-note/siyuan/commits/master"><img src="https://img.shields.io/github/last-commit/siyuan-note/siyuan.svg?style=flat-square&color=FF9900"></a>
 <br><br>
-<a title="Twitter" target="_blank" href="https://twitter.com/b3logos"><img alt="Twitter Follow" src="https://img.shields.io/twitter/follow/b3logos?label=Follow&style=social"></a>
-<a title="Discord" target="_blank" href="https://discord.gg/dmMbCqVX7G"><img alt="Chat on Discord" src="https://img.shields.io/discord/808152298789666826?label=Discord&logo=Discord&style=social"></a>
+<a title="X" target="_blank" href="https://x.com/b3logos"><img alt="X Follow" src="https://img.shields.io/twitter/follow/b3logos?label=Follow&style=social"></a>
 <br><br>
 <a href="https://trendshift.io/repositories/3949" target="_blank"><img src="https://trendshift.io/api/badge/repositories/3949" alt="siyuan-note%2Fsiyuan | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
@@ -30,16 +29,6 @@
 | <a href="README.ja.md">日本語</a>
 | <a href="README.tr.md">Türkçe</a>
 </p>
-
----
-
-## 与上游的差异
-
-这是 SiYuan 的**个人 fork**（托管于 `eloklam/eloklam-siyuan`），并非官方版本。它在跟踪上游 `master`/`dev` 的基础上增加了以下功能：
-
-1. **属性视图日历**：为属性视图（数据库）块增加日历视图——月/周/多日/日/议程布局，全天与定时事件、拖拽调整、重复事件、事件编辑器、来源导航、全局日历侧栏（停靠面板）。该工作曾向上游提议但未被接受，因此仅存在于本个人 fork 中。
-2. **日记目标数据库**：新增笔记本级设置 `dailyNoteDatabaseID`。新建日记时会自动将日记文档作为一行添加到配置的目标数据库（属性视图）；笔记本设置对话框新增数据库块选择器。该过程幂等且尽力而为，绝不会导致日记创建失败。此功能也已整理为独立的上游 PR 分支（`feat/daily-note-db-add`，尚未推送）。
-3. **本地开发便利**：Electron 开发模式支持显式 `--port` 参数，可让第二个实例与官方应用同时运行而不冲突。
 
 ---
 
@@ -59,7 +48,7 @@
   - [宝塔面板部署](#宝塔面板部署)
   - [小皮面板部署](#小皮面板部署)
   - [1Panel 面板部署](#1Panel-面板部署)
-  - [内部预览版](#内部预览版)
+  - [测试通道](#测试通道)
 - [⌨️ 命令行接口](#-命令行接口)
 - [🏘️ 社区](#️-社区)
 - [🛠️ 开发指南](#️-开发指南)
@@ -80,15 +69,11 @@
 
 思源笔记是一款隐私优先的个人知识管理系统，支持细粒度块级引用和 Markdown 所见即所得。
 
-![feature0.png](https://b3logfile.com/file/2025/11/feature0-GfbhEqf.png)
+![feature0.png](screenshots/feature0.png)
 
-![feature51.png](https://b3logfile.com/file/2025/11/feature5-1-7DJSfEP.png)
+![feature5-1.png](screenshots/feature5-1.png)
 
-欢迎到[思源笔记官方讨论区](https://ld246.com/domain/siyuan)了解更多。同时也欢迎关注 B3log 开源社区微信公众号 `B3log开源`：
-
-在线用户指南：[中文](https://siyuan-cn.b3log.org/)
-
-![b3logos.jpg](https://b3logfile.com/file/2020/08/b3logos-032af045.jpg)
+如需了解更多，请阅读[在线用户指南](https://siyuan-cn.b3log.org/)或前往[思源笔记官方讨论区](https://ld246.com/domain/siyuan)交流。
 
 ## 🔮 特性
 
@@ -129,7 +114,7 @@
 
 ## 🏗️ 架构和生态
 
-![思源笔记架构设计](https://b3logfile.com/file/2023/05/SiYuan_Arch-Sgu8vXT.png "思源笔记架构设计")
+![思源笔记架构设计](screenshots/SiYuan_Arch.png "思源笔记架构设计")
 
 | Project                                                  | Description  | Forks                                                                           | Stars                                                                                | 
 |----------------------------------------------------------|--------------|---------------------------------------------------------------------------------|--------------------------------------------------------------------------------------|
@@ -461,9 +446,9 @@ services:
 
 </details>
 
-### 内部预览版
+### 测试通道
 
-我们会在有重大更新前发布内部预览版，请访问 [https://github.com/siyuan-note/insider](https://github.com/siyuan-note/insider)。
+可在`设置 - 关于 - 更新通道`中选择 Beta 或 Alpha 以接收预发布版本。Beta 通道接收正式版、RC 和 Beta，Alpha 通道接收全部版本。测试通道需要能够访问 GitHub。
 
 ## ⌨️ 命令行接口
 

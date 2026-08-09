@@ -32,7 +32,11 @@ type Editor struct {
 	CodeLigatures                   bool           `json:"codeLigatures"`                   // 代码块是否连字
 	DisplayBookmarkIcon             bool           `json:"displayBookmarkIcon"`             // 是否显示内容块角标
 	DisplayNetImgMark               bool           `json:"displayNetImgMark"`               // 是否显示网络图片角标
+	DatabaseAttrShow                *bool          `json:"databaseAttrShow"`                // 是否在文档顶部显示数据库属性
+	DatabaseAttrClickMode           int            `json:"databaseAttrClickMode"`           // 数据库角标点击模式，0：聚焦块并展开数据库面板，1：打开块属性面板
 	DatabaseAttrViewMode            int            `json:"databaseAttrViewMode"`            // 数据库属性默认展开状态，0：展开，1：折叠
+	DatabaseAttrHideEmpty           bool           `json:"databaseAttrHideEmpty"`           // 是否隐藏数据库空属性
+	DatabaseAttrUseTabs             *bool          `json:"databaseAttrUseTabs"`             // 数据库属性是否使用页签
 	GenerateHistoryInterval         int            `json:"generateHistoryInterval"`         // 生成历史时间间隔，单位：分钟
 	HistoryRetentionDays            int            `json:"historyRetentionDays"`            // 历史保留天数
 	Emoji                           []string       `json:"emoji"`                           // 常用表情
@@ -58,15 +62,19 @@ type Editor struct {
 	BacklinkExpandCount             int            `json:"backlinkExpandCount"`             // 反向链接默认展开数量
 	BackmentionExpandCount          int            `json:"backmentionExpandCount"`          // 反链提及默认展开数量
 	BacklinkContainChildren         bool           `json:"backlinkContainChildren"`         // 反向链接是否包含子块进行计算
+	BacklinkShowBottom              bool           `json:"backlinkShowBottom"`              // 是否在文档底部显示反向链接
 	BacklinkSort                    *int           `json:"backlinkSort"`                    // 反向链接排序方式
 	BackmentionSort                 *int           `json:"backmentionSort"`                 // 反链提及排序方式
+	HeadingNumber                   bool           `json:"headingNumber"`                   // 是否显示标题编号
+	HeadingNumberFormat             string         `json:"headingNumberFormat"`             // 标题编号格式
 	HeadingEmbedMode                int            `json:"headingEmbedMode"`                // 标题嵌入块模式，0：显示标题与下方的块，1：仅显示标题，2：仅显示标题下方的块
 	PasteURLAutoConvert             bool           `json:"pasteURLAutoConvert"`             // 粘贴网址时自动转为链接
 	Markdown                        *util.Markdown `json:"markdown"`                        // Markdown 配置
 }
 
 const (
-	MinDynamicLoadBlocks = 48
+	MinDynamicLoadBlocks       = 48
+	DefaultHeadingNumberFormat = "decimal-hierarchical"
 )
 
 func NewEditor() *Editor {
@@ -79,7 +87,11 @@ func NewEditor() *Editor {
 		CodeLigatures:                   false,
 		DisplayBookmarkIcon:             true,
 		DisplayNetImgMark:               true,
+		DatabaseAttrShow:                func() *bool { value := true; return &value }(),
+		DatabaseAttrClickMode:           0,
 		DatabaseAttrViewMode:            0,
+		DatabaseAttrHideEmpty:           false,
+		DatabaseAttrUseTabs:             func() *bool { value := true; return &value }(),
 		GenerateHistoryInterval:         10,
 		HistoryRetentionDays:            30,
 		Emoji:                           []string{},
@@ -102,8 +114,11 @@ func NewEditor() *Editor {
 		BacklinkExpandCount:             8,
 		BackmentionExpandCount:          -1,
 		BacklinkContainChildren:         true,
+		BacklinkShowBottom:              false,
 		BacklinkSort:                    func() *int { v := util.SortModeUpdatedDESC; return &v }(),
 		BackmentionSort:                 func() *int { v := util.SortModeUpdatedDESC; return &v }(),
+		HeadingNumber:                   false,
+		HeadingNumberFormat:             DefaultHeadingNumberFormat,
 		HeadingEmbedMode:                0,
 		PasteURLAutoConvert:             false,
 		Markdown:                        util.MarkdownSettings,

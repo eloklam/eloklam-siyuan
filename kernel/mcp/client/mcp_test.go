@@ -18,6 +18,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func TestCallMCPToolOnceMarksTimeoutUnknownWithoutReconnect(t *testing.T) {
 		return nil, context.DeadlineExceeded
 	}, func(error) {
 		reconnects++
-	})
+	}, false)
 	if calls != 1 || reconnects != 0 {
 		t.Fatalf("unexpected call counts: calls=%d, reconnects=%d", calls, reconnects)
 	}
@@ -63,12 +64,108 @@ func TestCallMCPToolOnceDoesNotReplayDisconnectedCall(t *testing.T) {
 		return nil, errors.New("connection closed after request")
 	}, func(error) {
 		reconnects++
-	})
+	}, false)
 	if calls != 1 || reconnects != 1 {
 		t.Fatalf("unexpected call counts: calls=%d, reconnects=%d", calls, reconnects)
 	}
 	if !result.IsError || !result.ExecutionUnknown {
 		t.Fatalf("disconnected call was not marked unknown: %#v", result)
+	}
+}
+
+func TestCallMCPToolOncePreservesExpectedNullStructuredContent(t *testing.T) {
+	result := callMCPToolOnce(func() (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "null"}},
+		}, nil
+	}, func(error) {}, true)
+	if !result.HasStructuredContent() || result.StructuredContent != nil {
+		t.Fatalf("expected explicit null structured content: %#v", result)
+	}
+}
+
+func TestCallMCPToolOnceDoesNotInventMissingStructuredContent(t *testing.T) {
+	result := callMCPToolOnce(func() (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "completed without structured output"}},
+		}, nil
+	}, func(error) {}, true)
+	if result.HasStructuredContent() {
+		t.Fatalf("missing structured content was treated as explicit null: %#v", result)
+	}
+}
+
+func TestCallMCPToolOncePreservesNonTextContent(t *testing.T) {
+	result := callMCPToolOnce(func() (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.ImageContent{
+				Data:     []byte("image-data"),
+				MIMEType: "image/png",
+			}},
+		}, nil
+	}, func(error) {}, false)
+	if len(result.Content) != 1 || result.Content[0].Type != "image" {
+		t.Fatalf("image content was not preserved: %#v", result.Content)
+	}
+	data, err := json.Marshal(result.Content[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Type     string `json:"type"`
+		Data     []byte `json:"data"`
+		MIMEType string `json:"mimeType"`
+	}
+	if err = json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Type != "image" || string(decoded.Data) != "image-data" || decoded.MIMEType != "image/png" {
+		t.Fatalf("unexpected image content: %#v", decoded)
+	}
+}
+
+func TestListAllMCPToolsFollowsPagination(t *testing.T) {
+	var cursors []string
+	result, err := listAllMCPTools(t.Context(),
+		func(_ context.Context, params *mcp.ListToolsParams) (*mcp.ListToolsResult, error) {
+			cursor := ""
+			if params != nil {
+				cursor = params.Cursor
+			}
+			cursors = append(cursors, cursor)
+			switch cursor {
+			case "":
+				return &mcp.ListToolsResult{
+					Tools:      []*mcp.Tool{{Name: "first"}},
+					NextCursor: "page-2",
+				}, nil
+			case "page-2":
+				return &mcp.ListToolsResult{
+					Tools: []*mcp.Tool{{Name: "second"}},
+				}, nil
+			default:
+				t.Fatalf("unexpected cursor: %q", cursor)
+				return nil, nil
+			}
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 2 || result[0].Name != "first" || result[1].Name != "second" {
+		t.Fatalf("unexpected tools: %#v", result)
+	}
+	if len(cursors) != 2 || cursors[0] != "" || cursors[1] != "page-2" {
+		t.Fatalf("unexpected cursors: %#v", cursors)
+	}
+}
+
+func TestListAllMCPToolsRejectsRepeatedCursor(t *testing.T) {
+	_, err := listAllMCPTools(t.Context(),
+		func(context.Context, *mcp.ListToolsParams) (*mcp.ListToolsResult, error) {
+			return &mcp.ListToolsResult{NextCursor: "same"}, nil
+		})
+	if err == nil {
+		t.Fatal("expected repeated cursor to fail")
 	}
 }
 

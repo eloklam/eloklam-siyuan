@@ -3,7 +3,7 @@ import {uploadFiles, uploadLocalFiles} from "../upload";
 import {processPasteCode, processRender} from "./processCode";
 import {getLocalFiles, getTextSiyuanFromTextHTML, readText} from "./compatibility";
 import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "./hasClosest";
-import {getEditorRange, getSelectionOffset} from "./selection";
+import {focusByOffset, getEditorRange, getSelectionOffset, getUndoFocusContext} from "./selection";
 import {blockRender} from "../render/blockRender";
 import {highlightRender} from "../render/highlightRender";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
@@ -13,11 +13,16 @@ import {scrollCenter} from "../../util/highlightById";
 import {hideElements} from "../ui/hideElements";
 import {avRender} from "../render/av/render";
 import {cellScrollIntoView, getCellText} from "../render/av/cell";
-import {getCalloutInfo, getContenteditableElement} from "../wysiwyg/getBlock";
+import {fixAdjacentTags, getCalloutInfo, getContenteditableElement} from "../wysiwyg/getBlock";
 import {clearBlockElement} from "./clear";
 import {removeZWJ} from "./normalizeText";
 import {base64ToURL} from "../../util/image";
 import {resolveLinkDest} from "../toolbar/util";
+import {updateTransaction} from "../wysiwyg/transaction";
+import * as dayjs from "dayjs";
+import {updateListOrder} from "../wysiwyg/list";
+import {refreshSbAndPersistWidth} from "../../block/util";
+import {shouldPreservePastedBlockStructure} from "./pasteSource";
 
 export const beforePaste = (protyle: IProtyle, blockElement: HTMLElement) => {
     // 链接，备注，样式，引用，pdf标注粘贴 https://github.com/siyuan-note/siyuan/issues/11572
@@ -39,6 +44,18 @@ export const beforePaste = (protyle: IProtyle, blockElement: HTMLElement) => {
             }
         }
     }
+};
+
+export const normalizeVirtualBlockRef = (element: HTMLElement) => {
+    element.querySelectorAll<HTMLElement>('[data-type~="virtual-block-ref"]').forEach(item => {
+        const types = (item.getAttribute("data-type") || "").split(" ")
+            .filter(type => type && type !== "virtual-block-ref");
+        if (types.length > 0) {
+            item.setAttribute("data-type", types.join(" "));
+        } else {
+            item.replaceWith(...Array.from(item.childNodes));
+        }
+    });
 };
 
 export const getTextStar = (blockElement: HTMLElement, contentOnly = false) => {
@@ -86,7 +103,7 @@ export const getPlainText = (blockElement: HTMLElement, isNested = false) => {
     let text = "";
     const dataType = blockElement.dataset.type;
     if ("NodeHTMLBlock" === dataType) {
-        text += Lute.UnEscapeHTMLStr(blockElement.querySelector("protyle-html").getAttribute("data-content"));
+        text += blockElement.querySelector("protyle-html").getAttribute("data-content");
     } else if ("NodeAttributeView" === dataType) {
         blockElement.querySelectorAll(".av__row").forEach(rowElement => {
             rowElement.querySelectorAll(".av__cell").forEach((cellElement: HTMLElement) => {
@@ -271,6 +288,196 @@ const readLocalFile = async (protyle: IProtyle, localFiles: ILocalFiles[]) => {
     uploadLocalFiles(localFiles, protyle, true);
 };
 
+export const convertPastedListItemSubtype = (listItemElement: HTMLElement, subtype: string) => {
+    const actionElement = listItemElement.querySelector<HTMLElement>(".protyle-action");
+    if (!actionElement || !["u", "o", "t"].includes(subtype)) {
+        return;
+    }
+    listItemElement.setAttribute("data-subtype", subtype);
+    listItemElement.classList.remove("protyle-task--done");
+    if (subtype === "o") {
+        listItemElement.removeAttribute("data-task");
+        listItemElement.setAttribute("data-marker", "1.");
+        actionElement.className = "protyle-action protyle-action--order";
+        actionElement.setAttribute("contenteditable", "false");
+        actionElement.textContent = "1.";
+    } else if (subtype === "t") {
+        listItemElement.setAttribute("data-marker", "*");
+        listItemElement.setAttribute("data-task", " ");
+        actionElement.className = "protyle-action protyle-action--task";
+        actionElement.removeAttribute("contenteditable");
+        actionElement.innerHTML = "<svg><use xlink:href=\"#iconUncheck\"></use></svg>";
+    } else {
+        listItemElement.removeAttribute("data-task");
+        listItemElement.setAttribute("data-marker", "*");
+        actionElement.className = "protyle-action";
+        actionElement.removeAttribute("contenteditable");
+        actionElement.innerHTML = "<svg><use xlink:href=\"#iconDot\"></use></svg>";
+    }
+};
+
+const pasteCrossBlockRange = (protyle: IProtyle, tempElement: HTMLElement, range: Range) => {
+    const pastedRoots = Array.from(tempElement.children) as HTMLElement[];
+    if (!range.collapsed || pastedRoots.length < 2) {
+        return false;
+    }
+    const textBlockTypes = ["NodeParagraph", "NodeHeading"];
+    const firstBlockElement = pastedRoots[0];
+    if (!textBlockTypes.includes(firstBlockElement.getAttribute("data-type"))) {
+        return false;
+    }
+    const targetBlockElement = hasClosestBlock(range.startContainer) as HTMLElement;
+    if (!targetBlockElement) {
+        return false;
+    }
+
+    const lastRootElement = pastedRoots[pastedRoots.length - 1];
+    const containerType = lastRootElement.getAttribute("data-type");
+    const isTextBlockPaste = pastedRoots.every(item => textBlockTypes.includes(item.getAttribute("data-type")));
+    const pastedContainerElement = !isTextBlockPaste && pastedRoots.length === 2 &&
+        ["NodeList", "NodeBlockquote", "NodeCallout", "NodeSuperBlock"].includes(containerType) ?
+        lastRootElement : undefined;
+    if (!isTextBlockPaste && !pastedContainerElement) {
+        return false;
+    }
+
+    const targetContainerElement = pastedContainerElement ?
+        targetBlockElement.closest<HTMLElement>(`[data-type="${containerType}"]`) : undefined;
+    const pastedContentElement = containerType === "NodeCallout" ?
+        pastedContainerElement?.querySelector<HTMLElement>(":scope > .callout-content") : pastedContainerElement;
+    const targetContentElement = containerType === "NodeCallout" ?
+        targetContainerElement?.querySelector<HTMLElement>(":scope > .callout-content") : targetContainerElement;
+    const pastedChildren = isTextBlockPaste ? pastedRoots.slice(1) :
+        Array.from(pastedContentElement?.children || []).filter(item =>
+            item.hasAttribute("data-node-id")) as HTMLElement[];
+    const endBlockElement = isTextBlockPaste ? lastRootElement :
+        Array.from(pastedContainerElement.querySelectorAll<HTMLElement>(
+            '[data-type="NodeParagraph"], [data-type="NodeHeading"]'
+        )).reverse().find(item => {
+            const attrElement = item.querySelector(":scope > .protyle-attr");
+            return !attrElement || (attrElement.textContent || "").replace(/\u200b/g, "") === "";
+        });
+    let targetChildElement: HTMLElement = targetBlockElement;
+    if (pastedContainerElement) {
+        while (targetChildElement.parentElement && targetChildElement.parentElement !== targetContentElement) {
+            targetChildElement = targetChildElement.parentElement;
+        }
+    }
+    if (!endBlockElement || pastedChildren.length === 0 ||
+        (pastedContainerElement && (!targetContainerElement || !targetContentElement ||
+            targetChildElement.parentElement !== targetContentElement))) {
+        return false;
+    }
+    if (containerType === "NodeList") {
+        if (targetChildElement.getAttribute("data-type") !== "NodeListItem" ||
+            targetBlockElement.previousElementSibling?.classList.contains("protyle-action") !== true) {
+            return false;
+        }
+        const targetSubtype = targetContainerElement.getAttribute("data-subtype");
+        pastedChildren.forEach(item => {
+            if (item.getAttribute("data-subtype") !== targetSubtype) {
+                convertPastedListItemSubtype(item, targetSubtype);
+            }
+        });
+    }
+    const targetEditableElement = getContenteditableElement(targetBlockElement);
+    const firstEditableElement = getContenteditableElement(firstBlockElement);
+    const endEditableElement = getContenteditableElement(endBlockElement);
+    if (!targetEditableElement?.contains(range.startContainer) || !firstEditableElement || !endEditableElement) {
+        return false;
+    }
+
+    const oldHTML = targetChildElement.outerHTML;
+    const oldListItemHTML = containerType === "NodeList" ? new Map(Array.from(
+        targetContainerElement.querySelectorAll<HTMLElement>(":scope > .li")
+    ).map(item => [item.getAttribute("data-node-id"), item.outerHTML])) : undefined;
+    const undoFocusContext = getUndoFocusContext(protyle.wysiwyg.element, range, true);
+    const markerElement = document.createElement("wbr");
+    range.insertNode(markerElement);
+    const suffixRange = document.createRange();
+    suffixRange.setStartAfter(markerElement);
+    suffixRange.setEnd(targetEditableElement, targetEditableElement.childNodes.length);
+    const suffixFragment = suffixRange.extractContents();
+    const pastedEndRange = document.createRange();
+    pastedEndRange.selectNodeContents(endEditableElement);
+    const pastedEnd = getSelectionOffset(endEditableElement, undefined, pastedEndRange, true).end;
+    while (firstEditableElement.firstChild) {
+        markerElement.before(firstEditableElement.firstChild);
+    }
+    markerElement.remove();
+    endEditableElement.append(suffixFragment);
+    let boundaryElement = endBlockElement;
+    while (boundaryElement) {
+        if (boundaryElement.hasAttribute("data-node-id") &&
+            !boundaryElement.querySelector(":scope > .protyle-attr")) {
+            boundaryElement.insertAdjacentHTML("beforeend",
+                `<div class="protyle-attr" contenteditable="false">${Constants.ZWSP}</div>`);
+        }
+        if (boundaryElement === (pastedContainerElement || endBlockElement)) {
+            break;
+        }
+        boundaryElement = boundaryElement.parentElement;
+    }
+    fixAdjacentTags(targetEditableElement);
+    fixAdjacentTags(endEditableElement);
+    targetChildElement.after(...pastedChildren);
+    if (containerType === "NodeList") {
+        updateListOrder(targetContainerElement);
+    }
+    targetChildElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
+
+    const widthDoOperations: IOperation[] = [];
+    const widthUndoOperations: IOperation[] = [];
+    const superBlockElement = targetChildElement.parentElement?.getAttribute("data-type") === "NodeSuperBlock" ?
+        targetChildElement.parentElement : undefined;
+    if (superBlockElement) {
+        refreshSbAndPersistWidth(superBlockElement, widthDoOperations, widthUndoOperations);
+    }
+    const doOperations: IOperation[] = [];
+    const undoOperations: IOperation[] = [];
+    pastedChildren.slice().reverse().forEach(item => {
+        doOperations.push({
+            action: "insert",
+            id: item.getAttribute("data-node-id"),
+            data: item.outerHTML,
+            previousID: targetChildElement.getAttribute("data-node-id")
+        });
+        undoOperations.push({
+            action: "delete",
+            id: item.getAttribute("data-node-id")
+        });
+    });
+    if (oldListItemHTML) {
+        targetContainerElement.querySelectorAll<HTMLElement>(":scope > .li").forEach(item => {
+            const itemOldHTML = oldListItemHTML.get(item.getAttribute("data-node-id"));
+            if (!itemOldHTML || item === targetChildElement || itemOldHTML === item.outerHTML) {
+                return;
+            }
+            item.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
+            item.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
+            doOperations.push({
+                action: "update",
+                id: item.getAttribute("data-node-id"),
+                data: item.outerHTML
+            });
+            undoOperations.push({
+                action: "update",
+                id: item.getAttribute("data-node-id"),
+                data: itemOldHTML
+            });
+        });
+    }
+    doOperations.push(...widthDoOperations);
+    undoOperations.unshift(...widthUndoOperations);
+    focusByOffset(endBlockElement, pastedEnd, pastedEnd, true, true);
+    updateTransaction(protyle, targetChildElement, oldHTML, undoFocusContext, {
+        doOperations,
+        undoOperations,
+        context: getUndoFocusContext(protyle.wysiwyg.element, getEditorRange(protyle.wysiwyg.element), true)
+    });
+    return true;
+};
+
 export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEvent | IClipboardData) & {
     target: HTMLElement
 }) => {
@@ -282,15 +489,18 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
     let textPlain: string;
     let siyuanHTML: string;
     let files: FileList | DataTransferItemList | File[];
+    let vscodeEditorData = "";
     if ("clipboardData" in event) {
         textHTML = event.clipboardData.getData("text/html");
         textPlain = event.clipboardData.getData("text/plain");
         siyuanHTML = event.clipboardData.getData("text/siyuan");
+        vscodeEditorData = event.clipboardData.getData("vscode-editor-data");
         files = event.clipboardData.files;
     } else if ("dataTransfer" in event) {
         textHTML = event.dataTransfer.getData("text/html");
         textPlain = event.dataTransfer.getData("text/plain");
         siyuanHTML = event.dataTransfer.getData("text/siyuan");
+        vscodeEditorData = event.dataTransfer.getData("vscode-editor-data");
         if (event.dataTransfer.types[0] === "Files") {
             files = event.dataTransfer.items;
         }
@@ -318,6 +528,16 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
     }
     /// #endif
     const originalTextHTML = textHTML;
+    if (vscodeEditorData) {
+        try {
+            const metadata = JSON.parse(vscodeEditorData);
+            if (metadata.version === 1 && metadata.mode === "markdown") {
+                textHTML = "";
+            }
+        } catch (e) {
+            // 忽略无效的 VS Code 剪贴板元数据
+        }
+    }
     // 浏览器地址栏拷贝处理
     if (textHTML.replace(/&amp;/g, "&").replace(/<(|\/)(html|body|meta)[^>]*?>/ig, "").trim() ===
         `<a href="${textPlain}">${textPlain}</a>` ||
@@ -440,7 +660,26 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         } else {
             tempElement.innerHTML = siyuanHTML;
         }
-        if (range.toString()) {
+        const preservePastedBlockStructure = shouldPreservePastedBlockStructure(tempElement.children);
+        const startRangeBlockElement = hasClosestBlock(range.startContainer);
+        const endRangeBlockElement = hasClosestBlock(range.endContainer);
+        if (startRangeBlockElement && endRangeBlockElement && startRangeBlockElement !== endRangeBlockElement) {
+            const selectedElement = document.createElement("div");
+            selectedElement.append(range.cloneContents());
+            const pastedElement = tempElement.cloneNode(true) as HTMLElement;
+            [selectedElement, pastedElement].forEach(element => {
+                normalizeVirtualBlockRef(element);
+                element.querySelectorAll(".protyle-attr").forEach(item => item.remove());
+            });
+            if (selectedElement.isEqualNode(pastedElement)) {
+                range.collapse(false);
+                getSelection().removeAllRanges();
+                getSelection().addRange(range);
+                protyle.toolbar.range = range;
+                return;
+            }
+        }
+        if (range.toString() && startRangeBlockElement === endRangeBlockElement) {
             let types: string[] = [];
             let linkElement: HTMLElement;
             if (tempElement.childNodes.length === 1 && tempElement.childElementCount === 1) {
@@ -501,6 +740,10 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 }
                 clearBlockElement(e, isCutPaste); // 剪切粘贴保留引用角标
             });
+            const updated = dayjs().format("YYYYMMDDHHmmss");
+            pastedBlockElements.forEach((e) => {
+                e.setAttribute("updated", updated);
+            });
         }
         if (nodeElement.classList.contains("table")) {
             isBlock = false;
@@ -509,6 +752,17 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         tempElement.querySelectorAll('[contenteditable="false"][spellcheck]').forEach((e) => {
             e.setAttribute("contenteditable", "true");
         });
+        const hasHeadingChildren = Array.from(tempElement.children).some(item =>
+            item.hasAttribute("parent-heading"));
+        // 完整块选择以及以标题开头的跨块文本选区需要保留块类型
+        // 标题及下方块还需要保留折叠关系 https://github.com/siyuan-note/siyuan/issues/18419
+        if (isBlock && !preservePastedBlockStructure && !hasHeadingChildren && pasteCrossBlockRange(protyle, tempElement, range)) {
+            blockRender(protyle, protyle.wysiwyg.element);
+            processRender(protyle.wysiwyg.element);
+            highlightRender(protyle.wysiwyg.element);
+            avRender(protyle.wysiwyg.element, protyle);
+            return;
+        }
 
         let tempInnerHTML = tempElement.innerHTML;
 
@@ -630,6 +884,10 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 }
                 return;
             }
+            if (nodeElement.classList.contains("av") && tempElement.querySelector("table")) {
+                insertHTML(tempElement.innerHTML, protyle, false, false, true);
+                return;
+            }
             fetchPost("/api/lute/html2BlockDOM", {
                 dom: tempElement.innerHTML
             }, (response) => {
@@ -722,4 +980,3 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         scrollCenter(protyle, undefined, "nearest", "smooth");
     }
 };
-

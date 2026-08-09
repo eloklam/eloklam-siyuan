@@ -6,9 +6,50 @@ import {ipcRenderer} from "electron";
 /// #endif
 import {getDefaultSubType, getDefaultType} from "../../search/getDefault";
 import {hideMessage, showMessage} from "../../dialog/message";
-import {isSiYuanUriProtocol} from "../../util/pathName";
+import {isEncryptedBox, isSiYuanUriProtocol} from "../../util/pathName";
 import {isBrowser} from "../../util/functions";
 import type {App} from "../../index";
+import {genUUID} from "../../util/genID";
+
+export type TSaveExportFileResult = {
+    status: "success" | "canceled" | "error";
+    name?: string;
+    message?: string;
+};
+
+const mobileExportFileRequests = new Map<string, (result: TSaveExportFileResult) => void>();
+
+window.handleSaveExportFileResult = (requestID: string, resultJSON: string) => {
+    const resolve = mobileExportFileRequests.get(requestID);
+    if (!resolve) {
+        return;
+    }
+    mobileExportFileRequests.delete(requestID);
+    try {
+        const result = JSON.parse(resultJSON) as TSaveExportFileResult;
+        if (["success", "canceled", "error"].includes(result.status)) {
+            resolve(result);
+            return;
+        }
+    } catch (e) {
+        console.error("parse saveExportFile result failed:", e);
+    }
+    resolve({status: "error"});
+};
+
+const waitMobileExportFile = (callback: (requestID: string) => void) => {
+    return new Promise<TSaveExportFileResult>((resolve) => {
+        const requestID = genUUID();
+        mobileExportFileRequests.set(requestID, resolve);
+        try {
+            callback(requestID);
+        } catch (e) {
+            mobileExportFileRequests.delete(requestID);
+            console.error("saveExportFile failed:", e);
+            resolve({status: "error", message: String(e)});
+        }
+    });
+};
 
 export const isPhablet = () => {
     return /Android|webOS|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent) || isIPhone() || isIPad();
@@ -66,11 +107,12 @@ export const getTextSiyuanFromTextHTML = (html: string) => {
     };
 };
 
-export const saveExportFile = async (uri: string, msgId?: string) => {
+export const saveExportFile = async (uri: string, msgId?: string): Promise<TSaveExportFileResult> => {
     if (!uri) {
-        return;
+        return {status: "error"};
     }
     /// #if !BROWSER
+    let saveErrorMsgId: string | undefined;
     try {
         const resolved = new URL(uri, `${location.origin}/`);
         const pathSeg = resolved.pathname.substring(resolved.pathname.lastIndexOf("/") + 1);
@@ -83,73 +125,114 @@ export const saveExportFile = async (uri: string, msgId?: string) => {
         if (!fileName) {
             fileName = "download";
         }
-        const result = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
-            cmd: "showSaveDialog",
-            defaultPath: fileName,
-            properties: ["showOverwriteConfirmation"],
-        });
-        if (result.canceled || !result.filePath) {
-            if (msgId) {
-                hideMessage(msgId);
+        let defaultPath = fileName;
+        while (true) {
+            const result = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
+                cmd: "showSaveDialog",
+                defaultPath,
+                properties: ["showOverwriteConfirmation"],
+            });
+            if (result.canceled || !result.filePath) {
+                if (msgId) {
+                    hideMessage(msgId);
+                }
+                if (saveErrorMsgId) {
+                    hideMessage(saveErrorMsgId);
+                }
+                return {status: "canceled"};
             }
-            return;
-        }
-        const copyResponse = await (await fetch("/api/export/copyExportFile", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({
-                srcPath: resolved.pathname,
-                dest: result.filePath,
-            }),
-        })).json();
-        if (copyResponse.code !== 0) {
-            throw new Error(copyResponse.msg);
+            const copyResponse = await (await fetch("/api/export/copyExportFile", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    srcPath: resolved.pathname,
+                    dest: result.filePath,
+                }),
+            })).json();
+            if (copyResponse.code === 0) {
+                break;
+            }
+            console.error("saveExportFile failed:", new Error(copyResponse.msg));
+            if (saveErrorMsgId) {
+                showMessage(window.siyuan.languages.exportFileSaveFailed, 0, "error", saveErrorMsgId);
+            } else {
+                saveErrorMsgId = showMessage(window.siyuan.languages.exportFileSaveFailed, 0, "error");
+            }
+            defaultPath = result.filePath;
         }
         if (msgId) {
             hideMessage(msgId);
         }
+        if (saveErrorMsgId) {
+            hideMessage(saveErrorMsgId);
+        }
         showMessage(window.siyuan.languages.exported);
-        return;
+        return {status: "success", name: fileName};
     } catch (e) {
         if (msgId) {
             hideMessage(msgId);
         }
-        showMessage("saveExportFile failed: " + e);
+        console.error("saveExportFile failed:", e);
+        if (saveErrorMsgId) {
+            showMessage(window.siyuan.languages.exportFileSaveFailed, 0, "error", saveErrorMsgId);
+        } else {
+            showMessage(window.siyuan.languages.exportFileSaveFailed, 0, "error");
+        }
+        return {status: "error", message: String(e)};
     }
     /// #else
     try {
+        let result: TSaveExportFileResult;
+        let hasCompletionResult = false;
         if (isInAndroid()) {
-            window.JSAndroid.saveExportFile(uri);
-            if (msgId) {
-                hideMessage(msgId);
+            if (window.JSAndroid.saveExportFileV2) {
+                result = await waitMobileExportFile((requestID) => {
+                    window.JSAndroid.saveExportFileV2(uri, requestID);
+                });
+                hasCompletionResult = true;
+            } else {
+                window.JSAndroid.saveExportFile(uri);
+                result = {status: "success"};
             }
-            return;
-        }
-        if (isInIOS()) {
-            window.webkit.messageHandlers.saveExportFile.postMessage(uri);
-            if (msgId) {
-                hideMessage(msgId);
+        } else if (isInIOS()) {
+            if (window.webkit.messageHandlers.saveExportFileV2) {
+                result = await waitMobileExportFile((requestID) => {
+                    window.webkit.messageHandlers.saveExportFileV2.postMessage({uri, requestID});
+                });
+                hasCompletionResult = true;
+            } else {
+                window.webkit.messageHandlers.saveExportFile.postMessage(uri);
+                result = {status: "success"};
             }
-            return;
-        }
-        if (isInHarmony()) {
-            window.JSHarmony.saveExportFile(uri);
-            if (msgId) {
-                hideMessage(msgId);
+        } else if (isInHarmony()) {
+            if (window.JSHarmony.saveExportFileV2) {
+                result = await waitMobileExportFile((requestID) => {
+                    window.JSHarmony.saveExportFileV2(uri, requestID);
+                });
+                hasCompletionResult = true;
+            } else {
+                window.JSHarmony.saveExportFile(uri);
+                result = {status: "success"};
             }
-            return;
+        } else {
+            const openUrl = new URL(uri, `${location.origin}/`);
+            openUrl.searchParams.set("download", "true");
+            window.open(openUrl.href);
+            result = {status: "success"};
         }
-        const openUrl = new URL(uri, `${location.origin}/`);
-        openUrl.searchParams.set("download", "true");
-        window.open(openUrl.href);
         if (msgId) {
             hideMessage(msgId);
         }
+        if (hasCompletionResult && result.status === "success") {
+            showMessage(window.siyuan.languages.exported);
+        }
+        return result;
     } catch (e) {
         if (msgId) {
             hideMessage(msgId);
         }
         showMessage("saveExportFile failed: " + e);
+        return {status: "error", message: String(e)};
     }
     /// #endif
 };
@@ -510,7 +593,10 @@ export const getLocalStorage = (cb: () => void) => {
         defaultStorage[Constants.LOCAL_AI] = [];   // {name: "", memo: ""}
         defaultStorage[Constants.LOCAL_PLUGIN_DOCKS] = {};  // { pluginName: {dockId: IPluginDockTab}}
         defaultStorage[Constants.LOCAL_PLUGINTOPUNPIN] = [];
-        defaultStorage[Constants.LOCAL_OUTLINE] = {keepCurrentExpand: false};
+        defaultStorage[Constants.LOCAL_OUTLINE] = {
+            keepCurrentExpand: false,
+            expandLevel: 6
+        };
         defaultStorage[Constants.LOCAL_FILEPOSITION] = {}; // {id: IScrollAttr}
         defaultStorage[Constants.LOCAL_DIALOGPOSITION] = {}; // {id: IPosition}
         defaultStorage[Constants.LOCAL_HISTORY] = {
@@ -529,6 +615,11 @@ export const getLocalStorage = (cb: () => void) => {
             template: "0",
             icon: "0",
             widget: "0",
+            downloadedPlugin: "0",
+            downloadedTheme: "0",
+            downloadedIcon: "0",
+            downloadedTemplate: "0",
+            downloadedWidget: "0",
         };
         defaultStorage[Constants.LOCAL_EXPORTWORD] = {removeAssets: false, mergeSubdocs: false};
         defaultStorage[Constants.LOCAL_EXPORTPDF] = {
@@ -548,6 +639,10 @@ export const getLocalStorage = (cb: () => void) => {
         };
         defaultStorage[Constants.LOCAL_DOCINFO] = {
             id: "",
+        };
+        defaultStorage[Constants.LOCAL_MOBILE_TABS] = {
+            version: 1,
+            tabs: [],
         };
         defaultStorage[Constants.LOCAL_IMAGES] = {
             file: "1f4c4",
@@ -580,7 +675,8 @@ export const getLocalStorage = (cb: () => void) => {
         defaultStorage[Constants.LOCAL_RECENT_DOCS] = {type: "viewedAt"};   // TRecentDocsSort
 
         [Constants.LOCAL_EXPORTIMG, Constants.LOCAL_SEARCHKEYS, Constants.LOCAL_PDFTHEME, Constants.LOCAL_BAZAAR,
-            Constants.LOCAL_EXPORTWORD, Constants.LOCAL_EXPORTPDF, Constants.LOCAL_DOCINFO, Constants.LOCAL_FONTSTYLES,
+            Constants.LOCAL_EXPORTWORD, Constants.LOCAL_EXPORTPDF, Constants.LOCAL_DOCINFO, Constants.LOCAL_MOBILE_TABS,
+            Constants.LOCAL_FONTSTYLES,
             Constants.LOCAL_SEARCHDATA, Constants.LOCAL_ZOOM, Constants.LOCAL_LAYOUTS, Constants.LOCAL_AI,
             Constants.LOCAL_PLUGINTOPUNPIN, Constants.LOCAL_SEARCHASSET, Constants.LOCAL_FLASHCARD,
             Constants.LOCAL_DIALOGPOSITION, Constants.LOCAL_SEARCHUNREF, Constants.LOCAL_HISTORY,
@@ -613,18 +709,97 @@ export const getLocalStorage = (cb: () => void) => {
             Object.keys(window.siyuan.storage[Constants.LOCAL_SEARCHDATA].subTypes).length === 0) {
             window.siyuan.storage[Constants.LOCAL_SEARCHDATA].subTypes = getDefaultSubType();
         }
+        const closedTabs = window.siyuan.storage[Constants.LOCAL_CLOSED_TABS];
+        const sanitizedClosedTabs = sanitizeClosedTabs(closedTabs);
+        if (sanitizedClosedTabs.length !== closedTabs.length) {
+            window.siyuan.storage[Constants.LOCAL_CLOSED_TABS] = sanitizedClosedTabs;
+            setStorageVal(Constants.LOCAL_CLOSED_TABS, sanitizedClosedTabs);
+        }
         cb();
     });
+};
+
+export const isSensitiveSearchConfig = (config?: Config.IUILayoutTabSearchConfig) => {
+    if (!config) {
+        return false;
+    }
+    if (config.sensitive) {
+        return true;
+    }
+    return config.idPath?.some((item) => {
+        const boxID = item.split("/")[0];
+        return window.siyuan.notebooks?.some((notebook) => notebook.id === boxID && notebook.encrypted);
+    }) || false;
+};
+
+export const isSensitiveLayoutData = (data?: {
+    instance?: string,
+    type?: string,
+    notebookId?: string,
+    config?: Config.IUILayoutTabSearchConfig,
+}) => {
+    if (!data) {
+        return false;
+    }
+    if (data.instance === "Editor") {
+        return isEncryptedBox(data.notebookId);
+    }
+    if (data.instance === "Search") {
+        return isSensitiveSearchConfig(data.config);
+    }
+    if (data.type === "local" && ["Backlink", "Graph", "Outline"].includes(data.instance)) {
+        return !data.notebookId || isEncryptedBox(data.notebookId);
+    }
+    return false;
+};
+
+export const sanitizeClosedTabs = (tabs: Array<{children?: Parameters<typeof isSensitiveLayoutData>[0]}>) => {
+    if (!Array.isArray(tabs)) {
+        return [];
+    }
+    return tabs.filter((tab) => !isSensitiveLayoutData(tab.children));
+};
+
+const sanitizeSearchConfig = (config: Config.IUILayoutTabSearchConfig) => {
+    if (!isSensitiveSearchConfig(config)) {
+        return config;
+    }
+    const sanitized = JSON.parse(JSON.stringify(config)) as Config.IUILayoutTabSearchConfig;
+    sanitized.k = "";
+    sanitized.r = "";
+    sanitized.query = "";
+    sanitized.hPath = "";
+    sanitized.idPath = [];
+    sanitized.sensitive = false;
+    return sanitized;
+};
+
+const sanitizeFilesPaths = (filesPaths: IFilesPath[]) => {
+    if (!Array.isArray(filesPaths)) {
+        return [];
+    }
+    return filesPaths.filter((item) => !isEncryptedBox(item.notebookId));
 };
 
 export const setStorageVal = (key: string, val: any, cb?: () => void) => {
     if (window.siyuan.config.readonly || window.siyuan.isPublish) {
         return;
     }
+    let storageVal = val;
+    if (key === Constants.LOCAL_SEARCHDATA) {
+        storageVal = sanitizeSearchConfig(val);
+    } else if (key === Constants.LOCAL_FILESPATHS) {
+        storageVal = sanitizeFilesPaths(val);
+    } else if (key === Constants.LOCAL_CLOSED_TABS) {
+        storageVal = sanitizeClosedTabs(val);
+    }
+    if ([Constants.LOCAL_SEARCHDATA, Constants.LOCAL_FILESPATHS, Constants.LOCAL_CLOSED_TABS].includes(key)) {
+        window.siyuan.storage[key] = storageVal;
+    }
     fetchPost("/api/storage/setLocalStorageVal", {
         app: Constants.SIYUAN_APPID,
         key,
-        val,
+        val: storageVal,
     }, () => {
         if (cb) {
             cb();

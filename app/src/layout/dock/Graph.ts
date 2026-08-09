@@ -10,10 +10,10 @@ import {fetchPost} from "../../util/fetch";
 import {openFileById} from "../../editor/util";
 import {updateHotkeyAfterTip} from "../../protyle/util/compatibility";
 import {openGlobalSearch} from "../../search/util";
-import {App} from "../../index";
+import type {App} from "../../index";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {Editor} from "../../editor";
-import {getDocDisplayName} from "../../util/pathName";
+import {getDocDisplayName, isEncryptedBox} from "../../util/pathName";
 
 declare const vis: any;
 
@@ -25,6 +25,7 @@ export class Graph extends Model {
     private network: any;
     public blockId: string; // "local" / "pin" 必填
     public rootId: string; // "local" 必填
+    public notebookId: string;
     public graphData: {
         nodes: { box: string, id: string, path: string, type: string, color: IObject }[],
         links: Record<string, unknown>[],
@@ -37,6 +38,7 @@ export class Graph extends Model {
         tab: Tab
         blockId?: string
         rootId?: string
+        notebookId?: string
         type: "local" | "pin" | "global"
     }) {
         super({app: options.app});
@@ -49,6 +51,7 @@ export class Graph extends Model {
         this.element = options.tab.panelElement;
         this.blockId = options.blockId;
         this.rootId = options.rootId;
+        this.notebookId = options.notebookId || "";
         this.type = options.type;
 
         this.element.classList.add("graph", "file-tree", this.type === "global" ? "sy__globalGraph" : "sy__graph", "dockPanel");
@@ -228,7 +231,7 @@ export class Graph extends Model {
         }
         this.element.innerHTML = `<div class="block__icons"> 
     <div class="block__logo fn__flex-1">${this.type === "global" ? window.siyuan.languages.globalGraph : window.siyuan.languages.graphView}</div>
-    <input class="b3-text-field search__label fn__size200 fn__none" placeholder="${window.siyuan.languages.search}" />
+    <input class="b3-text-field search__label fn__size200 fn__none" placeholder="${window.siyuan.languages.searchPlaceholder}" />
     <span data-type="search" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.search}"><svg><use xlink:href='#iconFilter'></use></svg></span>
     <span class="fn__space"></span>
     <span data-type="refresh" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.refresh}"><svg><use xlink:href='#iconRefresh'></use></svg></span>
@@ -471,6 +474,7 @@ export class Graph extends Model {
                 type: this.type, // 用于如下场景：当打开文档A的关系图、关系图、文档A后刷新，由于防止请求重复处理，文档A关系图无法渲染。
                 k: this.inputElement.value,
                 id: id || this.blockId,
+                notebook: isEncryptedBox(this.notebookId) ? this.notebookId : undefined,
                 conf: {
                     type,
                     d3,
@@ -478,6 +482,11 @@ export class Graph extends Model {
                 },
             }, response => {
                 element.classList.remove("fn__rotate");
+                if (response.code !== 0) {
+                    this.graphData = undefined;
+                    this.onGraph(false);
+                    return;
+                }
                 if (id) {
                     this.blockId = id;
                 }

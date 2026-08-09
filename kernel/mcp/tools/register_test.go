@@ -26,3 +26,79 @@ func TestGetAllToolsSorted(t *testing.T) {
 		}
 	}
 }
+
+func TestObserveRegistry(t *testing.T) {
+	const name = "registry_observer_test"
+	RemoveTool(name)
+
+	var events []*Tool
+	stop := ObserveRegistry(func(changedName string, tool *Tool) {
+		if changedName == name {
+			events = append(events, tool)
+		}
+	})
+	t.Cleanup(func() {
+		stop()
+		RemoveTool(name)
+	})
+
+	tool := &Tool{Name: name, InputSchema: ToolSchema{Type: "object"}}
+	if err := SetTool(name, tool); err != nil {
+		t.Fatal(err)
+	}
+	RemoveToolIf(name, &Tool{Name: name})
+	RemoveToolIf(name, tool)
+
+	if len(events) != 2 || events[0] != tool || events[1] != nil {
+		t.Fatalf("unexpected registry events: %#v", events)
+	}
+}
+
+func TestSetToolKeepsExistingToolWhenSchemaIsInvalid(t *testing.T) {
+	const name = "registry_validation_test"
+	original := &Tool{Name: name, InputSchema: ToolSchema{Type: "object"}}
+	if err := SetTool(name, original); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		RemoveTool(name)
+	})
+
+	invalid := &Tool{Name: name, InputSchema: ToolSchema{Raw: map[string]any{}}}
+	if err := SetTool(name, invalid); err == nil {
+		t.Fatal("expected invalid schema")
+	}
+	if actual := LookupTool(name); actual != original {
+		t.Fatalf("invalid replacement changed registry entry: %#v", actual)
+	}
+}
+
+func TestSetToolKeepsExistingToolWhenParamHeaderIsInvalid(t *testing.T) {
+	const name = "registry_header_validation_test"
+	original := &Tool{Name: name, InputSchema: ToolSchema{Type: "object"}}
+	if err := SetTool(name, original); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		RemoveTool(name)
+	})
+
+	invalid := &Tool{
+		Name: name,
+		InputSchema: ToolSchema{Raw: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"value": map[string]any{
+					"type":         "string",
+					"x-mcp-header": "",
+				},
+			},
+		}},
+	}
+	if err := SetTool(name, invalid); err == nil {
+		t.Fatal("expected invalid x-mcp-header annotation")
+	}
+	if actual := LookupTool(name); actual != original {
+		t.Fatalf("invalid replacement changed registry entry: %#v", actual)
+	}
+}

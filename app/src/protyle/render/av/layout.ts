@@ -4,8 +4,11 @@ import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {fetchSyncPost} from "../../../util/fetch";
 import {showMessage} from "../../../dialog/message";
 import {setPosition} from "../../../util/setPosition";
-import {getCardAspectRatio} from "./gallery/util";
+import {getCardAspectRatioLabel, getCardAspectRatioValue, getCardWidth} from "./gallery/style";
 import {getFieldsByData} from "./view";
+import {unicode2Emoji} from "../../../emoji";
+import {getColIconByType} from "./col";
+import {CARD_LAYOUT_COMPACT, CARD_LAYOUT_LIST} from "./gallery/cardLayout";
 import {decodeICSBytes, parseICSCalendar} from "./calendar/ics";
 import {getCalendarFieldMapping, isCalendarRecurrenceStorageField} from "./calendar/mapped-fields";
 import {ensureCalendarRecurrenceStorage} from "./calendar/recurrence-storage";
@@ -23,14 +26,42 @@ const CALENDAR_NEW_ITEM_TARGET_ROW = "row";
 /**
  * The view's new-entry target. "" is a view that predates page-per-entry and
  * keeps creating detached rows, so it renders as "Row".
- * Read through a cast: IAVCalendar in app/src/types/index.d.ts does not declare
- * the field yet - that file belongs to another agent in this change.
  */
 const getCalendarNewItemTarget = (calendar: IAVCalendar) =>
     calendar.newItemTarget || "";
 
 const getWeekdayLabel = (day: 0 | 1) => {
     return new Intl.DateTimeFormat(getCalendarLocale(), {weekday: "long"}).format(new Date(2020, 5, 7 + day));
+};
+
+const getCardLayoutHTML = (view: IAVGallery | IAVKanban) => {
+    let fullRowHTML = "";
+    if (view.cardLayout === CARD_LAYOUT_COMPACT) {
+        view.fields.forEach((field) => {
+            if (field.hidden) {
+                return;
+            }
+            const disabled = field.type === "block" || view.displayFieldName;
+            const checked = disabled || field.fullRow;
+            fullRowHTML += `<label class="b3-menu__item">
+    ${field.icon ? unicode2Emoji(field.icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(field.type)}"></use></svg>`}
+    <span class="b3-menu__label">${escapeHtml(field.name) || "&nbsp;"}</span>
+    <input data-type="toggle-card-full-row" data-id="${field.id}" type="checkbox" class="b3-switch b3-switch--menu" ${checked ? "checked" : ""}${disabled ? " disabled" : ""}>
+</label>`;
+        });
+        fullRowHTML = `<button class="b3-menu__separator av__card-layout-separator"></button>
+<div class="av__card-layout-label">${window.siyuan.languages.fullRow}</div>
+${fullRowHTML}`;
+    }
+    return `<label class="b3-menu__item">
+    <span class="fn__flex-center">${window.siyuan.languages.cardLayout}</span>
+    <span class="fn__space fn__flex-1"></span>
+    <select data-type="set-card-layout" class="b3-select b3-select--noborder av__card-layout-select">
+        <option value="${CARD_LAYOUT_LIST}"${view.cardLayout === CARD_LAYOUT_LIST ? " selected" : ""}>${window.siyuan.languages.list1}</option>
+        <option value="${CARD_LAYOUT_COMPACT}"${view.cardLayout === CARD_LAYOUT_COMPACT ? " selected" : ""}>${window.siyuan.languages.compact}</option>
+    </select>
+</label>
+${fullRowHTML}`;
 };
 
 export const getLayoutHTML = (data: IAV) => {
@@ -58,16 +89,16 @@ export const getLayoutHTML = (data: IAV) => {
     <span class="b3-menu__accelerator">${coverFromTitle}</span>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>
-<button class="b3-menu__item" data-type="set-gallery-ratio">
+<button class="b3-menu__item" data-type="set-gallery-ratio"${view.coverFrom === 0 ? " disabled" : ""}>
     <span class="fn__flex-center">${window.siyuan.languages.cardAspectRatio}</span>
     <span class="fn__flex-1"></span>
-    <span class="b3-menu__accelerator">${getCardAspectRatio(view.cardAspectRatio)}</span>
+    <span class="b3-menu__accelerator">${getCardAspectRatioLabel(getCardAspectRatioValue(view))}</span>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>
 <button class="b3-menu__item" data-type="set-gallery-size">
     <span class="fn__flex-center">${window.siyuan.languages.cardSize}</span>
     <span class="fn__flex-1"></span>
-    <span class="b3-menu__accelerator">${view.cardSize === 0 ? window.siyuan.languages.small : (view.cardSize === 1 ? window.siyuan.languages.medium : window.siyuan.languages.large)}</span>
+    <span class="b3-menu__accelerator">${getCardWidth(view)}px</span>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>
 <label class="b3-menu__item">
@@ -79,6 +110,11 @@ export const getLayoutHTML = (data: IAV) => {
     <span class="fn__flex-center">${window.siyuan.languages.displayFieldName}</span>
     <span class="fn__space fn__flex-1"></span>
     <input data-type="toggle-gallery-name" type="checkbox" class="b3-switch b3-switch--menu" ${view.displayFieldName ? "checked" : ""}>
+</label>
+<label class="b3-menu__item">
+    <span class="fn__flex-center">${window.siyuan.languages.displayEmptyFields}</span>
+    <span class="fn__space fn__flex-1"></span>
+    <input data-type="toggle-gallery-empty" type="checkbox" class="b3-switch b3-switch--menu" ${view.displayEmptyFields ? "checked" : ""}>
 </label>`;
     }
     html = `<div class="b3-menu__items">
@@ -202,6 +238,7 @@ export const getLayoutHTML = (data: IAV) => {
         <span class="b3-menu__accelerator">${view.pageSize === Constants.SIZE_DATABASE_MAZ_SIZE ? window.siyuan.languages.all : view.pageSize}</span>
         <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
     </button>
+    ${["gallery", "kanban"].includes(data.viewType) ? getCardLayoutHTML(view) : ""}
 </div>`;
 };
 
@@ -213,7 +250,14 @@ export const bindLayoutEvent = (options: {
 }) => {
     const avID = options.blockElement.getAttribute("data-av-id");
     const blockID = options.blockElement.getAttribute("data-node-id");
-    const viewID = options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW);
+    const viewID = options.data.viewID || options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW);
+    const rerender = () => {
+        options.menuElement.innerHTML = getLayoutHTML(options.data);
+        const tabRect = options.blockElement.querySelector(".av__views").getBoundingClientRect();
+        setPosition(options.menuElement, tabRect.right - options.menuElement.clientWidth,
+            tabRect.bottom, tabRect.height, 0, true);
+        bindLayoutEvent(options);
+    };
     const toggleTitleElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-view-title"]') as HTMLInputElement;
     toggleTitleElement.addEventListener("change", () => {
         const checked = toggleTitleElement.checked;
@@ -272,10 +316,62 @@ export const bindLayoutEvent = (options: {
         options.data.view.wrapField = checked;
     });
     if (options.data.viewType === "table") {
-        return options.data;
+        return;
     }
+    if (options.data.viewType === "calendar") {
+        bindCalendarLayoutEvent(options, avID, blockID, viewID);
+        return;
+    }
+    const cardLayoutElement = options.menuElement.querySelector('select[data-type="set-card-layout"]') as HTMLSelectElement;
+    cardLayoutElement.addEventListener("change", () => {
+        const view = options.data.view as IAVGallery | IAVKanban;
+        const oldLayout = view.cardLayout;
+        const cardLayout = parseInt(cardLayoutElement.value);
+        transaction(options.protyle, [{
+            action: "setAttrViewCardLayout",
+            avID,
+            blockID,
+            data: cardLayout,
+            viewID
+        }], [{
+            action: "setAttrViewCardLayout",
+            avID,
+            blockID,
+            data: oldLayout,
+            viewID
+        }]);
+        view.cardLayout = cardLayout;
+        rerender();
+    });
+    options.menuElement.querySelectorAll('input[data-type="toggle-card-full-row"]').forEach((item: HTMLInputElement) => {
+        item.addEventListener("change", () => {
+            const field = (options.data.view as IAVGallery | IAVKanban).fields.find((fieldItem) => {
+                return fieldItem.id === item.dataset.id;
+            });
+            if (!field) {
+                return;
+            }
+            const oldFullRow = !!field.fullRow;
+            transaction(options.protyle, [{
+                action: "setAttrViewColFullRow",
+                id: field.id,
+                avID,
+                blockID,
+                data: item.checked,
+                viewID
+            }], [{
+                action: "setAttrViewColFullRow",
+                id: field.id,
+                avID,
+                blockID,
+                data: oldFullRow,
+                viewID
+            }]);
+            field.fullRow = item.checked;
+        });
+    });
     const toggleFitElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-gallery-fit"]') as HTMLInputElement;
-    toggleFitElement?.addEventListener("change", () => {
+    toggleFitElement.addEventListener("change", () => {
         const checked = toggleFitElement.checked;
         transaction(options.protyle, [{
             action: "setAttrViewFitImage",
@@ -293,27 +389,44 @@ export const bindLayoutEvent = (options: {
         (options.data.view as IAVGallery).fitImage = checked;
     });
     const toggleNameElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-gallery-name"]') as HTMLInputElement;
-    toggleNameElement?.addEventListener("change", () => {
+    toggleNameElement.addEventListener("change", () => {
         const checked = toggleNameElement.checked;
         transaction(options.protyle, [{
             action: "setAttrViewDisplayFieldName",
             avID,
             blockID,
-            data: checked
+            data: checked,
+            viewID
         }], [{
             action: "setAttrViewDisplayFieldName",
             avID,
             blockID,
-            data: !checked
+            data: !checked,
+            viewID
         }]);
-        (options.data.view as IAVGallery).displayFieldName = checked;
+        (options.data.view as IAVGallery | IAVKanban).displayFieldName = checked;
+        rerender();
     });
-    if (options.data.viewType === "calendar") {
-        bindCalendarLayoutEvent(options, avID, blockID, viewID);
-        return options.data;
-    }
+    const toggleEmptyElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-gallery-empty"]') as HTMLInputElement;
+    toggleEmptyElement.addEventListener("change", () => {
+        const checked = toggleEmptyElement.checked;
+        transaction(options.protyle, [{
+            action: "setAttrViewDisplayEmptyFields",
+            avID,
+            blockID,
+            data: checked,
+            viewID
+        }], [{
+            action: "setAttrViewDisplayEmptyFields",
+            avID,
+            blockID,
+            data: !checked,
+            viewID
+        }]);
+        (options.data.view as IAVGallery | IAVKanban).displayEmptyFields = checked;
+    });
     if (options.data.viewType === "gallery") {
-        return options.data;
+        return;
     }
     const toggleBgElement = options.menuElement.querySelector('.b3-switch[data-type="toggle-kanban-bg"]') as HTMLInputElement;
     toggleBgElement?.addEventListener("change", () => {
@@ -487,11 +600,6 @@ const bindCalendarLayoutEvent = (options: {
         if (current === previous) {
             return;
         }
-        // Cast: TOperation in app/src/types/index.d.ts does not list
-        // "setAttrViewCalendarNewItemTarget" yet (that file belongs to another
-        // agent in this change). The kernel already routes it -
-        // kernel/model/transaction.go:417 -> doSetAttrViewCalendarNewItemTarget.
-        // Drop the casts once the union gains the member.
         transaction(options.protyle, [{
             action: "setAttrViewCalendarNewItemTarget",
             avID,

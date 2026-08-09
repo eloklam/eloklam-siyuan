@@ -44,18 +44,22 @@ func GetRefDuplicatedDefRootIDs() (ret []string) {
 	return
 }
 
-func QueryVirtualRefKeywords(name, alias, anchor, doc bool, searchIgnoreLines, refSearchIgnoreLines []string) (ret []string) {
+func QueryVirtualRefKeywords(name, alias, anchor, doc bool, searchIgnoreLines, refSearchIgnoreLines []string, boxIDs ...string) (ret []string) {
+	boxID := ""
+	if len(boxIDs) > 0 {
+		boxID = boxIDs[0]
+	}
 	if name {
-		ret = append(ret, queryNames(searchIgnoreLines)...)
+		ret = append(ret, queryNames(searchIgnoreLines, boxID)...)
 	}
 	if alias {
-		ret = append(ret, queryAliases(searchIgnoreLines)...)
+		ret = append(ret, queryAliases(searchIgnoreLines, boxID)...)
 	}
 	if anchor {
-		ret = append(ret, queryRefTexts(refSearchIgnoreLines)...)
+		ret = append(ret, queryRefTexts(refSearchIgnoreLines, boxID)...)
 	}
 	if doc {
-		ret = append(ret, queryDocTitles(searchIgnoreLines)...)
+		ret = append(ret, queryDocTitles(searchIgnoreLines, boxID)...)
 	}
 	ret = gulu.Str.RemoveDuplicatedElem(ret)
 	sort.SliceStable(ret, func(i, j int) bool {
@@ -64,7 +68,7 @@ func QueryVirtualRefKeywords(name, alias, anchor, doc bool, searchIgnoreLines, r
 	return
 }
 
-func queryRefTexts(refSearchIgnoreLines []string) (ret []string) {
+func queryRefTexts(refSearchIgnoreLines []string, boxIDs ...string) (ret []string) {
 	ret = []string{}
 	sqlStmt := "SELECT DISTINCT content FROM refs WHERE 1 = 1"
 	buf := bytes.Buffer{}
@@ -74,7 +78,11 @@ func queryRefTexts(refSearchIgnoreLines []string) (ret []string) {
 	}
 	sqlStmt += buf.String()
 	sqlStmt += " LIMIT 10240"
-	rows, err := query(sqlStmt)
+	boxID := ""
+	if len(boxIDs) > 0 {
+		boxID = boxIDs[0]
+	}
+	rows, err := queryForBox(boxID, sqlStmt)
 	if err != nil {
 		logging.LogErrorf("sql query [%s] failed: %s", sqlStmt, err)
 		return
@@ -118,6 +126,82 @@ func QueryRefCount(defIDs []string) (ret map[string]int) {
 	return
 }
 
+// ExistRefByDefIDsInBox 检查指定笔记本索引中是否存在来自删除集合外部的引用。
+func ExistRefByDefIDsInBox(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs []string, boxID string) (ret bool, err error) {
+	const batchSize = 900
+
+	excludeBlockIDSet := map[string]struct{}{}
+	for _, id := range excludeBlockIDs {
+		excludeBlockIDSet[id] = struct{}{}
+	}
+	excludeRootIDSet := map[string]struct{}{}
+	for _, id := range excludeRootIDs {
+		excludeRootIDSet[id] = struct{}{}
+	}
+	exist := func(column string, ids []string) (bool, error) {
+		for start := 0; start < len(ids); start += batchSize {
+			end := start + batchSize
+			if len(ids) < end {
+				end = len(ids)
+			}
+			batch := ids[start:end]
+			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+			args := make([]any, 0, len(batch))
+			for _, id := range batch {
+				args = append(args, id)
+			}
+			rows, queryErr := queryForBox(boxID, "SELECT block_id, root_id FROM refs WHERE "+column+" IN ("+placeholders+")", args...)
+			if queryErr != nil {
+				return false, queryErr
+			}
+			for rows.Next() {
+				var blockID, rootID string
+				if scanErr := rows.Scan(&blockID, &rootID); scanErr != nil {
+					rows.Close()
+					return false, scanErr
+				}
+				if _, excluded := excludeBlockIDSet[blockID]; excluded {
+					continue
+				}
+				if _, excluded := excludeRootIDSet[rootID]; excluded {
+					continue
+				}
+				if closeErr := rows.Close(); closeErr != nil {
+					return false, closeErr
+				}
+				return true, nil
+			}
+			if rowsErr := rows.Err(); rowsErr != nil {
+				rows.Close()
+				return false, rowsErr
+			}
+			if closeErr := rows.Close(); closeErr != nil {
+				return false, closeErr
+			}
+		}
+		return false, nil
+	}
+
+	if ret, err = exist("def_block_id", defIDs); err != nil || ret {
+		return
+	}
+	ret, err = exist("def_block_root_id", defRootIDs)
+	return
+}
+
+// ExistRefByDefIDs 检查全局库及所有已打开加密库中来自删除集合外部的引用。
+func ExistRefByDefIDs(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs []string) (ret bool, err error) {
+	if ret, err = ExistRefByDefIDsInBox(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs, ""); err != nil || ret {
+		return
+	}
+	for _, boxID := range GetEncryptedBoxIDs() {
+		if ret, err = ExistRefByDefIDsInBox(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs, boxID); err != nil || ret {
+			return
+		}
+	}
+	return
+}
+
 func QueryRootChildrenRefCount(defRootID string) (ret map[string]int) {
 	ret = map[string]int{}
 	rows, err := query("SELECT def_block_id, COUNT(*) AS ref_cnt FROM refs WHERE def_block_root_id = ? GROUP BY def_block_id", defRootID)
@@ -140,6 +224,9 @@ func QueryRootChildrenRefCount(defRootID string) (ret map[string]int) {
 
 func QueryRootBlockRefCount() (ret map[string]int) {
 	ret = map[string]int{}
+	if nil == db {
+		return
+	}
 
 	// 全局 refs
 	rows, err := query("SELECT def_block_root_id, COUNT(DISTINCT block_id) AS ref_cnt FROM refs GROUP BY def_block_root_id")
@@ -266,6 +353,62 @@ func getRefText(defBlockID string) string {
 func QueryBlockDefIDsByRefText(refText string) (ret []string) {
 	ret = queryDefIDsByDefText(refText)
 	ret = append(ret, queryDefIDsByNameAliasAndDocTitle(refText)...)
+	ret = gulu.Str.RemoveDuplicatedElem(ret)
+	return
+}
+
+func QueryBlockDefIDsByRefTextInBox(refText, boxID string) (ret []string) {
+	var q, arg string
+	if caseSensitive {
+		q = "SELECT DISTINCT(def_block_id) FROM refs WHERE content = ?"
+		arg = refText
+	} else {
+		q = "SELECT DISTINCT(def_block_id) FROM refs WHERE content LIKE ? ESCAPE '\\'"
+		arg = escapeLikePattern(refText)
+	}
+	rows, err := queryForBox(boxID, q, arg)
+	if err != nil {
+		logging.LogErrorf("sql query failed: %s", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			logging.LogErrorf("query scan field failed: %s", err)
+			return
+		}
+		ret = append(ret, id)
+	}
+
+	escaped := escapeLikePattern(refText)
+	aliasArg := "%," + escaped + ",%"
+	var nameCond, docCond, exactArg string
+	if caseSensitive {
+		nameCond = "name = ?"
+		docCond = "content = ?"
+		exactArg = refText
+	} else {
+		nameCond = "name LIKE ? ESCAPE '\\'"
+		docCond = "content LIKE ? ESCAPE '\\'"
+		exactArg = escaped
+	}
+	q = "SELECT id FROM blocks WHERE " + nameCond + " OR (',' || alias || ',') LIKE ? ESCAPE '\\'" +
+		" UNION ALL SELECT id FROM (SELECT id FROM blocks WHERE type = 'd' AND " + docCond + " LIMIT ?)"
+	rows, err = queryForBox(boxID, q, exactArg, aliasArg, exactArg, 32)
+	if err != nil {
+		logging.LogErrorf("sql query failed: %s", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			logging.LogErrorf("query scan field failed: %s", err)
+			return
+		}
+		ret = append(ret, id)
+	}
 	ret = gulu.Str.RemoveDuplicatedElem(ret)
 	return
 }
@@ -433,12 +576,7 @@ func QueryRefsByDefID(defBlockID string, containChildren bool) (ret []*Ref) {
 	var rows *sql.Rows
 	var err error
 	if containChildren {
-		blockIDs := queryBlockChildrenIDs(defBlockID)
-		var params []string
-		for _, id := range blockIDs {
-			params = append(params, "\""+id+"\"")
-		}
-		rows, err = query("SELECT * FROM refs WHERE def_block_id IN (" + strings.Join(params, ",") + ")")
+		rows, err = query(queryRefsByDefIDWithChildren, defBlockID)
 	} else {
 		rows, err = query("SELECT * FROM refs WHERE def_block_id = ?", defBlockID)
 	}
@@ -453,6 +591,13 @@ func QueryRefsByDefID(defBlockID string, containChildren bool) (ret []*Ref) {
 	}
 	return
 }
+
+const queryRefsByDefIDWithChildren = `WITH RECURSIVE child_ids(id) AS (
+	SELECT ?
+	UNION
+	SELECT blocks.id FROM blocks JOIN child_ids ON blocks.parent_id = child_ids.id
+)
+SELECT refs.* FROM refs JOIN child_ids ON refs.def_block_id = child_ids.id`
 
 func QueryRefsByDefIDRefID(defBlockID, refBlockID string) (ret []*Ref) {
 	stmt := "SELECT * FROM refs WHERE def_block_id = ? AND block_id = ?"

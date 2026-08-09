@@ -19,6 +19,7 @@ package client
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ import (
 
 const (
 	defaultMCPServerTimeout = 30 * time.Second
+	maxMCPToolListPages     = 1000
 )
 
 type Connection struct {
@@ -232,7 +234,7 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 	}
 
 	listCtx, listCancel := context.WithTimeout(ctx, serverTimeout(server))
-	toolList, err := session.ListTools(listCtx, nil)
+	toolList, err := listAllMCPTools(listCtx, session.ListTools)
 	listCancel()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -267,13 +269,13 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 		oauthHandler.disableInteractive()
 	}
 
-	baseNameCounts := make(map[string]int, len(toolList.Tools))
-	for _, tool := range toolList.Tools {
+	baseNameCounts := make(map[string]int, len(toolList))
+	for _, tool := range toolList {
 		baseNameCounts["mcp_"+sanitize(server.Name)+"_"+sanitize(tool.Name)]++
 	}
 	serverNameCollision := sanitizedServerNameCollision(server)
 	registeredTools := map[string]*tools.Tool{}
-	for _, t := range toolList.Tools {
+	for _, t := range toolList {
 		tool := t
 		baseName := "mcp_" + sanitize(server.Name) + "_" + sanitize(tool.Name)
 		name := mcpToolName(server, tool.Name,
@@ -284,11 +286,18 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 		}
 
 		readOnlyHint := trustedReadOnlyHint(server, tool)
-		handler := mcpToolContextHandler(server.Name, tool.Name, serverTimeout(server))
+		handler := mcpToolContextHandler(server.Name, tool.Name, serverTimeout(server), tool.OutputSchema != nil)
+		var outputSchema *tools.ToolSchema
+		if tool.OutputSchema != nil {
+			converted := convertMCPSchema(tool.OutputSchema)
+			outputSchema = &converted
+		}
 		registeredTool := &tools.Tool{
 			Name:         name,
+			Title:        tool.Title,
 			Description:  desc,
 			InputSchema:  convertMCPSchema(tool.InputSchema),
+			OutputSchema: outputSchema,
 			Source:       "mcp",
 			ReadOnlyHint: readOnlyHint,
 			EffectScope:  tools.EffectScopeExternal,
@@ -323,6 +332,34 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 	return connection
 }
 
+func listAllMCPTools(ctx context.Context,
+	listPage func(context.Context, *mcp.ListToolsParams) (*mcp.ListToolsResult, error)) ([]*mcp.Tool, error) {
+	var (
+		allTools []*mcp.Tool
+		params   *mcp.ListToolsParams
+	)
+	seenCursors := map[string]struct{}{}
+	for page := 0; page < maxMCPToolListPages; page++ {
+		result, err := listPage(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, fmt.Errorf("tools/list returned an empty response")
+		}
+		allTools = append(allTools, result.Tools...)
+		if result.NextCursor == "" {
+			return allTools, nil
+		}
+		if _, exists := seenCursors[result.NextCursor]; exists {
+			return nil, fmt.Errorf("tools/list repeated cursor %q", result.NextCursor)
+		}
+		seenCursors[result.NextCursor] = struct{}{}
+		params = &mcp.ListToolsParams{Cursor: result.NextCursor}
+	}
+	return nil, fmt.Errorf("tools/list exceeded %d pages", maxMCPToolListPages)
+}
+
 func sanitizedServerNameCollision(server conf.MCPServer) bool {
 	mcpMu.Lock()
 	defer mcpMu.Unlock()
@@ -352,7 +389,10 @@ func registerMCPToolsForContext(ctx context.Context, registeredTools map[string]
 		return false
 	}
 	for name, tool := range registeredTools {
-		tools.SetTool(name, tool)
+		if err := tools.SetTool(name, tool); err != nil {
+			logging.LogWarnf("mcp: skip invalid client tool [%s]: %v", name, err)
+			delete(registeredTools, name)
+		}
 	}
 	return true
 }
@@ -373,7 +413,12 @@ func closeConnections(connections []Connection) {
 }
 
 func connectServer(ctx context.Context, server conf.MCPServer, interactive bool) (*mcp.ClientSession, *exec.Cmd, *mcpOAuthHandler, error) {
-	c := mcp.NewClient(&mcp.Implementation{Name: "siyuan", Version: "3.0"}, nil)
+	c := mcp.NewClient(&mcp.Implementation{Name: "siyuan", Version: "3.0"}, &mcp.ClientOptions{
+		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
+			logging.LogInfof("mcp: server [%s] tool list changed, reconnecting", server.Name)
+			go reconnectMCPServer(server.ID)
+		},
+	})
 
 	switch server.Type {
 	case "stdio":
@@ -468,7 +513,8 @@ func hasAuthorizationHeader(headers map[string]string) bool {
 	return false
 }
 
-func mcpToolContextHandler(serverName, toolName string, timeout time.Duration) func(context.Context, map[string]any) (tools.CallToolResult, error) {
+func mcpToolContextHandler(serverName, toolName string, timeout time.Duration,
+	structuredContentExpected bool) func(context.Context, map[string]any) (tools.CallToolResult, error) {
 	return func(ctx context.Context, args map[string]any) (tools.CallToolResult, error) {
 		result := callMCPToolOnce(func() (*mcp.CallToolResult, error) {
 			result, err := callMCPTool(ctx, serverName, toolName, timeout, args)
@@ -477,7 +523,7 @@ func mcpToolContextHandler(serverName, toolName string, timeout time.Duration) f
 		}, func(err error) {
 			logging.LogWarnf("mcp: server [%s] tool [%s] disconnected (%s), reconnecting", serverName, toolName, err)
 			go reconnectMCP(serverName)
-		})
+		}, structuredContentExpected)
 		return result, nil
 	}
 }
@@ -520,7 +566,8 @@ func updateMCPRuntimeAfterToolCall(serverName string, callErr error) {
 }
 
 // callMCPToolOnce 保证一次工具请求最多发送一次。断线时只恢复后续调用所需的连接，不重放当前请求。
-func callMCPToolOnce(call func() (*mcp.CallToolResult, error), reconnect func(error)) tools.CallToolResult {
+func callMCPToolOnce(call func() (*mcp.CallToolResult, error), reconnect func(error),
+	structuredContentExpected bool) tools.CallToolResult {
 	result, err := call()
 	if err != nil && isExecutionUnknownError(err) {
 		if isReconnectableError(err) {
@@ -542,22 +589,59 @@ func callMCPToolOnce(call func() (*mcp.CallToolResult, error), reconnect func(er
 		}
 	}
 
-	var textParts []string
+	contentItems := make([]tools.ContentItem, 0, len(result.Content))
 	for _, content := range result.Content {
-		if textContent, ok := content.(*mcp.TextContent); ok {
-			textParts = append(textParts, textContent.Text)
+		data, marshalErr := content.MarshalJSON()
+		if marshalErr != nil {
+			return invalidMCPContentResult()
 		}
+		var item tools.ContentItem
+		if unmarshalErr := json.Unmarshal(data, &item); unmarshalErr != nil {
+			return invalidMCPContentResult()
+		}
+		contentItems = append(contentItems, item)
 	}
-	text := strings.Join(textParts, "\n")
-	if text == "" {
-		text = "(empty result)"
+	if len(contentItems) == 0 {
+		text := ""
+		if result.StructuredContent != nil {
+			if data, err := json.Marshal(result.StructuredContent); err == nil {
+				text = string(data)
+			}
+		}
+		if text == "" {
+			text = "(empty result)"
+		}
+		contentItems = append(contentItems, tools.ContentItem{Type: "text", Text: text})
+	}
+	structuredContentSet := result.StructuredContent != nil
+	if !structuredContentSet && structuredContentExpected && !result.IsError {
+		for _, content := range result.Content {
+			if textContent, ok := content.(*mcp.TextContent); ok && strings.TrimSpace(textContent.Text) == "null" {
+				structuredContentSet = true
+				break
+			}
+		}
 	}
 
 	syr := tools.CallToolResult{
-		IsError: result.IsError,
-		Content: []tools.ContentItem{{Type: "text", Text: text}},
+		IsError:              result.IsError,
+		Content:              contentItems,
+		StructuredContent:    result.StructuredContent,
+		StructuredContentSet: structuredContentSet,
 	}
 	return syr
+}
+
+func invalidMCPContentResult() tools.CallToolResult {
+	return tools.CallToolResult{
+		Content: []tools.ContentItem{{
+			Type: "text",
+			Text: "mcp tool returned invalid content after execution; execution result may have side effects and must not be " +
+				"retried automatically",
+		}},
+		IsError:          true,
+		ExecutionUnknown: true,
+	}
 }
 
 func trustedReadOnlyHint(server conf.MCPServer, tool *mcp.Tool) bool {
@@ -607,6 +691,24 @@ func reconnectMCP(serverName string) bool {
 	}
 	mcpMu.Unlock()
 	if serverID == "" {
+		return false
+	}
+	ReconnectMCPAsync(servers, []string{serverID}, nil)
+	return true
+}
+
+func reconnectMCPServer(serverID string) bool {
+	mcpMu.Lock()
+	servers := append([]conf.MCPServer(nil), mcpServers...)
+	found := false
+	for _, server := range servers {
+		if server.ID == serverID && server.Enabled {
+			found = true
+			break
+		}
+	}
+	mcpMu.Unlock()
+	if !found {
 		return false
 	}
 	ReconnectMCPAsync(servers, []string{serverID}, nil)

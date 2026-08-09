@@ -208,6 +208,7 @@ func setAI(c *gin.Context) {
 		preserveMCPServerIDs(oldServers, ai.MCP.Servers)
 	}
 	ai.Normalize()
+	ai.ReconcileModelIDs()
 	model.Conf.SetAI(ai)
 
 	// MCP 配置可能变更（开关切换、编辑、增删 server），异步重连让连接立即跟上。
@@ -481,27 +482,38 @@ func setExport(c *gin.Context) {
 		return
 	}
 
-	// 重置为空字符串表示恢复内置 Pandoc：先落盘清空自定义路径，再重新初始化并写回默认路径
-	if "" == export.PandocBin {
-		model.Conf.Export = export
-		model.Conf.Save()
-		util.InitPandoc()
-		export.PandocBin = util.PandocBinPath
-	}
-
+	previousPandocBin := model.Conf.Export.PandocBin
 	if "" != export.PandocBin {
 		if !util.IsValidPandocBin(export.PandocBin) {
 			util.PushErrMsg(fmt.Sprintf(model.Conf.Language(117), export.PandocBin), 5000)
-			export.PandocBin = util.PandocBinPath
-		} else {
-			util.PandocBinPath = export.PandocBin
+			export.PandocBin = previousPandocBin
 		}
 	}
 
 	model.Conf.Export = export
 	model.Conf.Save()
+	if previousPandocBin != export.PandocBin {
+		util.InitPandoc(export.PandocBin)
+	}
 
 	ret.Data = model.Conf.Export
+}
+
+func getPandocBin(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	pandocRuntime := util.GetPandocRuntime()
+	if !util.IsValidPandocBin(pandocRuntime.BinPath) {
+		util.InitPandoc(model.Conf.Export.PandocBin)
+		pandocRuntime = util.GetPandocRuntime()
+	}
+	if !util.IsValidPandocBin(pandocRuntime.BinPath) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(115)
+		return
+	}
+	ret.Data = pandocRuntime.BinPath
 }
 
 func setFiletree(c *gin.Context) {
@@ -531,12 +543,13 @@ func setFiletree(c *gin.Context) {
 		if nil != model.Conf.FileTree && nil != model.Conf.FileTree.BoxDocEnabled {
 			fileTree.BoxDocEnabled = model.Conf.FileTree.BoxDocEnabled
 		} else {
-			fileTree.BoxDocEnabled = func() *bool { b := false; return &b }()
+			fileTree.BoxDocEnabled = new(bool)
 		}
 	}
 	oldBoxDocEnabled := model.IsBoxDocEnabled()
 
 	fileTree.DocCreateSavePath = util.TrimSpaceInPath(fileTree.DocCreateSavePath)
+	fileTree.DocCreateTemplatePath = util.NormalizeTemplatePath(fileTree.DocCreateTemplatePath)
 
 	fileTree.RefCreateSavePath = util.TrimSpaceInPath(fileTree.RefCreateSavePath)
 
@@ -553,6 +566,16 @@ func setFiletree(c *gin.Context) {
 	if 32 < fileTree.MaxOpenTabCount {
 		fileTree.MaxOpenTabCount = 32
 	}
+	if nil == fileTree.TabStartupMode {
+		fileTree.TabStartupMode = new(int)
+		if fileTree.CloseTabsOnStart {
+			*fileTree.TabStartupMode = 2
+		}
+	}
+	if 0 > *fileTree.TabStartupMode || 2 < *fileTree.TabStartupMode {
+		*fileTree.TabStartupMode = 0
+	}
+	fileTree.CloseTabsOnStart = 2 == *fileTree.TabStartupMode
 
 	if conf.MinFileTreeRecentDocsListCount > fileTree.RecentDocsMaxListCount {
 		fileTree.RecentDocsMaxListCount = conf.MinFileTreeRecentDocsListCount
@@ -687,6 +710,9 @@ func setAppearance(c *gin.Context) {
 		return
 	}
 
+	if nil == appearance.EntryVisibility {
+		appearance.EntryVisibility = model.Conf.Appearance.EntryVisibility
+	}
 	model.Conf.Appearance = appearance
 	util.StatusBarCfg = model.Conf.Appearance.StatusBar
 	if nil == util.StatusBarCfg {
@@ -704,6 +730,33 @@ func setAppearance(c *gin.Context) {
 
 	ret.Data = model.Conf.Appearance
 	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
+}
+
+func setEntryVisibility(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	param, err := gulu.JSON.MarshalJSON(arg)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	entryVisibility := &conf.EntryVisibility{}
+	if err = gulu.JSON.UnmarshalJSON(param, entryVisibility); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	entryVisibility = conf.NormalizeEntryVisibility(entryVisibility, conf.EntryVisibilityProfileFull)
+	model.Conf.Appearance.EntryVisibility = entryVisibility
+	model.Conf.Save()
+	ret.Data = entryVisibility
+	util.BroadcastByType("main", "setEntryVisibility", 0, "", entryVisibility)
 }
 
 func setIcon(c *gin.Context) {
@@ -806,6 +859,30 @@ func setPublish(c *gin.Context) {
 		return
 	}
 
+	// 认证启用时校验发布服务账户：用户名非空且不重复、密码至少 8 位，
+	// 防止弱密码或无密码账户被暴力破解 https://github.com/siyuan-note/siyuan/security/advisories/GHSA-phg7-xcr4-q5wg
+	if publish.Auth.Enable {
+		usernames := map[string]bool{}
+		for _, account := range publish.Auth.Accounts {
+			if nil == account || "" == account.Username {
+				ret.Code = -1
+				ret.Msg = model.Conf.Language(361)
+				return
+			}
+			if usernames[account.Username] {
+				ret.Code = -1
+				ret.Msg = model.Conf.Language(362)
+				return
+			}
+			usernames[account.Username] = true
+			if 8 > len(account.Password) {
+				ret.Code = -1
+				ret.Msg = model.Conf.Language(363)
+				return
+			}
+		}
+	}
+
 	model.Conf.Publish = publish
 	model.Conf.Save()
 
@@ -898,15 +975,10 @@ func setEmoji(c *gin.Context) {
 	}
 
 	argEmoji := arg["emoji"].([]any)
-	var emoji []string
+	emoji := make([]string, 0, len(argEmoji))
 	for _, ae := range argEmoji {
-		e := ae.(string)
-		if strings.Contains(e, ".") {
-			// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-			e = util.FilterUploadEmojiFileName(e)
-		}
-		emoji = append(emoji, e)
+		emoji = append(emoji, ae.(string))
 	}
 
-	model.Conf.Editor.Emoji = emoji
+	model.Conf.Editor.Emoji = util.FilterRecentIconValues(emoji)
 }

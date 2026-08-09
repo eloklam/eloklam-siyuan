@@ -1,5 +1,5 @@
 import {hideElements} from "../ui/hideElements";
-import {isMac, isNotCtrl, isOnlyMeta, writeText} from "../util/compatibility";
+import {isMac, isNotCtrl, isOnlyMeta, updateHotkeyTip, writeText} from "../util/compatibility";
 import {
     focusBlock,
     focusByRange,
@@ -8,6 +8,7 @@ import {
     getSelectionOffset,
     getSelectionPosition,
     selectAll,
+    selectBlocksByRange,
     setFirstNodeRange,
     setInsertWbrHTML,
     setLastNodeRange,
@@ -20,7 +21,13 @@ import {
     hasTopClosestByAttribute,
     isInEmbedBlock
 } from "../util/hasClosest";
-import {removeBlock, removeImage} from "./remove";
+import {
+    getImageBlockRefCheckTargets,
+    getRangeBlockRefCheckTargets,
+    removeBlock,
+    removeCrossBlockRange,
+    removeImage
+} from "./remove";
 import {
     getContenteditableElement,
     getFirstBlock,
@@ -36,17 +43,35 @@ import {
 } from "./getBlock";
 import {isIncludesHotKey, matchHotKey} from "../util/hotKey";
 import {enter, softEnter} from "./enter";
-import {clearTableCell, fixTable} from "../util/table";
+import {clearTableCell, fixTable, isIncludeCell} from "../util/table";
 import {
     transaction,
+    insertEmptyBlockquote,
+    isEmptyParagraph,
     turnsIntoOneTransaction,
     turnsIntoTransaction,
     turnsOneInto,
     updateBatchTransaction,
     updateTransaction
 } from "./transaction";
+import {getBlockquoteContext, shouldCancelBlockquote} from "./blockquote";
 import {fontEvent} from "../toolbar/Font";
-import {addSubList, listIndent, listOutdent, toggleTaskListItem} from "./list";
+import {applyTableCellStyleHotkey} from "../toolbar/tableCell";
+import {
+    addSubList,
+    insertEmptyChildList,
+    insertEmptyListItem,
+    listIndent,
+    listOutdent,
+    toggleTaskListItem
+} from "./list";
+import {
+    getListContext,
+    getListConversionType,
+    getListShortcutAction,
+    shouldIgnoreListShortcut,
+    type TListSubtype
+} from "./listContext";
 import {newFileContentBySelect, rename, replaceFileName} from "../../editor/rename";
 import {cancelSB, insertEmptyBlock, jumpToParent} from "../../block/util";
 import {isEncryptedBox, isLocalPath} from "../../util/pathName";
@@ -55,7 +80,7 @@ import {openBy, openFileById} from "../../editor/util";
 /// #endif
 import {alignImgCenter, alignImgLeft, commonHotkey, downSelect, getStartEndElement, upSelect} from "./commonHotkey";
 import {fileAnnotationRefMenu, inlineMathMenu, linkMenu, refMenu, tagMenu} from "../../menus/protyle";
-import {foldBlocksRecursively, getFoldBlock, setFold} from "../util/blockFold";
+import {foldBlocksRecursively, foldHeadingGroup, getFoldBlock, setFold} from "../util/blockFold";
 import {openAttr} from "../../menus/commonMenuItem";
 import {Constants} from "../../constants";
 import {fetchPost} from "../../util/fetch";
@@ -67,7 +92,7 @@ import {countBlockWord} from "../../layout/status";
 import {moveToDown, moveToUp} from "./move";
 import {beforePaste, pasteAsPlainText} from "../util/paste";
 import {preventScroll} from "../scroll/preventScroll";
-import {getRefCreateSavePath, newFileBySelect} from "../../util/newFile";
+import {newFileBySelectRange} from "../../util/newFile";
 import {removeSearchMark} from "../toolbar/util";
 import {avKeydown} from "../render/av/keydown";
 import {checkFold} from "../../util/noRelyPCFunction";
@@ -78,6 +103,11 @@ import {AIChat} from "../../ai/chat";
 import {updateCalloutType} from "./callout";
 import {tabCodeBlock} from "./codeBlock";
 import {getTopBarHeight} from "../../layout/getTopBarHeight";
+import {getAVTemplateInteractiveElement} from "../render/av/attributeValue";
+import {focusAVByArrow} from "../render/av/focus";
+import {hideMessage, showMessage} from "../../dialog/message";
+import {isMobile} from "../../util/functions";
+import {confirmBlockRef} from "../../util/checkBlockRef";
 
 export const getContentByInlineHTML = (range: Range, cb: (content: string) => void) => {
     let html = "";
@@ -93,9 +123,82 @@ export const getContentByInlineHTML = (range: Range, cb: (content: string) => vo
     });
 };
 
+let selectAllTipShown = false;
+
+const showSelectAllTip = () => {
+    if (selectAllTipShown || window.siyuan.config.appearance.notifications?.selectAllTip === false) {
+        return;
+    }
+    const messageId = showMessage(`<div class="fn__flex fn__flex-wrap">
+<span class="fn__flex-center">${window.siyuan.languages.selectAllTip.replace("${hotkey}", updateHotkeyTip("⌘A"))}</span>
+<span class="fn__space"></span>
+<button type="button" class="b3-button b3-button--white">${window.siyuan.languages.doNotRemindAgain}</button>
+</div>`, 0, "info", "selectAllTip");
+    if (!messageId) {
+        return;
+    }
+    selectAllTipShown = true;
+    document.querySelector(`#message [data-id="${messageId}"] button`)?.addEventListener("click", () => {
+        hideMessage(messageId);
+        fetchPost("/api/setting/setAppearance", {
+            ...window.siyuan.config.appearance,
+            notifications: {
+                ...window.siyuan.config.appearance.notifications,
+                selectAllTip: false,
+            }
+        });
+    });
+};
+
+const getAdjacentInlineMath = (range: Range, editableElement: Element, previous: boolean): HTMLElement | undefined => {
+    if (range.startContainer !== editableElement && !editableElement.contains(range.startContainer)) {
+        return;
+    }
+
+    let currentNode: Node | null = range.startContainer;
+    let adjacentNode: Node | false;
+    if (currentNode.nodeType === Node.TEXT_NODE) {
+        const text = currentNode.textContent || "";
+        const adjacentText = previous ? text.substring(0, range.startOffset) : text.substring(range.startOffset);
+        if (adjacentText.split(Constants.ZWSP).join("") !== "") {
+            return;
+        }
+        adjacentNode = previous ? hasPreviousSibling(currentNode) : hasNextSibling(currentNode);
+    } else {
+        adjacentNode = currentNode.childNodes[previous ? range.startOffset - 1 : range.startOffset] || false;
+    }
+
+    while (currentNode) {
+        while (adjacentNode &&
+            ((adjacentNode.nodeType === Node.TEXT_NODE &&
+                (adjacentNode.textContent || "").split(Constants.ZWSP).join("") === "") ||
+                (adjacentNode.nodeType === Node.ELEMENT_NODE && (adjacentNode as Element).tagName === "WBR"))) {
+            adjacentNode = previous ? hasPreviousSibling(adjacentNode) : hasNextSibling(adjacentNode);
+        }
+        if (adjacentNode) {
+            if (adjacentNode.nodeType === Node.ELEMENT_NODE &&
+                (adjacentNode as Element).matches("[data-type~='inline-math']")) {
+                return adjacentNode as HTMLElement;
+            }
+            return;
+        }
+        if (currentNode === editableElement) {
+            return;
+        }
+        currentNode = currentNode.parentNode;
+        if (currentNode) {
+            adjacentNode = previous ? hasPreviousSibling(currentNode) : hasNextSibling(currentNode);
+        }
+    }
+};
+
 export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
     editorElement.addEventListener("keydown", async (event: KeyboardEvent & { target: HTMLElement }) => {
         if (event.target.localName === "protyle-html" || event.target.localName === "input") {
+            event.stopPropagation();
+            return;
+        }
+        if (getAVTemplateInteractiveElement(event.target)) {
             event.stopPropagation();
             return;
         }
@@ -108,7 +211,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             return;
         }
         if (protyle.disabled ||
-            (!protyle.selectElement.classList.contains("fn__none") && !protyle.selectElement.getAttribute("data-empty") &&
+            (!protyle.selectElement.classList.contains("fn__none") &&
              // 框选块时放行 ⌘C，以便复制选中的块 https://github.com/siyuan-note/siyuan/issues/18043
              !matchHotKey("⌘C", event))) {
             event.stopPropagation();
@@ -129,13 +232,6 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             return;
         }
 
-        // https://ld246.com/article/1694506408293
-        const endElement = hasClosestBlock(range.endContainer);
-        if (!matchHotKey("⌘C", event) && endElement && nodeElement !== endElement) {
-            event.stopPropagation();
-            event.preventDefault();
-            return;
-        }
         if (document.querySelector(".av__panel")) {
             return;
         }
@@ -327,6 +423,26 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             getFoldBlock(protyle, nodeElement, (elements) => {
                 setFold(protyle, elements[0], true);
             });
+            event.stopPropagation();
+            event.preventDefault();
+            return;
+        }
+
+        if (matchHotKey(window.siyuan.config.keymap.editor.general.foldChildHeadings.custom, event) && !event.repeat) {
+            getFoldBlock(protyle, nodeElement, (elements) => {
+                foldHeadingGroup(protyle, elements[0], "children");
+            });
+            hideElements(["gutter"], protyle);
+            event.stopPropagation();
+            event.preventDefault();
+            return;
+        }
+
+        if (matchHotKey(window.siyuan.config.keymap.editor.general.foldSiblingHeadings.custom, event) && !event.repeat) {
+            getFoldBlock(protyle, nodeElement, (elements) => {
+                foldHeadingGroup(protyle, elements[0], "siblings");
+            });
+            hideElements(["gutter"], protyle);
             event.stopPropagation();
             event.preventDefault();
             return;
@@ -637,11 +753,56 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                 }
             }
             const nodeEditableElement = (tdElement || getContenteditableElement(nodeElement) || nodeElement) as HTMLElement;
+            // 光标移向相邻行内公式时直接打开编辑框 https://github.com/siyuan-note/siyuan/issues/14938
+            const inlineMathElement = range.collapsed && (event.key === "ArrowLeft" || event.key === "ArrowRight") ?
+                getAdjacentInlineMath(range, nodeEditableElement, event.key === "ArrowLeft") : undefined;
+            if (inlineMathElement) {
+                event.stopPropagation();
+                event.preventDefault();
+                range.selectNode(inlineMathElement);
+                protyle.toolbar.range = range;
+                focusByRange(range);
+                protyle.toolbar.showRender(protyle, inlineMathElement);
+                return;
+            }
             const position = getSelectionOffset(nodeEditableElement, protyle.wysiwyg.element, range);
             if (nodeElement.classList.contains("code-block") && position.end === nodeEditableElement.innerText.length) {
                 // 代码块换最后一个 /n 肉眼是无法区分是否在其后的，因此统一在之前
                 position.end -= 1;
 
+            }
+            const selectionPosition = getSelectionPosition(nodeEditableElement, range);
+            const isFirstLine = (nodeEditableElement.innerText.substr(0, position.end).indexOf("\n") === -1 ||
+                position.start === 0) &&
+                selectionPosition.top - nodeEditableElement.getBoundingClientRect().top < 20;
+            const isLastLine = (nodeEditableElement.innerText.substr(position.end).indexOf("\n") === -1 ||
+                position.end >= nodeEditableElement.innerText.trimEnd().length) &&
+                nodeEditableElement.getBoundingClientRect().bottom - selectionPosition.top < 40;
+            const isStart = position.start === 0;
+            const isEnd = position.end >= nodeEditableElement.textContent.replace(/\n$/, "").length;
+            const toPrevious = (event.key === "ArrowUp" && isFirstLine) ||
+                (event.key === "ArrowLeft" && isStart);
+            const toNext = (event.key === "ArrowDown" && isLastLine) ||
+                (event.key === "ArrowRight" && isEnd);
+            if (selectText === "" && range.collapsed && nodeElement.classList.contains("av") &&
+                hasClosestByClassName(range.startContainer, "av__title") && (toPrevious || toNext) &&
+                focusAVByArrow(protyle, nodeElement, event.key, true)) {
+                event.stopPropagation();
+                event.preventDefault();
+                return;
+            }
+            if (selectText === "" && range.collapsed && !nodeElement.classList.contains("av")) {
+                let adjacentElement = toPrevious ? getPreviousBlock(nodeElement) :
+                    (toNext ? getNextBlock(nodeElement) : undefined);
+                if (adjacentElement) {
+                    adjacentElement = toPrevious ? getLastBlock(adjacentElement) : getFirstBlock(adjacentElement);
+                    if (adjacentElement.classList.contains("av") &&
+                        focusAVByArrow(protyle, adjacentElement as HTMLElement, event.key)) {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        return;
+                    }
+                }
             }
             if (event.key === "ArrowUp") {
                 const firstEditElement = getContenteditableElement(protyle.wysiwyg.element.firstElementChild);
@@ -791,10 +952,21 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             return;
         }
 
+        const endElement = hasClosestBlock(range.endContainer);
+        const isCrossBlock = !!endElement && nodeElement !== endElement;
         // 删除，不可使用 isNotCtrl(event)，否则软删除回导致 https://github.com/siyuan-note/siyuan/issues/5607
         // 不可使用 !event.shiftKey，否则 https://ld246.com/article/1666434796806
         if ((!event.altKey && (event.key === "Backspace" || event.key === "Delete")) ||
             matchHotKey("⌃D", event)) {
+            const rangeCheckTargets = !range.collapsed && endElement ?
+                getRangeBlockRefCheckTargets(protyle.wysiwyg.element, range, nodeElement, endElement, true) :
+                {elements: [], exactIDs: []};
+            if (endElement && ((isCrossBlock && selectText !== "") || rangeCheckTargets.elements.length > 0)) {
+                event.stopPropagation();
+                event.preventDefault();
+                await removeCrossBlockRange(protyle, range, nodeElement, endElement);
+                return;
+            }
             if (protyle.wysiwyg.element.querySelector(".protyle-wysiwyg--select")) {
                 removeBlock(protyle, nodeElement, range, event.key === "Backspace" ? "Backspace" : "Delete");
                 event.stopPropagation();
@@ -835,13 +1007,29 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             const editElement = getContenteditableElement(nodeElement) as HTMLElement;
             const imgSelectElement = protyle.wysiwyg.element.querySelector(".img--select");
             if (imgSelectElement) {
-                imgSelectElement.classList.remove("img--select");
                 if (nodeElement.contains(imgSelectElement)) {
+                    const checkTargets = getImageBlockRefCheckTargets(nodeElement, imgSelectElement);
+                    const checkIDs = checkTargets.elements
+                        .map(item => item.getAttribute("data-node-id")).filter(Boolean);
+                    if (checkIDs.length > 0) {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        if (!await confirmBlockRef({
+                            scope: "blocks",
+                            ids: checkIDs,
+                            exactIDs: checkTargets.exactIDs,
+                            notebook: protyle.notebookId,
+                        }, protyle) || checkTargets.elements.some(item => !item.isConnected)) {
+                            return;
+                        }
+                    }
+                    imgSelectElement.classList.remove("img--select");
                     removeImage(imgSelectElement, nodeElement, range, protyle);
                     event.stopPropagation();
                     event.preventDefault();
                     return;
                 }
+                imgSelectElement.classList.remove("img--select");
             } else if (selectText === "") {
                 if (nodeElement.classList.contains("table") && nodeElement.querySelector(".table__select").clientHeight > 0) {
                     clearTableCell(protyle, nodeElement);
@@ -1134,7 +1322,11 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
 
         if (matchHotKey("⌘A", event)) {
             event.preventDefault();
-            selectAll(protyle, nodeElement, range);
+            const selectedCurrentContent = selectAll(protyle, nodeElement, range);
+            if (selectedCurrentContent && !protyle.lite &&
+                !nodeElement.classList.contains("code-block") && !isMobile()) {
+                showSelectAllTip();
+            }
             return true;
         }
 
@@ -1239,30 +1431,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
 
         const isNewNameFile = matchHotKey(window.siyuan.config.keymap.editor.general.newNameFile.custom, event);
         if (isNewNameFile || matchHotKey(window.siyuan.config.keymap.editor.general.newNameSettingFile.custom, event)) {
-            if (!selectText.trim() && (nodeElement.querySelector("tr") || nodeElement.querySelector("span"))) {
-                // 没选中时，都是纯文本就创建子文档 https://ld246.com/article/1663073488381/comment/1664804353295#comments
-            } else {
-                if (!selectText.trim() &&
-                    getContenteditableElement(nodeElement).textContent  // https://github.com/siyuan-note/siyuan/issues/8099
-                ) {
-                    selectAll(protyle, nodeElement, range);
-                }
-                // 同步 toolbar.range，避免 DOM 已被其他操作（undo/enter 等）替换后变为 detached，
-                // 导致后续异步回调中 setInlineMark 读到无效 range https://github.com/siyuan-note/siyuan/issues/17896
-                protyle.toolbar.range = range;
-                if (isNewNameFile) {
-                    fetchPost("/api/filetree/getHPathByPath", {
-                        notebook: protyle.notebookId,
-                        path: protyle.path,
-                    }, (response) => {
-                        newFileBySelect(protyle, selectText, nodeElement, response.data, protyle.notebookId);
-                    });
-                } else {
-                    getRefCreateSavePath(protyle.notebookId, protyle.path, (targetNotebookId, hPath) => {
-                        newFileBySelect(protyle, selectText, nodeElement, hPath, targetNotebookId);
-                    });
-                }
-            }
+            newFileBySelectRange(protyle, range, isNewNameFile ? "subDoc" : "configured");
             event.preventDefault();
             event.stopPropagation();
             return;
@@ -1367,7 +1536,10 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                     hideElements(["select"], protyle);
                 }
             } else {
-                if (!protyle.toolbar.element.classList.contains("fn__none") ||
+                if (isCrossBlock) {
+                    hideElements(["toolbar", "hint", "util", "select"], protyle);
+                    selectBlocksByRange(protyle, range);
+                } else if (!protyle.toolbar.element.classList.contains("fn__none") ||
                     !protyle.hint.element.classList.contains("fn__none") ||
                     !protyle.toolbar.subElement.classList.contains("fn__none")) {
                     hideElements(["toolbar", "hint", "util"], protyle);
@@ -1523,6 +1695,25 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
         }
 
         // toolbar action
+        const tableSelectElement = nodeType === "NodeTable" ?
+            nodeElement.querySelector(".table__select") as HTMLElement : undefined;
+        if (tableSelectElement?.clientHeight > 0) {
+            const selectedCellElements: HTMLTableCellElement[] = [];
+            nodeElement.querySelectorAll("th, td").forEach((item: HTMLTableCellElement) => {
+                if (!item.classList.contains("fn__none") && isIncludeCell({
+                    tableSelectElement,
+                    item,
+                })) {
+                    selectedCellElements.push(item);
+                }
+            });
+            if (applyTableCellStyleHotkey(protyle, selectedCellElements, event, () => {
+                tableSelectElement.removeAttribute("style");
+            })) {
+                protyle.wysiwyg.preventKeyup = true;
+                return true;
+            }
+        }
         if (matchHotKey(window.siyuan.config.keymap.editor.insert.lastUsed.custom, event)) {
             protyle.toolbar.range = range;
             const selectElements: Element[] = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
@@ -1535,7 +1726,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             return;
         }
 
-        if (!nodeElement.classList.contains("code-block") && !event.repeat) {
+        if ((!nodeElement.classList.contains("code-block") || isCrossBlock) && !event.repeat) {
             let findToolbar = false;
             protyle.options.toolbar.find((menuItem: IMenuItem) => {
                 if (!menuItem.hotkey) {
@@ -1622,14 +1813,41 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
         const isMatchQuote = matchHotKey(window.siyuan.config.keymap.editor.insert.quote.custom, event);
         if ((isMatchList || isMatchOList || isMatchCheck || isMatchQuote) && !isInEmbedBlock(nodeElement)) {
             const selectsElement: HTMLElement[] = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
-            if (selectsElement.length === 0) {
+            const hasBlockSelection = selectsElement.length > 0;
+            if (!hasBlockSelection) {
                 selectsElement.push(nodeElement);
             }
             if (selectsElement.length === 1) {
                 const subType = selectsElement[0].dataset.subtype;
                 const type = selectsElement[0].dataset.type;
+                if (!isMatchQuote && shouldIgnoreListShortcut(hasBlockSelection, type)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
                 if (isMatchQuote) {
-                    if (["NodeHeading", "NodeParagraph", "NodeList"].includes(type)) {
+                    const blockquoteContext = hasBlockSelection ? undefined :
+                        getBlockquoteContext(selectsElement[0], protyle.wysiwyg.element);
+                    if (hasBlockSelection && type === "NodeBlockquote") {
+                        turnsOneInto({
+                            protyle,
+                            nodeElement: selectsElement[0],
+                            id: selectsElement[0].dataset.nodeId,
+                            type: "CancelBlockquote",
+                        });
+                    } else if (blockquoteContext && shouldCancelBlockquote(blockquoteContext)) {
+                        const focusRange = range.cloneRange();
+                        focusRange.collapse(true);
+                        focusRange.insertNode(document.createElement("wbr"));
+                        turnsOneInto({
+                            protyle,
+                            nodeElement: blockquoteContext.blockquoteElement,
+                            id: blockquoteContext.blockquoteElement.dataset.nodeId,
+                            type: "CancelBlockquote",
+                        });
+                    } else if (blockquoteContext) {
+                        insertEmptyBlockquote(protyle, blockquoteContext.childElement);
+                    } else if (["NodeHeading", "NodeParagraph", "NodeList"].includes(type)) {
                         turnsIntoOneTransaction({
                             protyle,
                             selectsElement,
@@ -1641,7 +1859,41 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                         protyle.hint.fill(">" + Lute.Caret, protyle);
                     }
                 } else {
-                    if (type === "NodeParagraph") {
+                    const targetSubtype: TListSubtype = isMatchCheck ? "t" : (isMatchList ? "u" : "o");
+                    const listContext = hasBlockSelection ? undefined :
+                        getListContext(selectsElement[0], protyle.wysiwyg.element);
+                    if (listContext) {
+                        const isListItemFocused = Boolean(protyle.block.showAll &&
+                            protyle.block.id === listContext.listItemElement.dataset.nodeId);
+                        const action = getListShortcutAction(listContext, targetSubtype,
+                            isEmptyParagraph(listContext.childElement),
+                            isListItemFocused);
+                        if (action === "cancelList" || action === "convertList") {
+                            const conversionType = action === "convertList" ?
+                                getListConversionType(listContext.subtype, targetSubtype) : "CancelList";
+                            if (listContext.listElement && conversionType) {
+                                const focusRange = range.cloneRange();
+                                focusRange.collapse(true);
+                                focusRange.insertNode(document.createElement("wbr"));
+                                turnsOneInto({
+                                    protyle,
+                                    nodeElement: listContext.listElement,
+                                    id: listContext.listElement.dataset.nodeId,
+                                    type: conversionType,
+                                });
+                            }
+                        } else if (action === "insertListItem") {
+                            insertEmptyListItem(protyle, listContext.listItemElement, range);
+                        } else if (action === "convertChildToList") {
+                            turnsIntoOneTransaction({
+                                protyle,
+                                selectsElement: [listContext.childElement],
+                                type: isMatchCheck ? "Blocks2TLs" : (isMatchList ? "Blocks2ULs" : "Blocks2OLs")
+                            });
+                        } else {
+                            insertEmptyChildList(protyle, listContext.childElement, targetSubtype, range);
+                        }
+                    } else if (type === "NodeParagraph") {
                         turnsIntoOneTransaction({
                             protyle,
                             selectsElement,
@@ -1649,26 +1901,23 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                         });
                     } else if (type === "NodeList") {
                         const id = selectsElement[0].dataset.nodeId;
-                        if (subType === "o" && (isMatchList || isMatchCheck)) {
+                        const currentSubtype = ["u", "o", "t"].includes(subType) ?
+                            subType as TListSubtype : undefined;
+                        const conversionType = currentSubtype ?
+                            getListConversionType(currentSubtype, targetSubtype) : undefined;
+                        if (currentSubtype === targetSubtype) {
                             turnsOneInto({
                                 protyle,
                                 nodeElement: selectsElement[0],
                                 id,
-                                type: isMatchCheck ? "UL2TL" : "OL2UL",
+                                type: "CancelList",
                             });
-                        } else if (subType === "t" && (isMatchList || isMatchOList)) {
+                        } else if (conversionType) {
                             turnsOneInto({
                                 protyle,
                                 nodeElement: selectsElement[0],
                                 id,
-                                type: isMatchList ? "TL2UL" : "TL2OL",
-                            });
-                        } else if (subType === "u" && (isMatchCheck || isMatchOList)) {
-                            turnsOneInto({
-                                protyle,
-                                nodeElement: selectsElement[0],
-                                id,
-                                type: isMatchCheck ? "OL2TL" : "UL2OL",
+                                type: conversionType,
                             });
                         }
                     } else {

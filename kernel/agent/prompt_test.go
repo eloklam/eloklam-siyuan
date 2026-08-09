@@ -9,8 +9,14 @@
 package agent
 
 import (
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	kernelConf "github.com/siyuan-note/siyuan/kernel/conf"
+	kernelModel "github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func TestTurnContextStaysInUserMessage(t *testing.T) {
@@ -54,6 +60,31 @@ func TestSystemPromptSortsPluginActions(t *testing.T) {
 	}
 	if strings.Index(forward, actions[1].Name) > strings.Index(forward, actions[0].Name) {
 		t.Fatalf("plugin actions are not sorted in system prompt: %q", forward)
+	}
+}
+
+func TestSystemPromptUsesAppearanceLanguage(t *testing.T) {
+	originalConf := kernelModel.Conf
+	originalWorkingDir := util.WorkingDir
+	kernelModel.Conf = kernelModel.NewAppConf()
+	kernelModel.Conf.Appearance = kernelConf.NewAppearance()
+	kernelModel.Conf.Appearance.Lang = "zh-CN"
+	_, filename, _, _ := runtime.Caller(0)
+	util.WorkingDir = filepath.Join(filepath.Dir(filename), "..", "..", "app")
+	t.Cleanup(func() {
+		kernelModel.Conf = originalConf
+		util.WorkingDir = originalWorkingDir
+	})
+
+	prompt := buildSystemPrompt("en", nil)
+	if !strings.Contains(prompt, "Reply in the language configured in SiYuan's appearance settings.") {
+		t.Fatalf("appearance language instruction is missing from system prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Reply in 简体中文.") {
+		t.Fatalf("appearance language is missing from system prompt: %q", prompt)
+	}
+	if strings.Contains(prompt, "Reply in English.") {
+		t.Fatalf("request language leaked into system prompt: %q", prompt)
 	}
 }
 
@@ -108,5 +139,53 @@ func TestUserTurnContextSurvivesCheckpointRoundTrip(t *testing.T) {
 	checkpoint[0].EditorContext.VisibleBlockIDs[0] = "changed"
 	if editorCtx.VisibleBlockIDs[0] != "visible-block" || roundTripped[0].EditorContext.VisibleBlockIDs[0] != "visible-block" {
 		t.Fatal("editor context slices were not cloned")
+	}
+}
+
+func TestAssistantContextSurvivesCheckpointRoundTrip(t *testing.T) {
+	const argumentsJSON = "{\n  \"query\": \"SiYuan\",\n  \"limit\": 9007199254740993\n}"
+	entries := []SessionEntry{{
+		ID:            "assistant-1",
+		Type:          "assistant",
+		Content:       "Let me search for that.",
+		ReasoningCont: "I need to use the search tool.",
+		ToolCalls: []AgentToolCall{{
+			ID:            "call-original",
+			Name:          "search",
+			Arguments:     map[string]any{"query": "SiYuan", "limit": float64(9007199254740992)},
+			ArgumentsJSON: argumentsJSON,
+			Result:        "search result",
+			State:         "finished",
+		}},
+	}}
+
+	checkpoint := entriesToAgentMessages(entries)
+	if len(checkpoint) != 1 || checkpoint[0].ReasoningContent != entries[0].ReasoningCont {
+		t.Fatalf("assistant reasoning was not restored into checkpoint: %#v", checkpoint)
+	}
+	if len(checkpoint[0].ToolCalls) != 1 || checkpoint[0].ToolCalls[0].ID != "call-original" ||
+		checkpoint[0].ToolCalls[0].ArgumentsJSON != argumentsJSON {
+		t.Fatalf("assistant tool call was not restored exactly: %#v", checkpoint[0].ToolCalls)
+	}
+
+	messages := checkpointMessagesToOpenAI(checkpoint, "English", nil)
+	if len(messages) != 3 {
+		t.Fatalf("unexpected rebuilt message count: %d", len(messages))
+	}
+	assistant := messages[1]
+	if assistant.ReasoningContent != entries[0].ReasoningCont || len(assistant.ToolCalls) != 1 ||
+		assistant.ToolCalls[0].ID != "call-original" ||
+		assistant.ToolCalls[0].Function.Arguments != argumentsJSON {
+		t.Fatalf("assistant request context changed after rebuild: %#v", assistant)
+	}
+	if messages[2].ToolCallID != "call-original" {
+		t.Fatalf("tool result no longer matches the original call: %#v", messages[2])
+	}
+
+	roundTripped := agentMessagesToEntries(checkpoint)
+	if len(roundTripped) != 1 || roundTripped[0].ReasoningCont != entries[0].ReasoningCont ||
+		len(roundTripped[0].ToolCalls) != 1 || roundTripped[0].ToolCalls[0].ID != "call-original" ||
+		roundTripped[0].ToolCalls[0].ArgumentsJSON != argumentsJSON {
+		t.Fatalf("assistant context changed during checkpoint round trip: %#v", roundTripped)
 	}
 }

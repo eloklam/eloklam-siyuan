@@ -83,6 +83,8 @@ jobs:
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.name }}
     needs: [prepare]
+    env:
+      SIYUAN_E2E_SHARDS: ${{ matrix.config.e2e_shards }}
     strategy:
       matrix:
         config:
@@ -95,6 +97,7 @@ jobs:
             goos: "linux"
             goarch: "amd64"
             suffix: "linux"
+            e2e_shards: ""
           - os: macos-latest
             name: macos build mac.dmg
             kernel_path: "../app/kernel-darwin/SiYuan-Kernel"
@@ -104,6 +107,7 @@ jobs:
             goos: "darwin"
             goarch: "amd64"
             suffix: "mac.dmg"
+            e2e_shards: "main:6806"
           - os: macos-latest
             name: macos build mac-arm64.dmg
             kernel_path: "../app/kernel-darwin-arm64/SiYuan-Kernel"
@@ -113,6 +117,7 @@ jobs:
             goos: "darwin"
             goarch: "arm64"
             suffix: "mac-arm64.dmg"
+            e2e_shards: "editor:6807"
           - os: windows-latest
             name: windows build win.exe
             kernel_path: "../app/kernel/SiYuan-Kernel.exe"
@@ -124,6 +129,7 @@ jobs:
             mingwsys: "MINGW64"
             goarch: "amd64"
             suffix: "win.exe"
+            e2e_shards: "attribute-view:6808"
 
     steps:
       - uses: actions/checkout@v6
@@ -204,13 +210,241 @@ jobs:
           GOPATH: ${{ github.workspace }}/go
           GOARCH: ${{ matrix.config.goarch }}
 
+      - name: Start Building Electron App (Background)
+        if: matrix.config.e2e_shards != ''
+        shell: bash
+        run: |
+          (
+            set +e
+            pnpm run ${{ matrix.config.electron_args }}
+            exit_code="$?"
+            echo "${exit_code}" > "${RUNNER_TEMP}/electron-build.exit"
+            exit "${exit_code}"
+          ) > "${RUNNER_TEMP}/electron-build.log" 2>&1 < /dev/null &
+          echo "$!" > "${RUNNER_TEMP}/electron-build.pid"
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
+
+      - name: Checkout siyuan-testing
+        if: matrix.config.e2e_shards != ''
+        continue-on-error: true
+        uses: actions/checkout@v6
+        with:
+          repository: siyuan-note/siyuan-testing
+          ref: main
+          path: ${{ github.workspace }}/siyuan-testing
+
+      - name: Install End-to-End Test Dependencies
+        if: matrix.config.e2e_shards != ''
+        continue-on-error: true
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}/siyuan-testing
+
+      - name: Validate End-to-End Test Shards
+        if: matrix.config.e2e_shards != ''
+        shell: bash
+        run: |
+          pnpm run typecheck
+          # 每个 E2E job 只配置自己的 shard，校验脚本需要全量 shard 列表
+          # 才能验证三个 shard 的并集覆盖全部测试且无重复
+          unset SIYUAN_E2E_SHARDS
+          pnpm run test:shards
+        working-directory: ${{ github.workspace }}/siyuan-testing
+
+      - name: Start Kernel for End-to-End Tests
+        if: matrix.config.e2e_shards != ''
+        continue-on-error: true
+        shell: bash
+        run: |
+          APP_DIR="${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app"
+          KERNEL_PATH="${{ matrix.config.kernel_path }}"
+          for shard_config in ${SIYUAN_E2E_SHARDS}; do
+            shard="${shard_config%:*}"
+            port="${shard_config#*:}"
+            workspace="${RUNNER_TEMP}/siyuan-e2e-${shard}-workspace"
+            mkdir -p "${workspace}"
+            "${KERNEL_PATH}" --workspace="${workspace}" serve --wd="${APP_DIR}" --port="${port}" \
+              > "${RUNNER_TEMP}/siyuan-e2e-${shard}-kernel-console.log" 2>&1 &
+            echo "$!" > "${RUNNER_TEMP}/siyuan-e2e-${shard}-kernel.pid"
+          done
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/kernel
+
+      - name: Wait for End-to-End Test Kernels
+        if: matrix.config.e2e_shards != ''
+        continue-on-error: true
+        shell: bash
+        run: |
+          wait_for_kernel() {
+            local pid="$1"
+            local port="$2"
+            local log_path="$3"
+            for attempt in {1..60}; do
+              if curl --fail --silent --request POST "http://127.0.0.1:${port}/api/system/getWorkspaceInfo" > /dev/null; then
+                return
+              fi
+              if ! kill -0 "${pid}" 2>/dev/null; then
+                cat "${log_path}"
+                return 1
+              fi
+              sleep 1
+            done
+            cat "${log_path}"
+            return 1
+          }
+          for shard_config in ${SIYUAN_E2E_SHARDS}; do
+            shard="${shard_config%:*}"
+            port="${shard_config#*:}"
+            pid="$(cat "${RUNNER_TEMP}/siyuan-e2e-${shard}-kernel.pid")"
+            wait_for_kernel "${pid}" "${port}" \
+              "${RUNNER_TEMP}/siyuan-e2e-${shard}-kernel-console.log"
+          done
+
+      - name: Run End-to-End Tests
+        if: matrix.config.e2e_shards != ''
+        continue-on-error: true
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          TEST_PIDS=()
+          TEST_SHARDS=()
+          for shard_config in ${SIYUAN_E2E_SHARDS}; do
+            shard="${shard_config%:*}"
+            port="${shard_config#*:}"
+            workspace="${RUNNER_TEMP}/siyuan-e2e-${shard}-workspace"
+            (
+              SIYUAN_BASE_URL="http://127.0.0.1:${port}" \
+              SIYUAN_EXPECT_WORKSPACE="${workspace}" \
+              SIYUAN_E2E_SHARD="${shard}" \
+              SIYUAN_TEST_RESULTS_DIR="test-results-${shard}" \
+              PLAYWRIGHT_HTML_OUTPUT_DIR="playwright-report-${shard}" \
+              pnpm exec playwright test --config=playwright.focused.config.ts \
+                --reporter=line,html --output="test-results-${shard}"
+            ) &
+            TEST_PID=$!
+            # 单个 shard 超时保护：测试 worker 卡死时强制结束，避免拖累整个 job
+            (
+              sleep 600
+              if kill -0 "${TEST_PID}" 2>/dev/null; then
+                echo "::error title=End-to-End shard timed out::${shard} killed after 600s"
+                kill -KILL "${TEST_PID}" 2>/dev/null || true
+              fi
+            ) &
+            WATCHDOG_PID=$!
+            TEST_PIDS+=("${TEST_PID}")
+            TEST_WATCHDOG_PIDS+=("${WATCHDOG_PID}")
+            TEST_SHARDS+=("${shard}")
+          done
+          TEST_STATUS=0
+          set +e
+          for index in "${!TEST_PIDS[@]}"; do
+            wait "${TEST_PIDS[${index}]}"
+            shard_status=$?
+            if [ "${shard_status}" -ne 0 ]; then
+              echo "::error title=End-to-End shard failed::${TEST_SHARDS[${index}]} exited with ${shard_status}"
+              TEST_STATUS=1
+            fi
+          done
+          set -e
+          # 测试已全部结束，主动终止仍处于休眠的超时监控进程，避免孤儿进程
+          for watchdog_pid in "${TEST_WATCHDOG_PIDS[@]}"; do
+            kill "${watchdog_pid}" 2>/dev/null || true
+          done
+          exit "${TEST_STATUS}"
+        working-directory: ${{ github.workspace }}/siyuan-testing
+
+      - name: Stop End-to-End Test Kernels
+        if: always() && matrix.config.e2e_shards != ''
+        continue-on-error: true
+        shell: bash
+        run: |
+          stop_kernel() {
+            local pid="$1"
+            if [ -z "${pid}" ] || ! kill -0 "${pid}" 2>/dev/null; then
+              return
+            fi
+            kill -TERM "${pid}"
+            for attempt in {1..30}; do
+              if ! kill -0 "${pid}" 2>/dev/null; then
+                return
+              fi
+              sleep 1
+            done
+            kill -KILL "${pid}"
+          }
+          for shard_config in ${SIYUAN_E2E_SHARDS}; do
+            shard="${shard_config%:*}"
+            pid_path="${RUNNER_TEMP}/siyuan-e2e-${shard}-kernel.pid"
+            if [ -f "${pid_path}" ]; then
+              stop_kernel "$(cat "${pid_path}")"
+            fi
+          done
+
+      - name: Upload End-to-End Test Results
+        if: always() && matrix.config.e2e_shards != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: siyuan-e2e-${{ matrix.config.suffix }}
+          path: |
+            ${{ github.workspace }}/siyuan-testing/playwright-report-*
+            ${{ github.workspace }}/siyuan-testing/test-results-*
+            ${{ runner.temp }}/siyuan-e2e-*-kernel-console.log
+            ${{ runner.temp }}/siyuan-e2e-*-workspace/temp/siyuan.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Wait for Electron Packaging
+        if: always() && matrix.config.e2e_shards != ''
+        shell: bash
+        run: |
+          pid="$(cat "${RUNNER_TEMP}/electron-build.pid" 2>/dev/null)"
+          exit_code=""
+          for attempt in {1..120}; do
+            if [ -f "${RUNNER_TEMP}/electron-build.exit" ]; then
+              exit_code="$(cat "${RUNNER_TEMP}/electron-build.exit")"
+              break
+            fi
+            if ! kill -0 "${pid}" 2>/dev/null; then
+              cat "${RUNNER_TEMP}/electron-build.log"
+              echo "::error::Electron packaging process exited unexpectedly"
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ -z "${exit_code}" ]; then
+            cat "${RUNNER_TEMP}/electron-build.log"
+            echo "::error::Electron packaging timed out"
+            kill -KILL "${pid}" 2>/dev/null || true
+            exit 1
+          fi
+          if [ "${exit_code}" -ne 0 ]; then
+            cat "${RUNNER_TEMP}/electron-build.log"
+          else
+            tail -n 20 "${RUNNER_TEMP}/electron-build.log"
+          fi
+          exit "${exit_code}"
+
       - name: Install RPM build tools
         if: matrix.config.goos == 'linux'
         run: sudo apt-get install -y rpm
 
       - name: Building Electron App
+        if: matrix.config.e2e_shards == ''
         run: pnpm run ${{ matrix.config.electron_args }}
         working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
+
+      - name: Verify RPM Package Contents
+        if: matrix.config.goos == 'linux'
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
+        run: |
+          for package in build/*.rpm; do
+            test -f "$package"
+            build_id_entries="$(rpm -qpl "$package" | awk '/^\/usr\/lib\/\.build-id(\/|$)/')"
+            if [ -n "$build_id_entries" ]; then
+              echo "Unexpected build-id entries in $package:"
+              echo "$build_id_entries"
+              exit 1
+            fi
+          done
 
       - name: Upload Build Artifacts (Non-Linux)
         if: matrix.config.goos != 'linux'
@@ -345,6 +579,7 @@ jobs:
           cd ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
           node scripts/trimChangelogs.js
           zip -r app.zip appearance guide stage $([ -d changelogs ] && echo changelogs)
+          zip -j app.zip ../LICENSE ../THIRD_PARTY_NOTICES.md
           mkdir -p ${{ github.workspace }}/siyuan-android/app/src/main/assets
           cp app.zip ${{ github.workspace }}/siyuan-android/app/src/main/assets/app.zip
 
@@ -396,28 +631,110 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v8
 
+      - name: Prepare Release Assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.prepare.outputs.version }}"
+          mkdir -p release-assets
+          cp "siyuan-linux/siyuan-${VERSION}-linux.AppImage" release-assets/
+          cp "siyuan-linux/siyuan-${VERSION}-linux.tar.gz" release-assets/
+          cp "siyuan-linux/siyuan-${VERSION}-linux.deb" release-assets/
+          cp "siyuan-linux/siyuan-${VERSION}-linux.rpm" release-assets/
+          cp "siyuan-mac.dmg/siyuan-${VERSION}-mac.dmg" release-assets/
+          cp "siyuan-mac-arm64.dmg/siyuan-${VERSION}-mac-arm64.dmg" release-assets/
+          cp "siyuan-win.exe/siyuan-${VERSION}-win.exe" release-assets/
+          cp "siyuan-android/siyuan-${VERSION}.apk" release-assets/
+
+          EXPECTED_ASSETS=(
+            "siyuan-${VERSION}-linux.AppImage"
+            "siyuan-${VERSION}-linux.tar.gz"
+            "siyuan-${VERSION}-linux.deb"
+            "siyuan-${VERSION}-linux.rpm"
+            "siyuan-${VERSION}-mac.dmg"
+            "siyuan-${VERSION}-mac-arm64.dmg"
+            "siyuan-${VERSION}-win.exe"
+            "siyuan-${VERSION}.apk"
+          )
+          for asset in "${EXPECTED_ASSETS[@]}"; do
+            test -s "release-assets/${asset}"
+          done
+          (
+            cd release-assets
+            sha256sum "${EXPECTED_ASSETS[@]}" > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+          )
+
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
           name: ${{ needs.prepare.outputs.release_title }}
-          tag: ${{ github.ref }}
+          tag: ${{ github.ref_name }}
           body: ${{ needs.prepare.outputs.release_body }}
-          draft: false
+          draft: true
           prerelease: true
+          allowUpdates: true
+          omitDraftDuringUpdate: true
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Release Is Draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          test "$(gh release view "${{ github.ref_name }}" --json isDraft --jq '.isDraft')" = "true"
 
       - name: Upload Release Assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          VERSION=${{ needs.prepare.outputs.version }}
-          gh release upload ${{ github.ref_name }} \
-            "siyuan-linux/siyuan-${VERSION}-linux.AppImage#siyuan-${VERSION}-linux.AppImage" \
-            "siyuan-linux/siyuan-${VERSION}-linux.tar.gz#siyuan-${VERSION}-linux.tar.gz" \
-            "siyuan-linux/siyuan-${VERSION}-linux.deb#siyuan-${VERSION}-linux.deb" \
-            "siyuan-linux/siyuan-${VERSION}-linux.rpm#siyuan-${VERSION}-linux.rpm" \
-            "siyuan-mac.dmg/siyuan-${VERSION}-mac.dmg#siyuan-${VERSION}-mac.dmg" \
-            "siyuan-mac-arm64.dmg/siyuan-${VERSION}-mac-arm64.dmg#siyuan-${VERSION}-mac-arm64.dmg" \
-            "siyuan-win.exe/siyuan-${VERSION}-win.exe#siyuan-${VERSION}-win.exe" \
-            "siyuan-android/siyuan-${VERSION}.apk#siyuan-${VERSION}.apk"
+          gh release upload "${{ github.ref_name }}" release-assets/* --clobber
+
+      - name: Validate and Publish Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+          RELEASE_ID="$(gh release view "${TAG}" --json databaseId --jq '.databaseId')"
+          EXPECTED_ASSETS=(
+            "siyuan-${VERSION}-linux.AppImage"
+            "siyuan-${VERSION}-linux.tar.gz"
+            "siyuan-${VERSION}-linux.deb"
+            "siyuan-${VERSION}-linux.rpm"
+            "siyuan-${VERSION}-mac.dmg"
+            "siyuan-${VERSION}-mac-arm64.dmg"
+            "siyuan-${VERSION}-win.exe"
+            "siyuan-${VERSION}.apk"
+            "SHA256SUMS.txt"
+          )
+          declare -A EXPECTED_DIGESTS
+          for asset in "${EXPECTED_ASSETS[@]}"; do
+            EXPECTED_DIGESTS["${asset}"]="sha256:$(sha256sum "release-assets/${asset}" | awk '{print $1}')"
+          done
+
+          for attempt in {1..12}; do
+            ASSETS="$(gh api -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/${GH_REPO}/releases/${RELEASE_ID}/assets?per_page=100")"
+            READY=true
+            for asset in "${EXPECTED_ASSETS[@]}"; do
+              REMOTE_DIGEST="$(jq -r --arg name "${asset}" \
+                '.[] | select(.name == $name and .state == "uploaded") | .digest // empty' <<< "${ASSETS}")"
+              if [ "${REMOTE_DIGEST}" != "${EXPECTED_DIGESTS[$asset]}" ]; then
+                READY=false
+                break
+              fi
+            done
+            if [ "${READY}" = true ]; then
+              gh release edit "${TAG}" --draft=false --prerelease
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "Release assets or SHA-256 digests are incomplete"
+          exit 1

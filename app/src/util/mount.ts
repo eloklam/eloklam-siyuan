@@ -8,7 +8,7 @@ import {replaceFileName, validateName} from "../editor/rename";
 import {setStorageVal} from "../protyle/util/compatibility";
 import {openFileById} from "../editor/util";
 import {openMobileFileById} from "../mobile/editor";
-import {App} from "../index";
+import type {App} from "../index";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
 import {importObsidianVault} from "../menus/importObsidian";
@@ -208,11 +208,20 @@ export const newNotebook = () => {
     /// #endif
 };
 
+let newEncryptedNotebookPending = false;
+
 export const newEncryptedNotebook = () => {
+    if (window.siyuan.dialogs.some((item) => item.element.getAttribute("data-key") === "newEncryptedNotebook")) {
+        return;
+    }
+    if (newEncryptedNotebookPending) {
+        return;
+    }
+    newEncryptedNotebookPending = true;
     // 先检查加密功能是否已启用；未启用则提示去设置页启用
     fetchPost("/api/notebook/getEncryptedNotebookStatus", {}, (response) => {
-        if (!response.data.enabled) {
-            showMessage(window.siyuan.languages.encryptedNotebookTip, 6000);
+        if (response.data.state !== "Enabled") {
+            showMessage(window.siyuan.languages.enableEncryptedNotebook, 6000);
             return;
         }
         const dialog = new Dialog({
@@ -230,6 +239,7 @@ export const newEncryptedNotebook = () => {
 </div>`,
             width: isMobile() ? "92vw" : "520px"
         });
+        dialog.element.setAttribute("data-key", "newEncryptedNotebook");
         const btnsElement = dialog.element.querySelectorAll<HTMLButtonElement>(".b3-button");
         const inputs = dialog.element.querySelectorAll("input");
         dialog.bindInput(inputs[0], () => {
@@ -260,10 +270,16 @@ export const newEncryptedNotebook = () => {
                 btnsElement[1].disabled = false;
             }
         });
+    }).finally(() => {
+        newEncryptedNotebookPending = false;
     });
 };
 
 export const openEncryptedNotebook = (app: App, notebookId: string, name: string) => {
+    const dialogKey = "encryptedNotebook-" + notebookId;
+    if (window.siyuan.dialogs.some((item) => item.element.getAttribute("data-key") === dialogKey)) {
+        return;
+    }
     const dialog = new Dialog({
         title: window.siyuan.languages.unlockEncryptedNotebook.replace("${x}", name),
         content: `<div class="b3-dialog__content">
@@ -277,6 +293,7 @@ export const openEncryptedNotebook = (app: App, notebookId: string, name: string
 </div>`,
         width: isMobile() ? "92vw" : "520px"
     });
+    dialog.element.setAttribute("data-key", dialogKey);
     const btnsElement = dialog.element.querySelectorAll<HTMLButtonElement>(".b3-button");
     const inputElement = dialog.element.querySelector("input");
     dialog.bindInput(inputElement, () => {

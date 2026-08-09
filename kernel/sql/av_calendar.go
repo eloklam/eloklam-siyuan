@@ -52,6 +52,7 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 					Calc:         field.Calc,
 					Options:      key.Options,
 					NumberFormat: key.NumberFormat,
+					DateFormat:   key.DateFormat,
 					Template:     key.Template,
 					Relation:     key.Relation,
 					Rollup:       key.Rollup,
@@ -103,7 +104,7 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 			if nil != field.Date {
 				fieldDateIsTime = field.Date.FillSpecificTime
 			}
-			fillAttributeViewBaseValue(fieldValue.BaseValue, field.ID, cardID, field.NumberFormat, field.Template, fieldDateIsTime)
+			fillAttributeViewBaseValue(fieldValue.BaseValue, field.ID, cardID, field.NumberFormat, field.DateFormat, field.Template, fieldDateIsTime)
 			calendarCard.Values = append(calendarCard.Values, fieldValue)
 		}
 

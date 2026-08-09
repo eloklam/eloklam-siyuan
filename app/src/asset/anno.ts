@@ -9,6 +9,7 @@ import {Dialog} from "../dialog";
 import {showMessage} from "../dialog/message";
 import {isMobile} from "../util/functions";
 import {confirmDialog} from "../dialog/confirmDialog";
+import {escapeAttr, escapeHtml} from "../util/escape";
 import {filesize} from "filesize";
 
 export const initAnno = (element: HTMLElement, pdf: any) => {
@@ -100,7 +101,7 @@ export const initAnno = (element: HTMLElement, pdf: any) => {
                 newHeight = y - newTop;
             }
             rectResizeElement.setAttribute("style",
-                `top:${newTop}px;height:${newHeight}px;left:${newLeft}px;width:${newWidth}px;background-color:${moveEvent.altKey ? "var(--b3-pdf-background1)" : ""}`);
+                `top:${newTop}px;height:${newHeight}px;left:${newLeft}px;width:${newWidth}px;background-color:${moveEvent.altKey ? "color-mix(in srgb, var(--b3-pdf-background1) 35%, transparent)" : ""}`);
         };
         documentSelf.onmouseup = () => {
             documentSelf.onmousemove = null;
@@ -160,15 +161,8 @@ export const initAnno = (element: HTMLElement, pdf: any) => {
                     const config = getConfig(pdf);
                     const annoItem = config[rectElement.getAttribute("data-node-id")];
                     annoItem.color = color;
-                    element.querySelectorAll(`.pdf__rect[data-node-id="${rectElement.getAttribute("data-node-id")}"]`).forEach(rectItem => {
-                        Array.from(rectItem.children).forEach((item: HTMLElement) => {
-                            item.style.border = "2px solid " + color;
-                            if (annoItem.type === "text") {
-                                item.style.backgroundColor = color;
-                            } else {
-                                item.style.backgroundColor = "transparent";
-                            }
-                        });
+                    getRectElementsByNodeId(element, rectElement.getAttribute("data-node-id")).forEach(rectItem => {
+                        rectItem.style.setProperty("--pdf-annotation-color", color);
                     });
                     fetchPost("/api/asset/setFileAnnotation", {
                         path: pdf.appConfig.file.replace(location.origin, "").substr(1) + ".sya",
@@ -203,7 +197,7 @@ export const initAnno = (element: HTMLElement, pdf: any) => {
                 const config = getConfig(pdf);
                 const id = rectElement.getAttribute("data-node-id");
                 delete config[id];
-                element.querySelectorAll(`[data-node-id="${id}"]`).forEach(item => {
+                getRectElementsByNodeId(element, id).forEach(item => {
                     item.remove();
                 });
                 fetchPost("/api/asset/setFileAnnotation", {
@@ -238,14 +232,8 @@ export const initAnno = (element: HTMLElement, pdf: any) => {
                 } else {
                     annoItem.type = "border";
                 }
-                element.querySelectorAll(`.pdf__rect[data-node-id="${rectElement.getAttribute("data-node-id")}"]`).forEach(rectItem => {
-                    Array.from(rectItem.children).forEach((item: HTMLElement) => {
-                        if (annoItem.type === "text") {
-                            item.style.backgroundColor = item.style.border.replace("2px solid ", "");
-                        } else {
-                            item.style.backgroundColor = "";
-                        }
-                    });
+                getRectElementsByNodeId(element, rectElement.getAttribute("data-node-id")).forEach(rectItem => {
+                    rectItem.dataset.type = annoItem.type;
                 });
                 fetchPost("/api/asset/setFileAnnotation", {
                     path: pdf.appConfig.file.replace(location.origin, "").substr(1) + ".sya",
@@ -289,14 +277,25 @@ const getRelationHTML = (ids: string[]) => {
     }
     let html = "";
     ids.forEach((id: string) => {
-        html += `<li data-id="${id}" class="popover__block b3-list-item b3-list-item--narrow b3-list-item--hide-action">
-    <span class="b3-list-item__text">${id}</span>
+        html += `<li data-id="${escapeAttr(id)}" class="popover__block b3-list-item b3-list-item--narrow b3-list-item--hide-action">
+    <span class="b3-list-item__text">${escapeHtml(id)}</span>
     <span data-type="clear" class="b3-tooltips b3-tooltips__w b3-list-item__action" aria-label="${window.siyuan.languages.delete}">
         <svg><use xlink:href="#iconTrashcan"></use></svg>
     </span>
 </li>`;
     });
     return html;
+};
+
+const getRectElementsByNodeId = (element: HTMLElement, id: string | null) => {
+    // 通过属性值比较而非 CSS 选择器插值，避免 .sya 中的 ID 破坏选择器 https://github.com/siyuan-note/siyuan/security/advisories/GHSA-fqpw-c3pj-w8g9
+    const results: HTMLElement[] = [];
+    element.querySelectorAll("[data-node-id]").forEach(item => {
+        if (item.getAttribute("data-node-id") === id) {
+            results.push(item as HTMLElement);
+        }
+    });
+    return results;
 };
 
 const setRelation = (pdf: any) => {
@@ -460,7 +459,8 @@ const getHightlightCoordsByRange = (pdf: any, color: string) => {
         range.setEndAfter(getTextNode(startPage.textLayer.div, false));
     }
 
-    const startSelected: number[] = [];
+    // push 入的是 convertToPdfPoint 拼接后的 4 元素数组，因此 startSelected 实际为 number[][]
+    const startSelected: number[][] = [];
     mergeRects(range).forEach(function (r) {
         startSelected.push(
             startViewport.convertToPdfPoint(r.left - startPageRect.x,
@@ -469,7 +469,7 @@ const getHightlightCoordsByRange = (pdf: any, color: string) => {
         );
     });
 
-    const endSelected: number[] = [];
+    const endSelected: number[][] = [];
     if (startIndex !== endIndex) {
         focusByRange(cloneRange);
         const endPage = pdf.pdfViewer.getPageView(endIndex);
@@ -488,7 +488,7 @@ const getHightlightCoordsByRange = (pdf: any, color: string) => {
     const id = Lute.NewNodeID();
     const pages: {
         index: number
-        positions: number[]
+        positions: number[][]
     }[] = [];
     const results = [];
     if (startSelected.length > 0) {
@@ -547,7 +547,7 @@ const getHightlightCoordsByRect = (pdf: any, color: string, rectResizeElement: H
 
     const pages: {
         index: number
-        positions: number[]
+        positions: number[][]
     }[] = [
         {
             index: startPage.id - 1,
@@ -640,6 +640,7 @@ export const getHighlight = (element: HTMLElement) => {
     if (!pdfInstance) {
         return;
     }
+    element.parentElement.querySelector(":scope > .pdf__rects")?.remove();
     const pageIndex = parseInt(
         element.parentElement.getAttribute("data-page-number")) - 1;
     const config = getConfig(pdfInstance);
@@ -675,38 +676,53 @@ const showHighlight = (selected: IPdfAnno, pdf: any, hl?: boolean) => {
     }
 
     const viewport = page.viewport.clone({rotation: 0}); // rotation https://github.com/siyuan-note/siyuan/issues/9831
-    let rectsElement = textLayerElement.querySelector(".pdf__rects");
+    const pageElement = textLayerElement.parentElement;
+    let rectsElement = pageElement.querySelector(":scope > .pdf__rects") as HTMLElement;
     if (!rectsElement) {
-        textLayerElement.insertAdjacentHTML("beforeend", "<div class='pdf__rects'></div>");
-        rectsElement = textLayerElement.querySelector(".pdf__rects");
+        rectsElement = document.createElement("div");
+        rectsElement.className = "pdf__rects";
+        pageElement.append(rectsElement);
     }
-    let html = `<div class="pdf__rect popover__block" data-node-id="${selected.id}" data-relations="${selected.ids || ""}" data-mode="${selected.mode}">`;
+    rectsElement.style.width = textLayerElement.style.width;
+    rectsElement.style.height = textLayerElement.style.height;
+    rectsElement.style.transform = textLayerElement.style.transform;
+    const mainRotation = textLayerElement.getAttribute("data-main-rotation");
+    if (mainRotation) {
+        rectsElement.setAttribute("data-main-rotation", mainRotation);
+    } else {
+        rectsElement.removeAttribute("data-main-rotation");
+    }
+    // 使用 setAttribute 构建元素，避免将 .sya 中的数据拼接到 HTML 中 https://github.com/siyuan-note/siyuan/security/advisories/GHSA-fqpw-c3pj-w8g9
+    const rectDiv = document.createElement("div");
+    rectDiv.className = "pdf__rect popover__block";
+    rectDiv.setAttribute("data-node-id", selected.id);
+    rectDiv.setAttribute("data-relations", selected.ids ? selected.ids.join(",") : "");
+    rectDiv.setAttribute("data-mode", selected.mode);
+    rectDiv.setAttribute("data-type", selected.type);
+    rectDiv.style.setProperty("--pdf-annotation-color", selected.color);
     selected.coords.forEach((rect) => {
         const bounds = viewport.convertToViewportRectangle(rect);
         const width = Math.abs(bounds[0] - bounds[2]);
         if (width <= 0) {
             return;
         }
-        let style = `border: 2px solid ${selected.color};background-color: ${selected.color};`;
-        if (selected.type === "border") {
-            style = `border: 2px solid ${selected.color};`;
-        }
-        html += `<div style="${style}
-left:${Math.min(bounds[0], bounds[2])}px;
-top:${Math.min(bounds[1], bounds[3])}px;
-width:${width}px;
-height: ${Math.abs(bounds[1] - bounds[3])}px"></div>`;
+        const rectChild = document.createElement("div");
+        rectChild.style.left = `${Math.min(bounds[0], bounds[2])}px`;
+        rectChild.style.top = `${Math.min(bounds[1], bounds[3])}px`;
+        rectChild.style.width = `${width}px`;
+        rectChild.style.height = `${Math.abs(bounds[1] - bounds[3])}px`;
+        rectDiv.append(rectChild);
     });
-    rectsElement.insertAdjacentHTML("beforeend", html + "</div>");
-    rectsElement.lastElementChild.setAttribute("data-content", selected.content);
+    rectDiv.setAttribute("data-content", selected.content);
+    rectsElement.append(rectDiv);
     if (hl) {
         hlPDFRect(rectsElement, selected.id);
     }
-    return rectsElement.lastElementChild;
+    return rectDiv;
 };
 
 export const hlPDFRect = (element: HTMLElement, id: string) => {
-    element.querySelectorAll(`.pdf__rect[data-node-id="${id}"]`).forEach(item => {
+    getRectElementsByNodeId(element, id).forEach(item => {
         if (item && item.firstElementChild) {
             const scrollElement = hasClosestByAttribute(item, "id", "viewerContainer");
             if (scrollElement) {
@@ -845,7 +861,11 @@ const getConfig = (pdf: any) => {
     }, (response) => {
         let config = {};
         if (response.code !== 1) {
-            config = JSON.parse(response.data.data);
+            try {
+                config = JSON.parse(response.data.data);
+            } catch (e) {
+                config = {};
+            }
         }
         pdf.appConfig.config = config;
     });

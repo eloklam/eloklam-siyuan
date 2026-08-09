@@ -23,6 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-note/siyuan/kernel/conf"
 	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-note/siyuan/kernel/treenode"
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
@@ -92,8 +93,7 @@ func getGraph(c *gin.Context) {
 	boxID, nodes, links := model.BuildGraph(query)
 	if model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
-		publishIgnore := model.GetInvisiblePublishAccess(publishAccess)
-		nodes, links = model.FilterGraphByPublishIgnore(publishIgnore, nodes, links)
+		nodes, links = model.FilterGraphByPublishAccess(c, publishAccess, nodes, links)
 	}
 	ret.Data = map[string]any{
 		"nodes": nodes,
@@ -129,6 +129,17 @@ func getLocalGraph(c *gin.Context) {
 	) {
 		return
 	}
+	notebook, _ := arg["notebook"].(string)
+	if model.IsEncryptedBox(notebook) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(313)
+		return
+	}
+	if bt := treenode.GetBlockTree(id); bt != nil && model.IsEncryptedBox(bt.BoxID) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(313)
+		return
+	}
 
 	graphConf, err := gulu.JSON.MarshalJSON(confArg)
 	if err != nil {
@@ -152,8 +163,7 @@ func getLocalGraph(c *gin.Context) {
 	boxID, nodes, links := model.BuildTreeGraph(id, keyword)
 	if model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
-		publishIgnore := model.GetInvisiblePublishAccess(publishAccess)
-		nodes, links = model.FilterGraphByPublishIgnore(publishIgnore, nodes, links)
+		nodes, links = model.FilterGraphByPublishAccess(c, publishAccess, nodes, links)
 	}
 	ret.Data = map[string]any{
 		"id":    id,

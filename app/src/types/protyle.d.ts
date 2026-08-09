@@ -123,7 +123,8 @@ interface IBreadcrumb {
     name: string,
     type: string,
     subType: string,
-    children: []
+    children: IBreadcrumb[],
+    hasChildren?: boolean
 }
 
 interface ILuteOptions extends IMarkdownConfig {
@@ -291,6 +292,12 @@ declare class Lute {
     public BlockDOM2InlineBlockDOM(html: string): string;
 
     public BlockDOM2HTML(html: string): string;
+
+    public BlockDOM2RichHTML(html: string): string;
+
+    public CancelListRecursively(html: string): string;
+
+    public ConvertListType(html: string, targetType: "u" | "o" | "t"): string;
 
     public HTML2Md(html: string): string;
 
@@ -466,6 +473,8 @@ interface IProtyleOptions {
         snapshot?: string
     },
     backlinkData?: {
+        id?: string,
+        revision?: string,
         blockPaths: IBreadcrumb[],
         dom: string
         expand: boolean
@@ -547,6 +556,8 @@ interface IProtyle {
         mode?: number
         blockCount?: number
         action?: TProtyleAction[]
+        headingNumbers?: Record<string, string>
+        headingNumberLevels?: Record<string, string>
     },
     disabled: boolean,
     lite?: boolean,
