@@ -14,6 +14,7 @@ import {getDockByType, resizeTabs, setTabPosition} from "../tabUtil";
 import {Protyle} from "../../protyle";
 import {Backlink} from "./Backlink";
 import {AgentChat} from "./agent/AgentChat";
+import {Calendar} from "./Calendar";
 import {adjustDockPadding, resetFloatDockSize} from "./util";
 import {hasClosestByAttribute, hasClosestByClassName} from "../../protyle/util/hasClosest";
 import type {App} from "../../index";
@@ -22,7 +23,7 @@ import {Custom} from "./Custom";
 import {clearBeforeResizeTop, recordBeforeResizeTop} from "../../protyle/util/resize";
 import {Constants} from "../../constants";
 
-const TYPES = ["file", "outline", "bookmark", "tag", "graph", "globalGraph", "backlink", "agentChat"];
+const TYPES = ["file", "outline", "bookmark", "tag", "graph", "globalGraph", "backlink", "agentChat", "calendar"];
 
 export class Dock {
     public elements: HTMLElement[];
@@ -631,6 +632,13 @@ export class Dock {
                                     close: () => this.toggleModel("agentChat", false, true),
                                     focus: () => setPanelFocus(tab.panelElement),
                                 }));
+                            }
+                        });
+                        break;
+                    case "calendar":
+                        tab = new Tab({
+                            callback: (tab: Tab) => {
+                                tab.addModel(new Calendar(this.app, tab));
                             }
                         });
                         break;
