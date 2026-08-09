@@ -2823,12 +2823,20 @@ type AvSearchTempResult struct {
 	MatchedViewIDs map[string]bool
 }
 
+// SearchAttributeViewDefaultLimit 是搜索数据库时默认返回的最大结果数
+const SearchAttributeViewDefaultLimit = 12
+
+// SearchAttributeViewLimitAll 表示返回全部匹配结果，不限制数量
+const SearchAttributeViewLimitAll = -1
+
 type SearchAttributeViewOptions struct {
 	Keyword            string
 	ExcludeAvIDs       []string
 	CurrentAvID        string
 	CurrentBlockID     string
 	IncludeViewMatches bool
+	// Limit 限制返回的最大结果数，0 表示使用默认值 SearchAttributeViewDefaultLimit，-1 表示不限制
+	Limit int
 }
 
 type attributeViewSearchCacheWarmup struct {
@@ -2950,7 +2958,7 @@ func matchAttributeViewSearchName(name string, keywords []string) (score float64
 	return
 }
 
-func sortAndLimitAttributeViewSearchResults(results []*AvSearchTempResult, keyword string) []*AvSearchTempResult {
+func sortAndLimitAttributeViewSearchResults(results []*AvSearchTempResult, keyword string, limit int) []*AvSearchTempResult {
 	if keyword == "" {
 		sort.Slice(results, func(i, j int) bool { return results[i].AvUpdated > results[j].AvUpdated })
 	} else {
@@ -2961,8 +2969,8 @@ func sortAndLimitAttributeViewSearchResults(results []*AvSearchTempResult, keywo
 			return results[i].Score > results[j].Score
 		})
 	}
-	if 12 < len(results) {
-		return results[:12]
+	if 0 < limit && limit < len(results) {
+		return results[:limit]
 	}
 	return results
 }
@@ -3122,7 +3130,11 @@ func SearchAttributeViewWithOptions(options SearchAttributeViewOptions) (ret []*
 
 	sortStart := time.Now()
 	matchedCount = len(avSearchTmpResults)
-	avSearchTmpResults = sortAndLimitAttributeViewSearchResults(avSearchTmpResults, keyword)
+	limit := options.Limit
+	if limit == 0 {
+		limit = SearchAttributeViewDefaultLimit
+	}
+	avSearchTmpResults = sortAndLimitAttributeViewSearchResults(avSearchTmpResults, keyword, limit)
 	sortElapsed = time.Since(sortStart)
 
 	resolveStart := time.Now()

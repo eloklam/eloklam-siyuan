@@ -1000,12 +1000,17 @@ func searchAttributeView(c *gin.Context) {
 		}
 	}
 	includeViewMatches, _ := arg["includeViewMatches"].(bool)
+	limit := 0
+	if nil != arg["limit"] {
+		limit = int(arg["limit"].(float64))
+	}
 	results := model.SearchAttributeViewWithOptions(model.SearchAttributeViewOptions{
 		Keyword:            keyword,
 		ExcludeAvIDs:       excludes,
 		CurrentAvID:        currentAvID,
 		CurrentBlockID:     currentBlockID,
 		IncludeViewMatches: includeViewMatches,
+		Limit:              limit,
 	})
 	ret.Data = map[string]any{
 		"results": results,
