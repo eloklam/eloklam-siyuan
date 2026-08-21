@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "대상 데이터베이스",
+	"dailyNoteDatabaseIdHint": "저장 데이터베이스",
+	"dailyNoteDatabasePick": "데이터베이스 선택...",
 	"calendar": "캘린더",
 	"calendarRecurringAdvancedReadOnly": "고급 반복 설정은 유지됩니다 (여기서 수정 불가).",
 	"calendarDuplicateMetadataField": "${x} 메타데이터에 서로 다른 필드를 선택하세요.",

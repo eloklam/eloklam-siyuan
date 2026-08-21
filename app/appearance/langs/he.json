@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "מסד הנתונים היעד",
+	"dailyNoteDatabaseIdHint": "מסד נתונים לאחסון",
+	"dailyNoteDatabasePick": "בחר מסד נתונים...",
 	"calendar": "לוח שנה",
 	"calendarRecurringAdvancedReadOnly": "חזרתיות מתקדמת נשמרת (לא ניתנת לעריכה כאן).",
 	"calendarDuplicateMetadataField": "יש לבחור שדות שונים עבור מטא־נתוני ${x}.",

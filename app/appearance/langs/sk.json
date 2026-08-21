@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "Cieľová databáza",
+	"dailyNoteDatabaseIdHint": "Databáza úložiska",
+	"dailyNoteDatabasePick": "Vybrať databázu...",
 	"calendar": "Kalendár",
 	"calendarRecurringAdvancedReadOnly": "Rozšírené opakovanie je zachované (tu ho nemožno upraviť).",
 	"calendarDuplicateMetadataField": "Vyberte odlišné polia pre metadáta ${x}.",

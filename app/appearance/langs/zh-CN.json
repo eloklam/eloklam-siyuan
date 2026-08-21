@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "目标数据库",
+	"dailyNoteDatabaseIdHint": "存放数据库",
+	"dailyNoteDatabasePick": "选择数据库...",
 	"calendar": "日历",
 	"calendarRecurringAdvancedReadOnly": "高级重复规则将被保留（此处不可编辑）。",
 	"calendarDuplicateMetadataField": "请为 ${x} 选择不同的元数据字段。",

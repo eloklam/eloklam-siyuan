@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "ฐานข้อมูลเป้าหมาย",
+	"dailyNoteDatabaseIdHint": "ฐานข้อมูลสำหรับจัดเก็บ",
+	"dailyNoteDatabasePick": "เลือกฐานข้อมูล...",
 	"calendar": "ปฏิทิน",
 	"calendarRecurringAdvancedReadOnly": "การเกิดซ้ำขั้นสูงจะถูกคงไว้ (แก้ไขที่นี่ไม่ได้)",
 	"calendarDuplicateMetadataField": "โปรดเลือกฟิลด์อื่นสำหรับข้อมูลเมตา ${x}",

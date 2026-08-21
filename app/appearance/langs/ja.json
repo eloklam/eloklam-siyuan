@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "対象データベース",
+	"dailyNoteDatabaseIdHint": "格納データベース",
+	"dailyNoteDatabasePick": "データベースを選択...",
 	"calendar": "カレンダー",
 	"calendarRecurringAdvancedReadOnly": "高度な繰り返し設定は保持されます（ここでは編集できません）。",
 	"calendarDuplicateMetadataField": "${x} のメタデータには別のフィールドを選択してください。",

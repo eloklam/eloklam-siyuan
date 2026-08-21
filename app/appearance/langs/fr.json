@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "Base de données cible",
+	"dailyNoteDatabaseIdHint": "Base de données de stockage",
+	"dailyNoteDatabasePick": "Sélectionner une base de données...",
 	"calendar": "Calendrier",
 	"calendarRecurringAdvancedReadOnly": "La récurrence avancée est conservée (non modifiable ici).",
 	"calendarDuplicateMetadataField": "Veuillez choisir des champs différents pour les métadonnées ${x}.",

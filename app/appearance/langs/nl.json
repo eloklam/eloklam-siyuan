@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "Doeldatabase",
+	"dailyNoteDatabaseIdHint": "Opslagdatabase",
+	"dailyNoteDatabasePick": "Database selecteren...",
 	"calendar": "Kalender",
 	"calendarRecurringAdvancedReadOnly": "Geavanceerde herhaling blijft behouden (hier niet bewerkbaar).",
 	"calendarDuplicateMetadataField": "Kies verschillende velden voor ${x}-metadata.",

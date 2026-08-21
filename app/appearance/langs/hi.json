@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "लक्ष्य डेटाबेस",
+	"dailyNoteDatabaseIdHint": "भंडारण डेटाबेस",
+	"dailyNoteDatabasePick": "डेटाबेस चुनें...",
 	"calendar": "कैलेंडर",
 	"calendarRecurringAdvancedReadOnly": "उन्नत पुनरावृत्ति बनी रहेगी (यहाँ संपादन योग्य नहीं)।",
 	"calendarDuplicateMetadataField": "कृपया ${x} मेटाडेटा के लिए अलग-अलग फ़ील्ड चुनें।",

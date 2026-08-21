@@ -1546,7 +1546,80 @@ func CreateDailyNote(boxID string) (p string, existed bool, err error) {
 		sql.FlushQueue()
 	}
 
+	addDailyNoteToDatabase(boxConf.DailyNoteDatabaseID, id)
+
 	return
+}
+
+// addDailyNoteToDatabase 将新建的日记文档作为行添加到笔记本配置的目标数据库（属性视图）中。
+// 绑定文档行时仅复用数据库默认新增条目模板的字段值，不应用模板的文档路径、标题、图标、目标类型和内容模板。
+// 该功能为尽力而为：配置无效、模板字段解析失败或插入失败时仅记录警告，不影响日记创建。
+func addDailyNoteToDatabase(dbBlockID, docID string) {
+	if "" == dbBlockID {
+		return
+	}
+
+	bt := treenode.GetBlockTree(dbBlockID)
+	if nil == bt {
+		logging.LogWarnf("daily note database block [%s] not found, skip adding daily note [%s] to database", dbBlockID, docID)
+		return
+	}
+
+	tree, err := LoadTreeByBlockID(bt.RootID)
+	if err != nil {
+		logging.LogWarnf("load tree of daily note database block [%s] failed: %s", bt.RootID, err)
+		return
+	}
+	node := treenode.GetNodeInTree(tree, dbBlockID)
+	if nil == node || ast.NodeAttributeView != node.Type {
+		logging.LogWarnf("daily note database block [%s] is not an attribute view block, skip adding daily note [%s] to database", dbBlockID, docID)
+		return
+	}
+	avID := node.AttributeViewID
+	if "" == avID {
+		logging.LogWarnf("daily note database block [%s] has no attribute view id, skip adding daily note [%s] to database", dbBlockID, docID)
+		return
+	}
+
+	// 幂等：文档已经绑定到该数据库时不再重复添加
+	if itemID := GetAttributeViewItemIDs(avID, []string{docID})[docID]; "" != itemID {
+		return
+	}
+
+	attrView, err := av.ParseAttributeView(avID)
+	if err != nil {
+		logging.LogWarnf("parse attribute view [%s] failed: %s", avID, err)
+		return
+	}
+
+	createdAt := time.Now()
+	itemID := ast.NewNodeID()
+	var fieldValues map[string]*av.Value
+	if itemTemplate := attrView.GetNewItemTemplate(attrView.DefaultTemplateID); nil != itemTemplate {
+		// 仅复用模板字段值，模板的文档路径、标题、图标、目标类型和内容模板不适用于已存在的日记文档
+		if resolved, resolveErr := resolveNewItemFieldValues(attrView, itemTemplate, createdAt); nil != resolveErr {
+			logging.LogWarnf("resolve daily note database [%s] new item template field values failed: %s", avID, resolveErr)
+		} else {
+			fieldValues = resolved
+		}
+	}
+
+	srcs := []map[string]any{{"itemID": itemID, "id": docID, "isDetached": false}}
+	doOperations := []*Operation{
+		{Action: "insertAttrViewBlock", AvID: avID, BlockID: dbBlockID, IgnoreDefaultFill: true, Srcs: srcs},
+	}
+	doOperations = append(doOperations, buildNewItemFieldValueOperations(attrView, fieldValues, itemID)...)
+	doOperations = append(doOperations, &Operation{Action: "doUpdateUpdated", ID: dbBlockID, Data: util.CurrentTimeSecondsStr()})
+
+	undoOperations := []*Operation{{Action: "removeAttrViewBlock", AvID: avID, SrcIDs: []string{itemID}}}
+	undoOperations = append(undoOperations, &Operation{Action: "doUpdateUpdated", ID: dbBlockID, Data: node.IALAttr("updated")})
+	tx := &Transaction{DoOperations: doOperations, UndoOperations: undoOperations, Timestamp: createdAt.UnixMilli()}
+	if err = PerformTxSync(tx); err != nil {
+		logging.LogWarnf("add daily note [%s] to database [%s] failed: %s", docID, avID, err)
+		return
+	}
+	ReloadAttrView(avID)
+	logging.LogInfof("daily note [%s] added to database [%s]", docID, avID)
 }
 
 func GetHPathByPath(boxID, p string) (hPath string, err error) {

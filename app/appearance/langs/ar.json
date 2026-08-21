@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "قاعدة البيانات المستهدفة",
+	"dailyNoteDatabaseIdHint": "قاعدة بيانات التخزين",
+	"dailyNoteDatabasePick": "تحديد قاعدة البيانات...",
 	"calendar": "التقويم",
 	"calendarRecurringAdvancedReadOnly": "تم الاحتفاظ بإعدادات التكرار المتقدمة (غير قابلة للتحرير هنا).",
 	"calendarDuplicateMetadataField": "يرجى اختيار حقول مختلفة لبيانات ${x} الوصفية.",

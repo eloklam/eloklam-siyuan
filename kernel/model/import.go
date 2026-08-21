@@ -409,6 +409,21 @@ func importSY0(zipPath, boxID, toPath string, createNotebook, autoDetect bool, s
 		}
 	}
 
+	// 重映射日记目标数据库块 ID：导入后块 ID 会重新生成，不能继续沿用导出时的旧 ID
+	if createNotebook && importedBoxConf != nil && "" != importedBoxConf.DailyNoteDatabaseID {
+		box := &Box{ID: boxID}
+		boxConf := box.GetConf()
+		newDatabaseID := blockIDs[importedBoxConf.DailyNoteDatabaseID]
+		if "" == newDatabaseID {
+			// 目标数据库块未随本次导入进入，清空配置，避免残留失效 ID
+			logging.LogWarnf("daily note database block [%s] not imported, clear dailyNoteDatabaseID of notebook [%s]", importedBoxConf.DailyNoteDatabaseID, boxID)
+		}
+		boxConf.DailyNoteDatabaseID = newDatabaseID
+		if err = box.SaveConf(boxConf); err != nil {
+			return createdBoxID, err
+		}
+	}
+
 	// 引用和嵌入指向重新生成的块 ID
 	for _, tree := range trees {
 		util.PushEndlessProgress(Conf.language(73) + " " + fmt.Sprintf(Conf.language(70), tree.Root.IALAttr("title")))

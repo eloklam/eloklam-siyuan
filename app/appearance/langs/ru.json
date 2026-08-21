@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "Целевая база данных",
+	"dailyNoteDatabaseIdHint": "База данных хранения",
+	"dailyNoteDatabasePick": "Выбрать базу данных...",
 	"calendar": "Календарь",
 	"calendarRecurringAdvancedReadOnly": "Расширенное повторение сохранено (здесь не редактируется).",
 	"calendarDuplicateMetadataField": "Выберите разные поля для метаданных ${x}.",

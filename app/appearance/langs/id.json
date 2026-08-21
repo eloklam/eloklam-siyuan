@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "Database target",
+	"dailyNoteDatabaseIdHint": "Database penyimpanan",
+	"dailyNoteDatabasePick": "Pilih database...",
 	"calendar": "Kalender",
 	"calendarRecurringAdvancedReadOnly": "Perulangan lanjutan dipertahankan (tidak dapat diedit di sini).",
 	"calendarDuplicateMetadataField": "Silakan pilih bidang berbeda untuk metadata ${x}.",

@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "Zieldatenbank",
+	"dailyNoteDatabaseIdHint": "Speicherdatenbank",
+	"dailyNoteDatabasePick": "Datenbank auswählen...",
 	"calendar": "Kalender",
 	"calendarRecurringAdvancedReadOnly": "Erweiterte Wiederholungsmuster bleiben erhalten (hier nicht bearbeitbar).",
 	"calendarDuplicateMetadataField": "Bitte wählen Sie unterschiedliche Felder für ${x} aus.",

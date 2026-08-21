@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "目標資料庫",
+	"dailyNoteDatabaseIdHint": "存放資料庫",
+	"dailyNoteDatabasePick": "選擇資料庫...",
 	"calendar": "行事曆",
 	"calendarRecurringAdvancedReadOnly": "進階重複規則將保留，不可在此處編輯。",
 	"calendarDuplicateMetadataField": "請為 ${x} 選擇不同的元資料欄位。",

@@ -1,4 +1,7 @@
 {
+	"dailyNoteDatabaseId": "Hedef veritabanı",
+	"dailyNoteDatabaseIdHint": "Depolama veritabanı",
+	"dailyNoteDatabasePick": "Veritabanı seç...",
 	"calendar": "Takvim",
 	"calendarRecurringAdvancedReadOnly": "Gelişmiş yineleme korunuyor (burada düzenlenemez).",
 	"calendarDuplicateMetadataField": "Lütfen ${x} meta verisi için farklı alanlar seçin.",
