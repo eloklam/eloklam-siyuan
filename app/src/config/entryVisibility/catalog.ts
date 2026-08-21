@@ -520,6 +520,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
             node("tag", lang("tag")),
             node("backlink", lang("backlinks")),
             node("agentChat", lang("ai")),
+            node("calendar", lang("calendar"), false),
             node("inbox", lang("inbox"), false),
             node("graph", lang("graphView"), false),
             node("globalGraph", lang("globalGraph"), false),

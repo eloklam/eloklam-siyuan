@@ -1,7 +1,7 @@
 type TPluginDockPosition = "LeftTop" | "LeftBottom" | "RightTop" | "RightBottom" | "BottomLeft" | "BottomRight"
 type TDockPosition = "Left" | "Right" | "Bottom"
-type TWS = "main" | "filetree" | "protyle" | "backlink" | "bookmark" | "graph" | "outline" | "tag" | "agentChat"
-type TDock = "file" | "outline" | "inbox" | "bookmark" | "tag" | "graph" | "globalGraph" | "backlink" | "agentChat"
+type TWS = "main" | "filetree" | "protyle" | "backlink" | "bookmark" | "graph" | "outline" | "tag" | "agentChat" | "calendar"
+type TDock = "file" | "outline" | "inbox" | "bookmark" | "tag" | "graph" | "globalGraph" | "backlink" | "agentChat" | "calendar"
 type TTab = "Outline" | "Graph" | "Backlink" | "Asset" | "Editor" | "Search" | "siyuan-card"
 type TOperation =
     "insert"
@@ -93,6 +93,11 @@ type TOperation =
     | "setAttrViewFillColBackgroundColor"
     | "setAttrViewUpdatedIncludeTime"
     | "setAttrViewCreatedIncludeTime"
+    | "setAttrViewCalendarViewMode"
+    | "setAttrViewCalendarDateField"
+    | "setAttrViewCalendarWeekStart"
+    | "setAttrViewCalendarNewItemTarget"
+    | "setAttrViewCalendarFieldMapping"
 type TBazaarType = "templates" | "icons" | "widgets" | "themes" | "plugins"
 type TBazaarPackageInvalidReason = "missing-manifest" | "invalid-manifest" | "name-mismatch"
 type TCardType = "doc" | "notebook" | "all"
@@ -114,7 +119,7 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "kernel-plugin-state-change" |
     "before-show-tooltip" | "before-hide-tooltip" |
     "common-menu-open" | "common-menu-closed"
-type TAVView = "table" | "gallery" | "kanban"
+type TAVView = "table" | "gallery" | "kanban" | "calendar"
 type TAVAlign = "" | "left" | "center" | "right"
 type TAVDateFormat = "" | "full" | "month-day-year" | "day-month-year" | "year-month-day"
 type TAVCol =
@@ -1206,7 +1211,7 @@ interface IBazaarPackageDetail {
 interface IAV {
     id: string;
     name: string;
-    view: IAVTable | IAVGallery;
+    view: IAVTable | IAVGallery | IAVKanban | IAVCalendar;
     viewID: string;
     viewType: TAVView;
     views: IAVView[];
@@ -1325,6 +1330,24 @@ interface IAVKanban extends IAVView {
     fields: IAVColumn[]
     cardCount: number,
     fillColBackgroundColor: boolean
+}
+
+interface IAVCalendar extends IAVView {
+    dateFieldID: string;
+    viewMode: number; // 0: month, 1: week, 2: day, 3: schedule, 4: year, 5: five days
+    weekStart: number; // 0: Sunday, 1: Monday
+    // "" (absent) keeps the legacy row-only behaviour; "document" creates a page per entry
+    newItemTarget?: "" | "row" | "document";
+    fields: IAVColumn[];
+    cards: IAVGalleryItem[];
+    cardCount: number;
+    fieldMapping?: {
+        recurrenceFieldID?: string;
+        exceptionFieldID?: string;
+        locationFieldID?: string;
+        descriptionFieldID?: string;
+        colorFieldID?: string;
+    };
 }
 
 interface IAVFilter {
