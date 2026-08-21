@@ -11,7 +11,6 @@ import {Graph} from "./Graph";
 import {Model} from "../Model";
 import {adjustLayout, saveLayout, setPanelFocus} from "../util";
 import {getDockByType, resizeTabs, setTabPosition} from "../tabUtil";
-import {Inbox} from "./Inbox";
 import {Protyle} from "../../protyle";
 import {Backlink} from "./Backlink";
 import {AgentChat} from "./agent/AgentChat";
@@ -30,7 +29,7 @@ import {
 } from "./pluginDockState";
 import {getDockHotkey} from "./hotkey";
 
-const TYPES = ["file", "outline", "inbox", "bookmark", "tag", "graph", "globalGraph", "backlink", "agentChat", "calendar"];
+const TYPES = ["file", "outline", "bookmark", "tag", "graph", "globalGraph", "backlink", "agentChat", "calendar"];
 
 export class Dock {
     public elements: HTMLElement[];
@@ -273,7 +272,7 @@ export class Dock {
                 let minSize = 232;
                 Array.from(this.layout.element.querySelectorAll(".file-tree")).find((item) => {
                     if (item.classList.contains("sy__backlink") || item.classList.contains("sy__graph")
-                        || item.classList.contains("sy__globalGraph") || item.classList.contains("sy__inbox")
+                        || item.classList.contains("sy__globalGraph")
                         || item.classList.contains("sy__calendar")) {
                         if (!item.classList.contains("fn__none") && !hasClosestByClassName(item, "fn__none")) {
                             minSize = 320;
@@ -626,13 +625,6 @@ export class Dock {
                                     blockId: editor?.protyle?.block?.rootID,
                                     notebookId: editor?.protyle?.notebookId,
                                 }));
-                            }
-                        });
-                        break;
-                    case "inbox":
-                        tab = new Tab({
-                            callback: (tab: Tab) => {
-                                tab.addModel(new Inbox(this.app, tab));
                             }
                         });
                         break;

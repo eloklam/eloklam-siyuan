@@ -1519,11 +1519,10 @@ const initKernel = (workspace, port, lang, safeMode) => {
             return;
         }
 
-        if (!isDevEnv || workspaces.length > 0) {
-            if (port && "" !== port) {
-                kernelPort = port;
-            } else {
-                const getAvailablePort = () => {
+        if (port && "" !== port) {
+            kernelPort = port;
+        } else if (!isDevEnv || workspaces.length > 0) {
+            const getAvailablePort = () => {
                     // https://gist.github.com/mikeal/1840641
                     return new Promise((portResolve, portReject) => {
                         const server = gNet.createServer();
@@ -1539,7 +1538,6 @@ const initKernel = (workspace, port, lang, safeMode) => {
                     });
                 };
                 await getAvailablePort();
-            }
         }
         writeLog("got kernel port [" + kernelPort + "]");
         if (!kernelPort) {
