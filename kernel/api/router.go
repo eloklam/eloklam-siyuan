@@ -613,6 +613,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/av/createAttributeViewItem", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, createAttributeViewItem)
 	ginServer.Handle("POST", "/api/av/createAttributeViewItemWithMarkdown", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, createAttributeViewItemWithMarkdown)
 	ginServer.Handle("POST", "/api/av/createAttributeViewItemDocs", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, createAttributeViewItemDocs)
+	ginServer.Handle("POST", "/api/av/updateAttributeViewItem", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, updateAttributeViewItem)
 	ginServer.Handle("POST", "/api/av/removeUnusedAttributeViews", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeUnusedAttributeViews)
 	ginServer.Handle("POST", "/api/av/removeUnusedAttributeView", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeUnusedAttributeView)
 

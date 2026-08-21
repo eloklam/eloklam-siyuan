@@ -77,9 +77,66 @@ type CreateAttributeViewItemDocsResult struct {
 	Transaction    *Transaction `json:"-"`
 }
 
+// CreateItemOptions 描述调用方对新增条目的额外要求，全部可选。
+type CreateItemOptions struct {
+	// PrimaryKey 调用方指定的主键内容（文档类型模板下即文档标题）。
+	// 为空（或仅空白）时回退到模板的 primaryKeyTemplate，与旧行为一致。
+	PrimaryKey string
+	// FieldValues 需要与插入操作在同一个事务中写入的字段值，键为字段 ID。
+	// 与模板自带的字段默认值合并，调用方提供的值优先。
+	FieldValues map[string]*av.Value
+}
+
+// defaultDocumentNewItemTemplate 在调用方没有指定模板、而目标视图是「新条目即页面」的日历视图时，
+// 返回一个文档类型的新增条目模板。优先复用数据库上已有的文档模板（用户可以在上游的模板编辑器里改保存位置），
+// 没有时就地合成一个等价的（空 BoxID/PathTemplate = 数据库块所在笔记本 + 以其根文档为父）。
+// 返回 nil 表示保持上游默认（游离条目）。
+func defaultDocumentNewItemTemplate(attrView *av.AttributeView, blockID, viewID string) *av.NewItemTemplate {
+	var view *av.View
+	if "" != viewID {
+		view = attrView.GetView(viewID)
+	}
+	if nil == view {
+		view, _ = getAttrViewViewByBlockID(attrView, blockID)
+	}
+	if nil == view || av.LayoutTypeCalendar != view.LayoutType || nil == view.Calendar {
+		return nil
+	}
+	if av.CalendarNewItemTargetDocument != view.Calendar.NewItemTarget {
+		return nil
+	}
+	for _, itemTemplate := range attrView.NewItemTemplates {
+		if nil != itemTemplate && av.NewItemTargetDocument == itemTemplate.TargetType {
+			return itemTemplate
+		}
+	}
+	return &av.NewItemTemplate{
+		ID:           ast.NewNodeID(),
+		Name:         calendarNewItemTemplateName(),
+		TargetType:   av.NewItemTargetDocument,
+		SaveLocation: &av.NewItemSaveLocation{BoxID: "", PathTemplate: ""},
+	}
+}
+
+func mergeCreateItemOptions(options []*CreateItemOptions) (ret *CreateItemOptions) {
+	ret = &CreateItemOptions{}
+	for _, option := range options {
+		if nil == option {
+			continue
+		}
+		if "" != option.PrimaryKey {
+			ret.PrimaryKey = option.PrimaryKey
+		}
+		if 0 < len(option.FieldValues) {
+			ret.FieldValues = option.FieldValues
+		}
+	}
+	return
+}
+
 // CreateAttributeViewItem 按指定模板创建一个数据库条目。templateID 为空时创建空白游离条目。
-func CreateAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID string) (*CreateAttributeViewItemResult, error) {
-	return createAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID, nil)
+func CreateAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID string, options ...*CreateItemOptions) (*CreateAttributeViewItemResult, error) {
+	return createAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID, nil, options...)
 }
 
 // CreateAttributeViewItemWithMarkdown 按指定的文档类型模板创建数据库条目，并使用传入的 Markdown 创建绑定文档。
@@ -92,7 +149,8 @@ func CreateAttributeViewItemWithMarkdown(avID, blockID, viewID, templateID, prev
 }
 
 func createAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID string,
-	document *CreateAttributeViewItemMarkdown) (*CreateAttributeViewItemResult, error) {
+	document *CreateAttributeViewItemMarkdown, options ...*CreateItemOptions) (*CreateAttributeViewItemResult, error) {
+	opts := mergeCreateItemOptions(options)
 	attrView, err := av.ParseAttributeView(avID)
 	if nil != err {
 		return nil, err
@@ -102,6 +160,10 @@ func createAttributeViewItem(avID, blockID, viewID, templateID, previousID, grou
 	var prunedOptions []*av.PrunedNewItemTemplateOption
 	if "" != templateID && nil == itemTemplate {
 		return nil, fmt.Errorf("new item template [%s] not found", templateID)
+	}
+	if nil == itemTemplate && "" == templateID {
+		// 没有显式指定模板时，若目标视图是「每个条目是一个页面」的日历视图，则默认按文档模板创建。
+		itemTemplate = defaultDocumentNewItemTemplate(attrView, blockID, viewID)
 	}
 	if nil == itemTemplate {
 		itemTemplate = &av.NewItemTemplate{TargetType: av.NewItemTargetDetached}
@@ -121,7 +183,7 @@ func createAttributeViewItem(avID, blockID, viewID, templateID, previousID, grou
 	if nil != document {
 		primaryFallback = document.Title
 	}
-	preview, err := resolveAttributeViewNewItemTemplateWithFallback(blockID, itemTemplate, createdAt, primaryFallback)
+	preview, err := resolveAttributeViewNewItemTemplateWithFallback(blockID, itemTemplate, createdAt, opts.PrimaryKey, primaryFallback)
 	if nil != err {
 		return nil, err
 	}
@@ -136,6 +198,13 @@ func createAttributeViewItem(avID, blockID, viewID, templateID, previousID, grou
 	fieldValues, err := resolveNewItemFieldValues(attrView, itemTemplate, createdAt)
 	if nil != err {
 		return nil, err
+	}
+	callerFieldValues, err := resolveCallerItemFieldValues(attrView, opts.FieldValues)
+	if nil != err {
+		return nil, err
+	}
+	for keyID, value := range callerFieldValues {
+		fieldValues[keyID] = value
 	}
 	dbTree, err := LoadTreeByBlockID(blockID)
 	if nil != err {
@@ -360,12 +429,12 @@ func attributeViewItemDocumentTemplate(attrView *av.AttributeView, saveMode stri
 	}
 }
 
-func resolveAttributeViewNewItemTemplate(blockID string, itemTemplate *av.NewItemTemplate, createdAt time.Time) (*NewItemTemplatePreview, error) {
-	return resolveAttributeViewNewItemTemplateWithFallback(blockID, itemTemplate, createdAt, "")
+func resolveAttributeViewNewItemTemplate(blockID string, itemTemplate *av.NewItemTemplate, createdAt time.Time, primaryKeyOverride string) (*NewItemTemplatePreview, error) {
+	return resolveAttributeViewNewItemTemplateWithFallback(blockID, itemTemplate, createdAt, primaryKeyOverride, "")
 }
 
 func resolveAttributeViewNewItemTemplateWithFallback(blockID string, itemTemplate *av.NewItemTemplate, createdAt time.Time,
-	primaryFallback string) (*NewItemTemplatePreview, error) {
+	primaryOverride, primaryFallback string) (*NewItemTemplatePreview, error) {
 	boxID := ""
 	if blockTree := treenode.GetBlockTree(blockID); blockTree != nil {
 		boxID = blockTree.BoxID
@@ -377,12 +446,15 @@ func resolveAttributeViewNewItemTemplateWithFallback(blockID string, itemTemplat
 			}
 		}
 	}
-	primary, err := RenderGoTemplateAtInBox(itemTemplate.PrimaryKeyTemplate, createdAt, boxID)
-	if nil != err {
-		return nil, err
+	primary := strings.TrimSpace(primaryOverride)
+	if "" == primary {
+		rendered, err := RenderGoTemplateAtInBox(itemTemplate.PrimaryKeyTemplate, createdAt, boxID)
+		if nil != err {
+			return nil, err
+		}
+		primary = strings.TrimSpace(rendered)
 	}
-	primary = strings.TrimSpace(primary)
-	if "" == strings.TrimSpace(itemTemplate.PrimaryKeyTemplate) && "" != strings.TrimSpace(primaryFallback) {
+	if "" == strings.TrimSpace(itemTemplate.PrimaryKeyTemplate) && "" == strings.TrimSpace(primaryOverride) && "" != strings.TrimSpace(primaryFallback) {
 		primary = strings.TrimSpace(primaryFallback)
 	}
 	preview := &NewItemTemplatePreview{PrimaryKey: primary}
@@ -629,6 +701,65 @@ func filterNewItemTemplateRelationValue(attrView *av.AttributeView, key *av.Key,
 		}
 	}
 	value.Relation.BlockIDs = blockIDs
+}
+
+// resolveCallerItemFieldValues 校验调用方直接传入的字段值，返回可以安全写入的副本。
+// 主键（block）以及模板/汇总/创建时间/更新时间/行号这些计算字段一律拒绝：
+// 绑定文档的条目主键由内核根据文档标题派生，计算字段每次渲染都会被覆盖。
+func resolveCallerItemFieldValues(attrView *av.AttributeView, fieldValues map[string]*av.Value) (ret map[string]*av.Value, err error) {
+	ret = map[string]*av.Value{}
+	if 0 == len(fieldValues) {
+		return
+	}
+	for keyID, value := range fieldValues {
+		if nil == value {
+			continue
+		}
+		key, getErr := attrView.GetKey(keyID)
+		if nil != getErr || nil == key {
+			return nil, fmt.Errorf("new item field [%s] not found", keyID)
+		}
+		if !isCallerWritableKeyType(key.Type) {
+			return nil, fmt.Errorf("new item field [%s] type [%s] is not writable", keyID, key.Type)
+		}
+		if "" != value.Type && value.Type != key.Type {
+			return nil, fmt.Errorf("new item field [%s] value type [%s] does not match field type [%s]", keyID, value.Type, key.Type)
+		}
+		cloned := value.Clone()
+		if nil == cloned {
+			return nil, fmt.Errorf("new item field [%s] value is invalid", keyID)
+		}
+		cloned.ID = ""
+		cloned.KeyID = ""
+		cloned.BlockID = ""
+		cloned.Type = key.Type
+		cloned.Block, cloned.Template, cloned.Created, cloned.Updated, cloned.Rollup = nil, nil, nil, nil, nil
+		cloned.IsDetached = false
+		cloned.IsRenderAutoFill = false
+		if nil != cloned.Number {
+			cloned.Number.Format = key.NumberFormat
+			cloned.Number.FormattedContent = ""
+		}
+		if av.KeyTypeRelation == key.Type {
+			filterNewItemTemplateRelationValue(attrView, key, cloned)
+			// nil means the caller supplied no relation value. A non-nil relation
+			// with zero targets is an explicit clear and must survive undo/replay.
+			if nil == cloned.Relation {
+				continue
+			}
+		}
+		ret[keyID] = cloned
+	}
+	return
+}
+
+func isCallerWritableKeyType(keyType av.KeyType) bool {
+	switch keyType {
+	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL,
+		av.KeyTypeEmail, av.KeyTypePhone, av.KeyTypeMAsset, av.KeyTypeCheckbox, av.KeyTypeRelation:
+		return true
+	}
+	return false
 }
 
 func buildNewItemFieldValueOperations(attrView *av.AttributeView, fieldValues map[string]*av.Value, itemID string) (ret []*Operation) {

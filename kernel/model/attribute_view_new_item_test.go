@@ -48,7 +48,7 @@ func TestNewItemPathTitleFallback(t *testing.T) {
 func TestNewItemPrimaryKeyUsesClippedTitleFallback(t *testing.T) {
 	createdAt := time.Date(2026, time.August, 13, 12, 0, 0, 0, time.Local)
 	template := &av.NewItemTemplate{TargetType: av.NewItemTargetDetached}
-	preview, err := resolveAttributeViewNewItemTemplateWithFallback(ast.NewNodeID(), template, createdAt, " Clipped title ")
+	preview, err := resolveAttributeViewNewItemTemplateWithFallback(ast.NewNodeID(), template, createdAt, "", " Clipped title ")
 	if nil != err {
 		t.Fatalf("resolve clipped title fallback failed: %s", err)
 	}
@@ -57,7 +57,7 @@ func TestNewItemPrimaryKeyUsesClippedTitleFallback(t *testing.T) {
 	}
 
 	template.PrimaryKeyTemplate = `{{now | date "2006-01-02"}}`
-	preview, err = resolveAttributeViewNewItemTemplateWithFallback(ast.NewNodeID(), template, createdAt, "Clipped title")
+	preview, err = resolveAttributeViewNewItemTemplateWithFallback(ast.NewNodeID(), template, createdAt, "", "Clipped title")
 	if nil != err {
 		t.Fatalf("resolve configured primary key failed: %s", err)
 	}

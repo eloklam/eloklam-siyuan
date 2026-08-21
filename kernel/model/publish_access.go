@@ -609,6 +609,21 @@ func FilterViewByPublishAccess(c *gin.Context, publishAccess PublishAccess, view
 				kanban.Groups[i] = FilterViewByPublishAccess(c, publishAccess, viewable)
 			}
 		}
+	case av.LayoutTypeCalendar:
+		calendar := ret.(*av.Calendar)
+		filteredCards := []*av.CalendarCard{}
+		for _, card := range calendar.Cards {
+			if checkAttributeViewItemAccessableByPublishAccess(c, publishAccess, card) {
+				filteredCards = append(filteredCards, card)
+			}
+		}
+		calendar.Cards = filteredCards
+		calendar.CardCount = len(calendar.Cards)
+		if calendar.Groups != nil {
+			for i, viewable := range calendar.Groups {
+				calendar.Groups[i] = FilterViewByPublishAccess(c, publishAccess, viewable)
+			}
+		}
 	}
 	return
 }

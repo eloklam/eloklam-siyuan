@@ -68,6 +68,12 @@ func RenderGroupView(attrView *av.AttributeView, view, groupView *av.View, query
 // RenderGroupViewWithSource 优先从父表行索引组装分组；其他布局和查询不匹配时沿用独立渲染。
 func RenderGroupViewWithSource(attrView *av.AttributeView, view, groupView *av.View, query string,
 	source *GroupViewRenderSource, ignoreRows bool) (ret av.Viewable) {
+	// 分组布局跟随父视图。更早的日历分组曾被生成成表格，接口会返回 rows 而不是 cards，
+	// 导致分组后的日历在界面上始终为空。
+	if view.LayoutType == av.LayoutTypeCalendar && groupView.LayoutType != av.LayoutTypeCalendar {
+		groupView.LayoutType = av.LayoutTypeCalendar
+		groupView.Calendar = av.NewLayoutCalendar()
+	}
 	var err error
 	switch groupView.LayoutType {
 	case av.LayoutTypeTable:
@@ -106,6 +112,18 @@ func RenderGroupViewWithSource(attrView *av.AttributeView, view, groupView *av.V
 		groupView.Kanban.DisplayFieldName = view.Kanban.DisplayFieldName
 		groupView.Kanban.DisplayEmptyFields = view.Kanban.DisplayEmptyFields
 		groupView.Kanban.FillColBackgroundColor = view.Kanban.FillColBackgroundColor
+	case av.LayoutTypeCalendar:
+		err = copier.CopyWithOption(&groupView.Calendar.Fields, &view.Calendar.Fields, copier.Option{DeepCopy: true})
+		groupView.Calendar.ShowIcon = view.Calendar.ShowIcon
+		groupView.Calendar.WrapField = view.Calendar.WrapField
+		groupView.Calendar.DateFieldID = view.Calendar.DateFieldID
+		groupView.Calendar.ViewMode = view.Calendar.ViewMode
+		groupView.Calendar.WeekStart = view.Calendar.WeekStart
+		groupView.Calendar.NewItemTarget = view.Calendar.NewItemTarget
+		if nil != view.Calendar.FieldMapping {
+			mapping := *view.Calendar.FieldMapping
+			groupView.Calendar.FieldMapping = &mapping
+		}
 	}
 	if nil != err {
 		logging.LogErrorf("copy view fields [%s] to group [%s] failed: %s", view.ID, groupView.ID, err)
@@ -116,6 +134,8 @@ func RenderGroupViewWithSource(attrView *av.AttributeView, view, groupView *av.V
 			groupView.Gallery.CardFields = view.Gallery.CardFields
 		case av.LayoutTypeKanban:
 			groupView.Kanban.Fields = view.Kanban.Fields
+		case av.LayoutTypeCalendar:
+			groupView.Calendar.Fields = view.Calendar.Fields
 		}
 	}
 
@@ -174,6 +194,8 @@ func renderView(attrView *av.AttributeView, view *av.View, query string, depth *
 		ret = RenderAttributeViewGallery(attrView, view, query, depth, cachedAttrViews, ignoreRows)
 	case av.LayoutTypeKanban:
 		ret = RenderAttributeViewKanban(attrView, view, query, depth, cachedAttrViews, ignoreRows)
+	case av.LayoutTypeCalendar:
+		ret = RenderAttributeViewCalendar(attrView, view, query, depth, cachedAttrViews, ignoreRows)
 	}
 	return
 }
@@ -376,10 +398,11 @@ func generateAttrViewItems(attrView *av.AttributeView, view *av.View) (ret map[s
 func filterNotFoundAttrViewItems(keyValuesMap map[string][]*av.KeyValues) {
 	var notFound []string
 	var toCheckBlockIDs []string
-	for blockID, keyValues := range keyValuesMap {
+	itemIDsByBlockID := map[string][]string{}
+	for itemID, keyValues := range keyValuesMap {
 		blockValue := getBlockValue(keyValues)
 		if nil == blockValue || nil == blockValue.Block {
-			notFound = append(notFound, blockID)
+			notFound = append(notFound, itemID)
 			continue
 		}
 
@@ -387,21 +410,25 @@ func filterNotFoundAttrViewItems(keyValuesMap map[string][]*av.KeyValues) {
 			continue
 		}
 
-		if "" == blockValue.Block.ID {
-			notFound = append(notFound, blockID)
+		boundBlockID := blockValue.Block.ID
+		if "" == boundBlockID {
+			notFound = append(notFound, itemID)
 			continue
 		}
 
-		toCheckBlockIDs = append(toCheckBlockIDs, blockValue.Block.ID)
+		if _, ok := itemIDsByBlockID[boundBlockID]; !ok {
+			toCheckBlockIDs = append(toCheckBlockIDs, boundBlockID)
+		}
+		itemIDsByBlockID[boundBlockID] = append(itemIDsByBlockID[boundBlockID], itemID)
 	}
 	checkRet := treenode.ExistBlockTrees(toCheckBlockIDs)
-	for blockID, exist := range checkRet {
+	for boundBlockID, exist := range checkRet {
 		if !exist {
-			notFound = append(notFound, blockID)
+			notFound = append(notFound, itemIDsByBlockID[boundBlockID]...)
 		}
 	}
-	for _, blockID := range notFound {
-		delete(keyValuesMap, blockID)
+	for _, itemID := range notFound {
+		delete(keyValuesMap, itemID)
 	}
 }
 
@@ -1009,6 +1036,34 @@ func removeMissingField(attrView *av.AttributeView, view *av.View, missingKeyID 
 				view.Kanban.Fields = append(view.Kanban.Fields[:i], view.Kanban.Fields[i+1:]...)
 				changed = true
 				break
+			}
+		}
+	}
+
+	if nil != view.Calendar {
+		for i, calendarField := range view.Calendar.Fields {
+			if calendarField.ID == missingKeyID {
+				view.Calendar.Fields = append(view.Calendar.Fields[:i], view.Calendar.Fields[i+1:]...)
+				changed = true
+				break
+			}
+		}
+		if view.Calendar.DateFieldID == missingKeyID {
+			view.Calendar.DateFieldID = ""
+			changed = true
+		}
+		if nil != view.Calendar.FieldMapping {
+			for _, fieldID := range []*string{
+				&view.Calendar.FieldMapping.RecurrenceFieldID,
+				&view.Calendar.FieldMapping.ExceptionFieldID,
+				&view.Calendar.FieldMapping.LocationFieldID,
+				&view.Calendar.FieldMapping.DescriptionFieldID,
+				&view.Calendar.FieldMapping.ColorFieldID,
+			} {
+				if *fieldID == missingKeyID {
+					*fieldID = ""
+					changed = true
+				}
 			}
 		}
 	}
