@@ -7,6 +7,7 @@ export interface ICustomFont {
     family: string;
     weight: number;
     displayName: string;
+    aliases?: string[];
     url: string;
 }
 
@@ -99,6 +100,10 @@ export const ensureSelectedCustomFont = async (family: string, weight: number) =
     } catch (error) {
         console.warn("load custom font failed", error);
     }
+};
+
+export const ensureSelectedCustomFonts = async (fonts: Array<{ family: string; weight: number }>) => {
+    await Promise.all(fonts.map((font) => ensureSelectedCustomFont(font.family, font.weight)));
 };
 
 const setCustomFontStyle = (font: ICustomFont) => {

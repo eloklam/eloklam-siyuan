@@ -8,7 +8,7 @@ import {openCard} from "../../card/openCard";
 import {activeBlur} from "../util/keyboardToolbar";
 import {getRecentDocs} from "./getRecentDocs";
 import type {App} from "../../index";
-import {isInMobileApp} from "../../protyle/util/compatibility";
+import {isDisabledFeature, isInMobileApp} from "../../protyle/util/compatibility";
 import {newFile} from "../../util/newFile";
 import {afterLayoutReady} from "../../plugin/loader";
 import {commandPanel} from "../../boot/globalEvent/command/panel";
@@ -19,6 +19,10 @@ import {isMobile} from "../../util/functions";
 import {openModel} from "./model";
 import {getCurrentEditor} from "../editor";
 import {openDataMigration} from "../../menus/dataMigration";
+import {normalizeSearchText} from "../../config/search/normalize";
+import type {SettingTabSearchResult} from "../../config/setting/builder";
+import {unmountBazaarTab} from "../../config/bazaarTab";
+import {openDock} from "../dock/util";
 
 const getSettingTabFromMenuTarget = (target: HTMLElement): ISettingTabShell<TSettingTab> | undefined => {
     const item = target.closest(".b3-menu__item") as HTMLElement | null;
@@ -34,17 +38,51 @@ const getSettingTabsMenuHTML = () => getSettingTabDefs().map(def =>
         <span class="b3-menu__label">${def.title}</span>
     </div>`).join("");
 
+const getSettingTabResultsHTML = () => getSettingTabDefs().map(def =>
+    `<div class="config mobile-setting-menu__result fn__none" data-name="${def.id}"></div>`).join("");
+
+const filterSettingTabsMenu = (element: HTMLElement, keywords: string) => {
+    const matches = new Map<TSettingTab, SettingTabSearchResult>();
+    for (const def of getSettingTabDefs()) {
+        if (def.hidden) {
+            continue;
+        }
+        const item = element.querySelector(`#${settingTabToMenuId(def.id)}`);
+        const result = keywords ? getSettingTab(def.id).scanSearch(keywords) : undefined;
+        const matched = !keywords || result?.matches;
+        item?.classList.toggle("config-search-hidden", !matched);
+        if (result?.matches) {
+            matches.set(def.id, result);
+        }
+    }
+    element.querySelector('[data-type="setting-search-empty"]')?.classList.toggle("fn__none", !keywords || matches.size > 0);
+    return matches;
+};
+
 const openSettingTab = (app: App, settingTabDef: ISettingTabShell<TSettingTab>, returnCallback?: () => void) => {
+    let root: HTMLElement | undefined;
     openModel({
         title: settingTabDef.title,
         icon: "iconLeft",
         html: `<div class="config${isMobile() ? " config--mobile" : ""}"></div>`,
         bindEvent(modelMainElement: HTMLElement) {
-            const root = modelMainElement.firstElementChild as HTMLElement;
+            root = modelMainElement.firstElementChild as HTMLElement;
             bindSettingSaveDelegation(root);
             void getSettingTab(settingTabDef.id).mount(root, undefined, app);
         },
+        destroyCallback() {
+            if (settingTabDef.id === "bazaar" && root) {
+                unmountBazaarTab(root);
+            }
+        },
         backCallback() {
+            if (settingTabDef.id === "bazaar") {
+                const readmeElement = root?.querySelector("#configBazaarReadme.config__view--show");
+                if (readmeElement) {
+                    readmeElement.classList.remove("config__view--show");
+                    return false;
+                }
+            }
             if (returnCallback) {
                 returnCallback();
             } else {
@@ -55,22 +93,102 @@ const openSettingTab = (app: App, settingTabDef: ISettingTabShell<TSettingTab>, 
     });
 };
 
-const openSettingMenu = (app: App, transition?: "back", returnCallback?: () => void) => {
+const openSettingMenu = (
+    app: App,
+    transition?: "back",
+    returnCallback?: () => void,
+) => {
+    let settingMenuElement: HTMLElement | undefined;
     openModel({
         title: window.siyuan.languages.config,
         icon: "iconLeft",
-        html: `<div class="b3-menu__groups">
-    <div class="b3-menu__group">
-        <div class="b3-menu__group-items">${getSettingTabsMenuHTML()}</div>
+        html: `<div class="mobile-setting-menu">
+    <div class="mobile-setting-menu__search">
+        <input placeholder="${window.siyuan.languages.searchPlaceholder}" class="b3-text-field fn__flex-1" autocomplete="off" autocorrect="off" spellcheck="false">
+    </div>
+    <div class="b3-menu__groups mobile-setting-menu__groups">
+        <div class="b3-menu__group">
+            <div class="b3-menu__group-items">${getSettingTabsMenuHTML()}</div>
+        </div>
+        <div class="b3-list--empty fn__none" data-type="setting-search-empty">${window.siyuan.languages.emptyContent}</div>
+        ${getSettingTabResultsHTML()}
     </div>
 </div>`,
         bindEvent(modelMainElement: HTMLElement) {
+            settingMenuElement = modelMainElement;
+            const searchElement = modelMainElement.querySelector("input") as HTMLInputElement;
+            const groupsElement = modelMainElement.querySelector(".mobile-setting-menu__groups") as HTMLElement;
+            let selectedTabId: TSettingTab | undefined;
+            const showSearchResult = (keywords: string, tabId: TSettingTab, result: SettingTabSearchResult) => {
+                groupsElement.classList.toggle("mobile-setting-menu__groups--bazaar", tabId === "bazaar");
+                modelMainElement.querySelectorAll<HTMLElement>(".mobile-setting-menu__result").forEach((item) => {
+                    item.classList.toggle("fn__none", item.dataset.name !== tabId);
+                });
+                modelMainElement.querySelectorAll(".b3-menu__group-items > .b3-menu__item").forEach((item) => {
+                    item.classList.toggle("b3-menu__item--current", item.id === settingTabToMenuId(tabId));
+                });
+                const root = modelMainElement.querySelector(`.mobile-setting-menu__result[data-name="${tabId}"]`) as HTMLElement;
+                bindSettingSaveDelegation(root);
+                void getSettingTab(tabId).mount(root, {
+                    keywords,
+                    visibleItemIds: result.visibleItemIds,
+                    visibleGroupIds: result.visibleGroupIds,
+                    unavailableItems: result.unavailableItems,
+                }, app);
+            };
+            const syncSearch = () => {
+                const keywords = normalizeSearchText(searchElement.value);
+                const matches = filterSettingTabsMenu(modelMainElement, keywords);
+                if (!keywords || matches.size === 0) {
+                    selectedTabId = undefined;
+                    groupsElement.classList.remove("mobile-setting-menu__groups--bazaar");
+                    modelMainElement.querySelectorAll(".mobile-setting-menu__result").forEach((item) => {
+                        item.classList.add("fn__none");
+                    });
+                    modelMainElement.querySelectorAll(".b3-menu__group-items > .b3-menu__item").forEach((item) => {
+                        item.classList.remove("b3-menu__item--current");
+                    });
+                    return;
+                }
+                if (!selectedTabId || !matches.has(selectedTabId)) {
+                    selectedTabId = matches.keys().next().value;
+                }
+                if (selectedTabId) {
+                    const result = matches.get(selectedTabId);
+                    if (result) {
+                        showSearchResult(keywords, selectedTabId, result);
+                    }
+                }
+            };
+            searchElement.addEventListener("compositionend", syncSearch);
+            searchElement.addEventListener("input", (event: InputEvent) => {
+                if (!event.isComposing) {
+                    syncSearch();
+                }
+            });
             modelMainElement.addEventListener("click", (event) => {
                 const def = getSettingTabFromMenuTarget(event.target as HTMLElement);
                 if (def) {
+                    const keywords = normalizeSearchText(searchElement.value);
+                    if (keywords) {
+                        const result = getSettingTab(def.id).scanSearch(keywords);
+                        if (!result.matches) {
+                            return;
+                        }
+                        selectedTabId = def.id;
+                        showSearchResult(keywords, def.id, result);
+                        return;
+                    }
                     openSettingTab(app, def, () => openSettingMenu(app, "back", returnCallback));
                 }
             });
+            syncSearch();
+        },
+        destroyCallback() {
+            const root = settingMenuElement?.querySelector('.mobile-setting-menu__result[data-name="bazaar"]') as HTMLElement | null;
+            if (root) {
+                unmountBazaarTab(root);
+            }
         },
         backCallback() {
             if (returnCallback) {
@@ -85,8 +203,11 @@ const openSettingMenu = (app: App, transition?: "back", returnCallback?: () => v
 
 export const openMobileSetting = (app: App, tab?: TSettingTab, returnCallback?: () => void) => {
     activeBlur();
-    const settingTabDef = tab ? getSettingTabDefs().find(def => def.id === tab) : undefined;
-    if (settingTabDef) {
+    if (tab) {
+        const settingTabDef = getSettingTabDefs().find(def => def.id === tab);
+        if (!settingTabDef || settingTabDef.hidden) {
+            return;
+        }
         openSettingTab(app, settingTabDef, returnCallback);
         return;
     }
@@ -109,15 +230,36 @@ export const initRightMenu = (app: App) => {
 </div>
 <div class="b3-menu__items b3-menu__groups">
     <div class="b3-menu__group">
-        <div class="b3-menu__group-title">${window.siyuan.languages.mobileMenuQuickActions}</div>
+        <div class="b3-menu__group-title">${window.siyuan.languages.mobileMenuNavigation}</div>
         <div class="b3-menu__group-items">
+            <div id="menuDocuments" class="b3-menu__item">
+                <svg class="b3-menu__icon"><use xlink:href="#iconFiles"></use></svg><span class="b3-menu__label">${window.siyuan.languages.fileTree}</span>
+            </div>
+            <div id="menuTabs" class="b3-menu__item">
+                <svg class="b3-menu__icon"><use xlink:href="#iconLayoutGrid"></use></svg><span class="b3-menu__label">${window.siyuan.languages.mobileTabs}</span>
+            </div>
+            <div id="menuOutline" class="b3-menu__item">
+                <svg class="b3-menu__icon"><use xlink:href="#iconOutline"></use></svg><span class="b3-menu__label">${window.siyuan.languages.outline}</span>
+            </div>
+            <div id="menuBookmark" class="b3-menu__item">
+                <svg class="b3-menu__icon"><use xlink:href="#iconBookmark"></use></svg><span class="b3-menu__label">${window.siyuan.languages.bookmark}</span>
+            </div>
+            <div id="menuTag" class="b3-menu__item">
+                <svg class="b3-menu__icon"><use xlink:href="#iconTag"></use></svg><span class="b3-menu__label">${window.siyuan.languages.tag}</span>
+            </div>
+            <div id="menuBacklink" class="b3-menu__item">
+                <svg class="b3-menu__icon"><use xlink:href="#iconLink"></use></svg><span class="b3-menu__label">${window.siyuan.languages.backlinks}</span>
+            </div>
+            <div id="menuInbox" class="b3-menu__item">
+                <svg class="b3-menu__icon"><use xlink:href="#iconInbox"></use></svg><span class="b3-menu__label">${window.siyuan.languages.inbox}</span>
+            </div>
             <div id="menuRecent" class="b3-menu__item">
                 <svg class="b3-menu__icon"><use xlink:href="#iconList"></use></svg><span class="b3-menu__label">${window.siyuan.languages.recentDocs}</span>
             </div>
             <div id="menuSearch" class="b3-menu__item">
                 <svg class="b3-menu__icon"><use xlink:href="#iconSearch"></use></svg><span class="b3-menu__label">${window.siyuan.languages.search}</span>
             </div>
-            <div id="menuAgentChat" class="b3-menu__item${window.siyuan.config.readonly || window.siyuan.isPublish ? " fn__none" : ""}">
+            <div id="menuAgentChat" class="b3-menu__item${window.siyuan.config.readonly || window.siyuan.isPublish || isDisabledFeature("ai") ? " fn__none" : ""}">
                 <svg class="b3-menu__icon"><use xlink:href="#iconSparkles"></use></svg>
                 <span class="b3-menu__label">${window.siyuan.languages.agentChat}</span>
                 <span data-type="agent-status" class="b3-menu__accelerator fn__none"></span>
@@ -185,7 +327,7 @@ export const initRightMenu = (app: App) => {
             <div class="b3-menu__item${window.siyuan.config.readonly ? " fn__none" : ""}" id="menuHelp">
                 <svg class="b3-menu__icon"><use xlink:href="#iconHelp"></use></svg><span class="b3-menu__label">${window.siyuan.languages.userGuide}</span>
             </div>
-            <a class="b3-menu__item" href="${"zh-CN" === window.siyuan.config.lang || "zh-TW" === window.siyuan.config.lang ? "https://ld246.com/article/1649901726096" : "https://liuyun.io/article/1686530886208"}" target="_blank">
+            <a class="b3-menu__item" href="${"zh-CN" === window.siyuan.config.lang ? "https://ld246.com/article/1649901726096" : "https://liuyun.io/article/1686530886208"}" target="_blank">
                 <svg class="b3-menu__icon"><use xlink:href="#iconFeedback"></use></svg>
                 <span class="b3-menu__label">${window.siyuan.languages.feedback}</span>
             </a>
@@ -201,6 +343,24 @@ export const initRightMenu = (app: App) => {
         while (target && !target.isEqualNode(menuElement)) {
             if (target.classList.contains("b3-menu__title")) {
                 closePanel();
+                event.preventDefault();
+                event.stopPropagation();
+                break;
+            } else if (target.id === "menuDocuments") {
+                closePanel();
+                openDock("file");
+                event.preventDefault();
+                event.stopPropagation();
+                break;
+            } else if (target.id === "menuTabs") {
+                closePanel();
+                document.getElementById("toolbarTabs").dispatchEvent(new CustomEvent("click"));
+                event.preventDefault();
+                event.stopPropagation();
+                break;
+            } else if (["menuOutline", "menuBookmark", "menuTag", "menuBacklink", "menuInbox"].includes(target.id)) {
+                closePanel();
+                openDock(target.id.replace("menu", "").toLowerCase());
                 event.preventDefault();
                 event.stopPropagation();
                 break;
@@ -226,7 +386,7 @@ export const initRightMenu = (app: App) => {
                 event.stopPropagation();
                 break;
             } else if (target.id === "menuSyncNow") {
-                syncGuide();
+                syncGuide(app);
                 event.preventDefault();
                 event.stopPropagation();
                 break;

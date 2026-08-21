@@ -8,10 +8,15 @@ import {
     getEntryPaths,
 } from "./catalog";
 import {reorderEntrySlots, resolveEntryOrder} from "./order";
+import {getDocTreeEntryScope} from "./docTreeScope";
+import {getProfileEntryVisibility} from "./profile";
+import {TOOLBAR_ENTRY_ROOT_PATH} from "../../protyle/toolbar/defaults";
+import {resolveToolbarItems} from "../../protyle/toolbar/entryVisibility";
 
-export const ENTRY_VISIBILITY_VERSION = 2;
+export const ENTRY_VISIBILITY_VERSION = 3;
 export const ENTRY_PROFILE_SIMPLE = "simple";
 export const ENTRY_PROFILE_FULL = "full";
+export type TEntryVisibilityTemplate = typeof ENTRY_PROFILE_SIMPLE | typeof ENTRY_PROFILE_FULL;
 
 const getConfig = () => window.siyuan.config.appearance.entryVisibility;
 
@@ -20,8 +25,8 @@ export const getActiveEntryProfile = () => {
     return config.profiles.find((item) => item.id === config.active);
 };
 
-const getBaseVisibility = (path: string, base: Config.TEntryVisibilityBase) =>
-    base === ENTRY_PROFILE_FULL || getEntryCatalogNode(path)?.simple !== false;
+const getTemplateVisibility = (path: string, template: TEntryVisibilityTemplate) =>
+    template === ENTRY_PROFILE_FULL || getEntryCatalogNode(path)?.simple !== false;
 
 export const isEntryVisible = (path: string): boolean => {
     /// #if MOBILE
@@ -32,12 +37,9 @@ export const isEntryVisible = (path: string): boolean => {
     if (config.active === ENTRY_PROFILE_FULL) {
         visible = true;
     } else if (config.active === ENTRY_PROFILE_SIMPLE) {
-        visible = getBaseVisibility(path, ENTRY_PROFILE_SIMPLE);
+        visible = getTemplateVisibility(path, ENTRY_PROFILE_SIMPLE);
     } else {
-        const profile = getActiveEntryProfile();
-        visible = typeof profile?.entries[path] === "boolean"
-            ? profile.entries[path]
-            : getBaseVisibility(path, profile?.base || ENTRY_PROFILE_FULL);
+        visible = getProfileEntryVisibility(getActiveEntryProfile(), path);
     }
     if (!visible) {
         return false;
@@ -50,9 +52,9 @@ export const isEntryVisible = (path: string): boolean => {
     /// #endif
 };
 
-export const createEntryProfileSnapshot = (base: Config.TEntryVisibilityBase) => {
+export const createEntryProfileSnapshot = (template: TEntryVisibilityTemplate) => {
     return getEntryPaths().reduce<Record<string, boolean>>((entries, path) => {
-        entries[path] = getBaseVisibility(path, base);
+        entries[path] = getTemplateVisibility(path, template);
         return entries;
     }, {});
 };
@@ -103,16 +105,15 @@ const entryScope = (menuElement: HTMLElement): string => {
         case Constants.MENU_DOC_TREE_PANEL_MORE:
             return "docTree.panel";
         case Constants.MENU_DOC_TREE_MORE:
-            if (menuElement.dataset.from === Constants.MENU_FROM_DOC_TREE_MORE_NOTEBOOK) {
-                return "docTree.notebook";
-            }
-            if (menuElement.dataset.from === Constants.MENU_FROM_DOC_TREE_MORE_DOC) {
-                return "docTree.document";
-            }
-            if (menuElement.dataset.from === Constants.MENU_FROM_DOC_TREE_MORE_ITEMS) {
-                return "docTree.multi";
-            }
-            return "";
+            return getDocTreeEntryScope(menuElement.dataset.from, {
+                notebook: Constants.MENU_FROM_DOC_TREE_MORE_NOTEBOOK,
+                notebooks: Constants.MENU_FROM_DOC_TREE_MORE_NOTEBOOKS,
+                doc: Constants.MENU_FROM_DOC_TREE_MORE_DOC,
+                docs: Constants.MENU_FROM_DOC_TREE_MORE_DOCS,
+                items: Constants.MENU_FROM_DOC_TREE_MORE_ITEMS,
+            });
+        case Constants.MENU_TAB:
+            return "tab";
         case Constants.MENU_TITLE:
             return "document.title";
         case Constants.MENU_BREADCRUMB_MORE:
@@ -190,11 +191,17 @@ const sortMenuItems = (itemsElement: Element, prefix: string) => {
 
 const filterMenuItems = (itemsElement: Element, prefix: string) => {
     Array.from(itemsElement.children).forEach((item) => {
+        const id = item.getAttribute("data-id");
+        const path = id ? `${prefix}.${id}` : "";
+        if (item.classList.contains("b3-menu__separator")) {
+            if (path && getEntryCatalogNode(path) && !isEntryVisible(path)) {
+                item.remove();
+            }
+            return;
+        }
         if (!item.classList.contains("b3-menu__item")) {
             return;
         }
-        const id = item.getAttribute("data-id");
-        const path = id ? `${prefix}.${id}` : "";
         if (path && getEntryCatalogNode(path) && !isEntryVisible(path)) {
             item.remove();
             return;
@@ -241,11 +248,36 @@ export const applyDockEntryVisibility = () => {
     /// #endif
 };
 
+export const applyToolbarEntryVisibility = (toolbarElement: HTMLElement) => {
+    /// #if !MOBILE
+    const children = Array.from(toolbarElement.children) as HTMLElement[];
+    const resolveKey = (item: HTMLElement) => {
+        const id = item.dataset.id;
+        return id && getEntryCatalogNode(`${TOOLBAR_ENTRY_ROOT_PATH}.${id}`) ? id : undefined;
+    };
+    const result = resolveToolbarItems(children, {
+        getKey: resolveKey,
+        isSeparator: (item) => item.classList.contains("protyle-toolbar__divider"),
+        isVisible: (key) => isEntryVisible(`${TOOLBAR_ENTRY_ROOT_PATH}.${key}`),
+        order: getEntryOrder(TOOLBAR_ENTRY_ROOT_PATH),
+    });
+    result.ordered.forEach((item) => toolbarElement.append(item));
+    const visibleItems = new Set(result.visible);
+    result.ordered.forEach((item) => item.classList.toggle("fn__none", !visibleItems.has(item)));
+    const empty = !result.visible.some((item) => item.classList.contains("protyle-toolbar__item"));
+    toolbarElement.toggleAttribute("data-entry-empty", empty);
+    if (empty) {
+        toolbarElement.classList.add("fn__none");
+    }
+    /// #endif
+};
+
 const applyEntryVisibilityLocal = (config: Config.IEntryVisibility) => {
     window.siyuan.config.appearance.entryVisibility = config;
     /// #if !MOBILE
     window.siyuan.menus?.menu?.remove();
     applyDockEntryVisibility();
+    document.querySelectorAll<HTMLElement>(".protyle-toolbar").forEach(applyToolbarEntryVisibility);
     window.dispatchEvent(new CustomEvent("siyuan-entry-visibility"));
     /// #endif
 };

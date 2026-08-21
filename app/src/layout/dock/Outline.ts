@@ -8,11 +8,9 @@ import {confirmBlockRef} from "../../util/checkBlockRef";
 import {getAllModels} from "../getAll";
 import {hasClosestBlock, hasClosestByClassName, hasTopClosestByClassName} from "../../protyle/util/hasClosest";
 import {
-    isInAndroid,
-    isInHarmony,
     setStorageVal,
     updateHotkeyAfterTip,
-    writeText
+    writeBlockDOMClipboard
 } from "../../protyle/util/compatibility";
 import {openFileById} from "../../editor/util";
 import {Constants} from "../../constants";
@@ -35,6 +33,7 @@ import {
     operationsMayChangeOutline,
     transactionsMayChangeRootHeadingNumberSetting
 } from "../../protyle/util/headingNumberCore";
+import {applyHeadingLevelUpdates, getHeadingLevelUpdateOperations} from "../../protyle/util/headingTransform";
 
 export class Outline extends Model {
     public tree: Tree;
@@ -1190,14 +1189,8 @@ export class Outline extends Model {
                 fetchPost("/api/block/getHeadingChildrenDOM", {
                     id,
                     removeFoldAttr: false
-                }, (response) => {
-                    if (isInAndroid()) {
-                        window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                    } else if (isInHarmony()) {
-                        window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                    } else {
-                        writeText(response.data + Constants.ZWSP);
-                    }
+                }, async (response) => {
+                    await writeBlockDOMClipboard(data.protyle.lute, response.data);
                 });
             }
         }).element);
@@ -1217,9 +1210,12 @@ export class Outline extends Model {
                         fetchPost("/api/block/getHeadingDeleteTransaction", {
                             id,
                         }, async (deleteResponse) => {
+                            const deletedIDs = deleteResponse.data.doOperations.map(
+                                (operation: IOperation) => operation.id);
                             if (!await confirmBlockRef({
                                 scope: "blocks",
-                                ids: deleteResponse.data.doOperations.map((operation: IOperation) => operation.id),
+                                ids: deletedIDs,
+                                deletedIDs,
                                 notebook: data.protyle.notebookId,
                             }, data.protyle)) {
                                 return;
@@ -1227,12 +1223,11 @@ export class Outline extends Model {
                             if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
                                 return;
                             }
-                            if (isInAndroid()) {
-                                window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                            } else if (isInHarmony()) {
-                                window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                            } else {
-                                writeText(response.data + Constants.ZWSP);
+                            if (!await writeBlockDOMClipboard(data.protyle.lute, response.data)) {
+                                return;
+                            }
+                            if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
+                                return;
                             }
                             deleteResponse.data.doOperations.forEach((operation: IOperation) => {
                                 data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
@@ -1271,9 +1266,11 @@ export class Outline extends Model {
                     fetchPost("/api/block/getHeadingDeleteTransaction", {
                         id,
                     }, async (response) => {
+                        const deletedIDs = response.data.doOperations.map((operation: IOperation) => operation.id);
                         if (!await confirmBlockRef({
                             scope: "blocks",
-                            ids: response.data.doOperations.map((operation: IOperation) => operation.id),
+                            ids: deletedIDs,
+                            deletedIDs,
                             notebook: data.protyle.notebookId,
                         }, data.protyle)) {
                             return;
@@ -1419,22 +1416,22 @@ export class Outline extends Model {
                     id,
                     level
                 }, (response) => {
-                    response.data.doOperations.forEach((operation: any, index: number) => {
-                        protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
-                            itemElement.outerHTML = operation.data;
-                        });
-                        // 使用 outer 后元素需要重新查询
-                        protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
-                            mathRender(itemElement);
-                        });
-                        if (index === 0) {
-                            const focusElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${operation.id}"]`);
-                            if (focusElement) {
-                                focusElement.scrollIntoView({behavior: "smooth", block: "center"});
-                            }
+                    if (!response.data?.doOperations?.length) {
+                        return;
+                    }
+                    applyHeadingLevelUpdates(protyle, response.data.doOperations, mathRender);
+                    const focusElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`);
+                    if (focusElement) {
+                        focusElement.scrollIntoView({behavior: "smooth", block: "center"});
+                    }
+                    const childUpdateOperations = getHeadingLevelUpdateOperations(response.data.doOperations, new Set([id]));
+                    const hasUnfoldOperation = response.data.doOperations.some((operation: IOperation) =>
+                        operation.action === "unfoldHeading");
+                    transaction(protyle, response.data.doOperations, response.data.undoOperations, hasUnfoldOperation ? {
+                        callback() {
+                            applyHeadingLevelUpdates(protyle, childUpdateOperations, mathRender);
                         }
-                    });
-                    transaction(protyle, response.data.doOperations, response.data.undoOperations);
+                    } : undefined);
                 });
             }
         };

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -85,8 +85,18 @@ func RenderGoTemplateAtInBox(templateContent string, now time.Time, boxID string
 	return
 }
 
+// RemoveTemplate 删除模板文件，路径必须限定在 <data>/templates/ 目录内，防止任意文件被删除
 func RemoveTemplate(p string) (err error) {
-	err = filelock.Remove(p)
+	abs := p
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(util.DataDir, "templates", p)
+	}
+	abs = filepath.Clean(abs)
+	templatesRoot := filepath.Clean(filepath.Join(util.DataDir, "templates"))
+	if !gulu.File.IsSubPath(templatesRoot, abs) {
+		return errors.New("template path is outside templates directory")
+	}
+	err = filelock.Remove(abs)
 	if err != nil {
 		logging.LogErrorf("remove template failed: %s", err)
 	}
@@ -141,6 +151,13 @@ func SearchTemplate(keyword string) (ret []*TemplateSearchResult) {
 
 		if group.IsDir() {
 			templateDir := filepath.Join(templates, group.Name())
+			manifestPath := filepath.Join(templateDir, "template.json")
+			if filelock.IsExist(manifestPath) {
+				pkg, parseErr := bazaar.ParsePackageJSON(manifestPath)
+				if parseErr != nil || !bazaar.IsValidInstalledPackage(pkg, group.Name()) {
+					continue
+				}
+			}
 			readmePaths := getTemplateReadmePaths(templateDir)
 			filelock.Walk(templateDir, func(path string, d fs.DirEntry, err error) error {
 				name := strings.ToLower(d.Name())
@@ -694,8 +711,7 @@ func resolveDocContentTemplatePath(templatePath string) (string, error) {
 	}
 	templateRoot := filepath.Join(util.DataDir, "templates")
 	absPath := filepath.Join(templateRoot, cleanPath)
-	rel, err := filepath.Rel(templateRoot, absPath)
-	if nil != err || ".." == rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+	if !gulu.File.IsSubPath(templateRoot, absPath) {
 		return "", errors.New("content template path is outside templates directory")
 	}
 	if !filelock.IsExist(absPath) {
@@ -713,8 +729,7 @@ func resolveDocContentTemplatePath(templatePath string) (string, error) {
 	if nil != err || !info.Mode().IsRegular() {
 		return "", fmt.Errorf("content template [%s] is not a regular file", templatePath)
 	}
-	realRel, err := filepath.Rel(realRoot, realPath)
-	if nil != err || ".." == realRel || strings.HasPrefix(realRel, ".."+string(os.PathSeparator)) {
+	if !gulu.File.IsSubPath(realRoot, realPath) {
 		return "", errors.New("content template path is outside templates directory")
 	}
 	return realPath, nil

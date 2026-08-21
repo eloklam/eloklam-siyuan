@@ -1,4 +1,4 @@
-import {getAllModels} from "../getAll";
+import {getAllDocks, getAllModels} from "../getAll";
 import {Tab} from "../Tab";
 import {Graph} from "./Graph";
 import {Outline} from "./Outline";
@@ -13,6 +13,8 @@ import {Editor} from "../../editor";
 import {Constants} from "../../constants";
 import {getDocDisplayName, isEncryptedBox} from "../../util/pathName";
 import {showMessage} from "../../dialog/message";
+import {updateHotkeyTip} from "../../protyle/util/compatibility";
+import {getDockHotkey} from "./hotkey";
 
 export const openBacklink = async (options: {
     app: App,
@@ -203,6 +205,18 @@ export const resetFloatDockSize = () => {
     }
 };
 
+export const updateDockHotkeys = () => {
+    const docks = getAllDocks();
+    docks.forEach((item) => {
+        const hotkey = getDockHotkey(item);
+        document.querySelectorAll<HTMLElement>(`.dock__item[data-type="${CSS.escape(item.type)}"]`).forEach((element) => {
+            element.setAttribute("aria-label", `<span style='white-space:pre'>${element.dataset.title || ""} ${
+                hotkey ? updateHotkeyTip(hotkey) : ""
+            }${window.siyuan.languages.dockTip}</span>`);
+        });
+    });
+};
+
 export const toggleDockBar = (useElement: Element) => {
     const dockIsShow = useElement.getAttribute("xlink:href") === "#iconHideDock";
     if (dockIsShow) {
@@ -214,7 +228,7 @@ export const toggleDockBar = (useElement: Element) => {
     document.querySelectorAll(".dock").forEach(item => {
         if (dockIsShow) {
             item.classList.add("fn__none");
-        } else if (item.querySelectorAll(".dock__item").length > 1) {
+        } else if (item.querySelector(".dock__item[data-type]")) {
             item.classList.remove("fn__none");
         }
     });

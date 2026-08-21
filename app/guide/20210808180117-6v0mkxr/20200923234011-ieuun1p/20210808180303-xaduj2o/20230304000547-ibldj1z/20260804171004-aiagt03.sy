@@ -6,7 +6,7 @@
 		"id": "20260804171004-aiagt03",
 		"title": "AI Agent",
 		"type": "doc",
-		"updated": "20260804180000"
+		"updated": "20260816130653"
 	},
 	"Children": [
 		{
@@ -168,7 +168,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170027-iffmsq0",
-				"updated": "20260804180000"
+				"updated": "20260816114944"
 			},
 			"Children": [
 				{
@@ -389,7 +389,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260804170039-x813t3f",
-				"updated": "20260804180000"
+				"updated": "20260816114944"
 			},
 			"Children": [
 				{
@@ -403,26 +403,17 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170040-oce2o3k",
-				"updated": "20260804180000"
+				"updated": "20260816114944"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Press "
+					"Data": "By default, press "
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Enter"
-				},
-				{
-					"Type": "NodeText",
-					"Data": " to send and "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Shift"
+					"TextMarkTextContent": "Ctrl"
 				},
 				{
 					"Type": "NodeText",
@@ -435,7 +426,20 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " for a new line. While the agent is running, select the stop button to interrupt the current task. Results are generally more reliable when the goal, scope, and destination are explicit."
+					"Data": " / "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "⌘Enter"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " to send. You can also customize the shortcut. "
+				},
+				{
+					"Type": "NodeText",
+					"Data": "While the agent is running, select the stop button to interrupt the current task. Results are generally more reliable when the goal, scope, and destination are explicit."
 				}
 			]
 		},
@@ -592,7 +596,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170050-oqdi4d2",
-				"updated": "20260804180000"
+				"updated": "20260816130653"
 			},
 			"Children": [
 				{
@@ -606,7 +610,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170051-g7pwyzt",
-				"updated": "20260804180000"
+				"updated": "20260816130653"
 			},
 			"Children": [
 				{
@@ -626,6 +630,15 @@
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
 					"TextMarkTextContent": "workspace/data/storage/ai/agent/skills/"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ". You can also individually enable read-only skills from the user directory "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "~/.agents/skills/"
 				},
 				{
 					"Type": "NodeText",
@@ -726,7 +739,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170054-1c4wqjk",
-				"updated": "20260804180000"
+				"updated": "20260812170000"
 			},
 			"Children": [
 				{
@@ -740,7 +753,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170055-xr887qs",
-				"updated": "20260804180000"
+				"updated": "20260812170000"
 			},
 			"Children": [
 				{
@@ -772,7 +785,22 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": ", configure commands, arguments, URLs, HTTP headers, and timeouts, and review connection status and tool count."
+					"Data": ", configure commands, arguments, environment variables, URLs, HTTP headers, and timeouts, and review connection status and tool count."
+				},
+				{
+					"Type": "NodeText",
+					"Data": " This setting is for external MCP services called by the agent. To connect an external MCP client to SiYuan, see "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20260804223002-mcpsv03",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "MCP Service"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "."
 				}
 			]
 		},
@@ -781,12 +809,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170056-8tp1qi0",
-				"updated": "20260804180000"
+				"updated": "20260812170000"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "HTTP services that require authorization guide you through OAuth. Store reusable secrets and parameters in "
+					"Data": "A stdio service inherits only the kernel environment variables selected by the user and reads their current values whenever it starts. Its environment variable entries can also reference secrets and variables. Referencing a secret provides its plaintext value to the program and its child processes; directly entered values are stored in plaintext. HTTP services that require authorization guide you through OAuth. Store reusable secrets and parameters in "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -800,6 +828,17 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Secrets and Variables"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ". For details, see "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20260804185002-secvr03",
+					"TextMarkBlockRefSubtype": "s",
 					"TextMarkTextContent": "Secrets and Variables"
 				},
 				{
@@ -995,7 +1034,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170109-sbl6g5j",
-				"updated": "20260804180000"
+				"updated": "20260804205607"
 			},
 			"Children": [
 				{
@@ -1009,12 +1048,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170110-f3ewu2w",
-				"updated": "20260804180000"
+				"updated": "20260804205607"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Before the first data write in a task turn, the agent automatically creates a data snapshot, with at most one snapshot per turn. If the result is not acceptable, use the rollback action on the snapshot notice in the session."
+					"Data": "Before the first write to workspace data in a task turn, the agent automatically creates a data snapshot, with at most one snapshot per turn. If the result is not acceptable, use the rollback action on the snapshot notice in the session."
 				}
 			]
 		},
@@ -1023,12 +1062,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170111-loi92zi",
-				"updated": "20260804180000"
+				"updated": "20260804205607"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "The snapshot covers workspace data. Regenerating an answer, stopping a task, or deleting a session does not automatically undo completed write operations."
+					"Data": "The snapshot covers workspace data, but not changes made to external systems by external MCP services or plugins. Regenerating an answer, stopping a task, or deleting a session also does not automatically undo completed write operations."
 				}
 			]
 		},

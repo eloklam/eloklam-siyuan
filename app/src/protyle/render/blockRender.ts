@@ -7,6 +7,7 @@ import {avRender} from "./av/render";
 import {genRenderFrame} from "./util";
 import {isEncryptedBox} from "../../util/pathName";
 import {disabledWYSIWYG} from "../util/disabledWYSIWYG";
+import {normalizeHTMLAssetIFrameBlockDOM} from "../../asset/html";
 
 /**
  * 渲染嵌入块
@@ -23,6 +24,10 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number, o
         return;
     }
     blockElements.forEach((item: HTMLElement) => {
+        const content = Lute.UnEscapeHTMLStr(item.getAttribute("data-content"));
+        if (!content.trim()) {
+            return;
+        }
         // 需置于请求返回前，否则快速滚动会导致重复加载 https://ld246.com/article/1666857862494?r=88250
         item.setAttribute("data-render", "true");
         genRenderFrame(item);
@@ -35,7 +40,6 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number, o
                 }
             }
         }
-        const content = Lute.UnEscapeHTMLStr(item.getAttribute("data-content"));
         let breadcrumb: boolean | string = item.getAttribute("breadcrumb");
         if (breadcrumb) {
             breadcrumb = breadcrumb === "true";
@@ -44,6 +48,11 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number, o
         }
 
         if (content.startsWith("//!js")) {
+            // 安全模式下禁用 JS 查询嵌入块，与代码片段（CSS/JS snippet）的处理保持一致
+            if (window.siyuan.config.system.safeMode) {
+                renderEmbed([], protyle, item, top, window.siyuan.languages.safeModeJSTip, onEmbedRender);
+                return;
+            }
             const renderError = (error: unknown) => {
                 console.error(error);
                 renderEmbed([], protyle, item, top, String(error), onEmbedRender);
@@ -120,7 +129,7 @@ ${popover}${breadcrumbHTML}${blocksItem.block.content}
 </div>`;
     });
     if (blocks.length > 0) {
-        item.firstElementChild.insertAdjacentHTML("afterend", html);
+        item.firstElementChild.insertAdjacentHTML("afterend", normalizeHTMLAssetIFrameBlockDOM(html));
         improveBreadcrumbAppearance(item.querySelector(".protyle-wysiwyg__embed"));
     } else {
         item.firstElementChild.insertAdjacentHTML("afterend", `<div class="protyle-wysiwyg__embed ft__smaller ft__secondary b3-form__space--small" contenteditable="false">${errorTip || window.siyuan.languages.refExpired}</div>`);

@@ -2,7 +2,7 @@ import {Tree} from "../../util/Tree";
 import {fetchPost} from "../../util/fetch";
 import {confirmBlockRef} from "../../util/checkBlockRef";
 import {hasClosestBlock, hasClosestByClassName} from "../../protyle/util/hasClosest";
-import {isInAndroid, isInHarmony, setStorageVal, writeText} from "../../protyle/util/compatibility";
+import {setStorageVal, writeBlockDOMClipboard} from "../../protyle/util/compatibility";
 import {Constants} from "../../constants";
 import {MenuItem} from "../../menus/Menu";
 import {getPreviousBlock} from "../../protyle/wysiwyg/getBlock";
@@ -1067,14 +1067,8 @@ export class MobileOutline extends Model {
                 fetchPost("/api/block/getHeadingChildrenDOM", {
                     id,
                     removeFoldAttr: false
-                }, (response) => {
-                    if (isInAndroid()) {
-                        window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                    } else if (isInHarmony()) {
-                        window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                    } else {
-                        writeText(response.data + Constants.ZWSP);
-                    }
+                }, async (response) => {
+                    await writeBlockDOMClipboard(data.protyle.lute, response.data);
                 });
             }
         }).element);
@@ -1094,9 +1088,12 @@ export class MobileOutline extends Model {
                         fetchPost("/api/block/getHeadingDeleteTransaction", {
                             id,
                         }, async (deleteResponse) => {
+                            const deletedIDs = deleteResponse.data.doOperations.map(
+                                (operation: IOperation) => operation.id);
                             if (!await confirmBlockRef({
                                 scope: "blocks",
-                                ids: deleteResponse.data.doOperations.map((operation: IOperation) => operation.id),
+                                ids: deletedIDs,
+                                deletedIDs,
                                 notebook: data.protyle.notebookId,
                             }, data.protyle)) {
                                 return;
@@ -1104,12 +1101,11 @@ export class MobileOutline extends Model {
                             if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
                                 return;
                             }
-                            if (isInAndroid()) {
-                                window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                            } else if (isInHarmony()) {
-                                window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                            } else {
-                                writeText(response.data + Constants.ZWSP);
+                            if (!await writeBlockDOMClipboard(data.protyle.lute, response.data)) {
+                                return;
+                            }
+                            if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
+                                return;
                             }
                             deleteResponse.data.doOperations.forEach((operation: IOperation) => {
                                 data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
@@ -1148,9 +1144,11 @@ export class MobileOutline extends Model {
                     fetchPost("/api/block/getHeadingDeleteTransaction", {
                         id,
                     }, async (response) => {
+                        const deletedIDs = response.data.doOperations.map((operation: IOperation) => operation.id);
                         if (!await confirmBlockRef({
                             scope: "blocks",
-                            ids: response.data.doOperations.map((operation: IOperation) => operation.id),
+                            ids: deletedIDs,
+                            deletedIDs,
                             notebook: data.protyle.notebookId,
                         }, data.protyle)) {
                             return;

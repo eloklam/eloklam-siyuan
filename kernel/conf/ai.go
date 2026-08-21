@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -19,6 +19,7 @@ package conf
 import (
 	"encoding/hex"
 	"encoding/json"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -39,15 +40,43 @@ type AI struct {
 }
 
 type Agent struct {
-	ModelID             string  `json:"modelId"`
-	SessionTimeout      int     `json:"sessionTimeout"`
-	StreamIdleTimeout   int     `json:"streamIdleTimeout"`
-	ConfirmTimeout      int     `json:"confirmTimeout"`
-	MaxRetries          int     `json:"maxRetries"`
-	Temperature         float64 `json:"temperature"`
-	MaxCompletionTokens int     `json:"maxCompletionTokens"`
-	MaxToolCallRounds   int     `json:"maxToolCallRounds"`
+	ModelID             string            `json:"modelId"`
+	SessionTimeout      int               `json:"sessionTimeout"`
+	StreamIdleTimeout   int               `json:"streamIdleTimeout"`
+	ConfirmTimeout      int               `json:"confirmTimeout"`
+	MaxRetries          int               `json:"maxRetries"`
+	Temperature         float64           `json:"temperature"`
+	MaxCompletionTokens int               `json:"maxCompletionTokens"`
+	MaxToolCallRounds   int               `json:"maxToolCallRounds"`
+	CapabilityPolicy    *CapabilityPolicy `json:"capabilityPolicy"`
+	ApprovalPolicy      *ApprovalPolicy   `json:"approvalPolicy"`
+	Skills              *AgentSkills      `json:"skills"`
 }
+
+type AgentSkills struct {
+	UserEnabled []string `json:"userEnabled"`
+}
+
+type CapabilityPolicy struct {
+	Default   string            `json:"default"`
+	Overrides map[string]string `json:"overrides"`
+}
+
+type ApprovalPolicy struct {
+	Default   string                         `json:"default"`
+	Overrides map[string]*CapabilityApproval `json:"overrides"`
+}
+
+type CapabilityApproval struct {
+	Default string            `json:"default"`
+	Actions map[string]string `json:"actions"`
+}
+
+const (
+	ApprovalDecisionRisk    = "risk"
+	ApprovalDecisionConfirm = "confirm"
+	ApprovalDecisionAllow   = "allow"
+)
 
 // Editing holds behavior parameters used by the in-editor chat scenario. They
 // are kept here (instead of on Model) to mirror Agent and to decouple scenario
@@ -82,13 +111,14 @@ type Embedding struct {
 // 采用主流重排服务的 /rerank 协议（OpenAI 官方暂无 rerank API）。
 // 各服务商端点路径不一（Jina /v1/rerank、阿里云 /v1/reranks 等），故 Endpoint 为完整端点地址。
 type Rerank struct {
-	ID             string `json:"id"`
-	Enabled        bool   `json:"enabled"`
-	APIKey         string `json:"apiKey"`
-	Endpoint       string `json:"endpoint"` // 完整重排端点 URL，按目标模型文档填写
-	Name           string `json:"name"`
-	Timeout        int    `json:"timeout"`
-	CandidateCount int    `json:"candidateCount"` // 向量召回后送入重排的候选文档数，默认 30；越大越准但越慢
+	ID             string                   `json:"id"`
+	Enabled        bool                     `json:"enabled"`
+	APIKey         string                   `json:"apiKey"`
+	Endpoint       string                   `json:"endpoint"` // 完整重排端点 URL，按目标模型文档填写
+	Name           string                   `json:"name"`
+	RequestFormat  util.RerankRequestFormat `json:"requestFormat"`
+	Timeout        int                      `json:"timeout"`
+	CandidateCount int                      `json:"candidateCount"` // 向量召回后送入重排的候选文档数，默认 30；越大越准但越慢
 }
 
 type Provider struct {
@@ -114,7 +144,8 @@ type Model struct {
 }
 
 type MCP struct {
-	Servers []MCPServer `json:"servers"`
+	Servers        []MCPServer       `json:"servers"`
+	ExposurePolicy *CapabilityPolicy `json:"exposurePolicy"`
 }
 
 type MCPServer struct {
@@ -124,6 +155,8 @@ type MCPServer struct {
 	Type                 string            `json:"type"`
 	Command              string            `json:"command"`
 	Args                 []string          `json:"args"`
+	InheritEnv           []string          `json:"inheritEnv"`
+	Env                  map[string]string `json:"env"`
 	URL                  string            `json:"url"`
 	Headers              map[string]string `json:"headers"`
 	Timeout              int               `json:"timeout"`
@@ -135,7 +168,11 @@ func defaultEmbedding() *Embedding {
 }
 
 func defaultRerank() *Rerank {
-	return &Rerank{Timeout: 30, CandidateCount: 30}
+	return &Rerank{
+		RequestFormat:  util.RerankRequestFormatCohere,
+		Timeout:        30,
+		CandidateCount: 30,
+	}
 }
 
 func defaultAgent() *Agent {
@@ -147,7 +184,70 @@ func defaultAgent() *Agent {
 		Temperature:         1.0,
 		MaxCompletionTokens: 0,
 		MaxToolCallRounds:   64,
+		CapabilityPolicy:    defaultCapabilityPolicy(),
+		ApprovalPolicy:      defaultApprovalPolicy(),
+		Skills:              &AgentSkills{UserEnabled: []string{}},
 	}
+}
+
+func defaultApprovalPolicy() *ApprovalPolicy {
+	return &ApprovalPolicy{
+		Default:   ApprovalDecisionRisk,
+		Overrides: map[string]*CapabilityApproval{},
+	}
+}
+
+func defaultCapabilityPolicy() *CapabilityPolicy {
+	return &CapabilityPolicy{
+		Default:   "allow",
+		Overrides: map[string]string{},
+	}
+}
+
+func normalizeCapabilityPolicy(policy *CapabilityPolicy) *CapabilityPolicy {
+	if policy == nil {
+		return defaultCapabilityPolicy()
+	}
+	if policy.Default != "deny" {
+		policy.Default = "allow"
+	}
+	if policy.Overrides == nil {
+		policy.Overrides = map[string]string{}
+	}
+	for id, decision := range policy.Overrides {
+		if id == "" || decision != "allow" && decision != "deny" {
+			delete(policy.Overrides, id)
+		}
+	}
+	return policy
+}
+
+func (policy *CapabilityPolicy) Allows(id string) bool {
+	if policy == nil {
+		return true
+	}
+	if decision := policy.Overrides[id]; decision != "" {
+		return decision == "allow"
+	}
+	return policy.Default != "deny"
+}
+
+func (policy *ApprovalPolicy) Decision(id, action string) string {
+	if policy == nil {
+		return ApprovalDecisionRisk
+	}
+	if override := policy.Overrides[id]; override != nil {
+		if decision := override.Actions[action]; decision != "" {
+			return decision
+		}
+		if override.Default != "" {
+			return override.Default
+		}
+	}
+	if policy.Default == "" {
+		return ApprovalDecisionRisk
+	}
+	return policy.Default
 }
 
 func defaultEditing() *Editing {
@@ -165,7 +265,7 @@ func defaultImageGeneration() *ImageGeneration {
 func NewAI() *AI {
 	ai := &AI{
 		Providers:       []*Provider{},
-		MCP:             &MCP{Servers: []MCPServer{}},
+		MCP:             &MCP{Servers: []MCPServer{}, ExposurePolicy: defaultCapabilityPolicy()},
 		Embedding:       defaultEmbedding(),
 		Rerank:          defaultRerank(),
 		Agent:           defaultAgent(),
@@ -391,10 +491,11 @@ func (ai *AI) Normalize() {
 		ai.Providers = []*Provider{}
 	}
 	if ai.MCP == nil {
-		ai.MCP = &MCP{Servers: []MCPServer{}}
+		ai.MCP = &MCP{Servers: []MCPServer{}, ExposurePolicy: defaultCapabilityPolicy()}
 	} else if ai.MCP.Servers == nil {
 		ai.MCP.Servers = []MCPServer{}
 	}
+	ai.MCP.ExposurePolicy = normalizeCapabilityPolicy(ai.MCP.ExposurePolicy)
 	serverIDs := map[string]bool{}
 	for i := range ai.MCP.Servers {
 		if ai.MCP.Servers[i].ID == "" || serverIDs[ai.MCP.Servers[i].ID] {
@@ -405,6 +506,31 @@ func (ai *AI) Normalize() {
 	if ai.Agent == nil {
 		ai.Agent = defaultAgent()
 	} else {
+		if ai.Agent.Skills == nil {
+			ai.Agent.Skills = &AgentSkills{UserEnabled: []string{}}
+		} else {
+			seen := map[string]struct{}{}
+			normalized := []string{}
+			for _, id := range ai.Agent.Skills.UserEnabled {
+				id = strings.TrimSpace(id)
+				key := strings.ToLower(id)
+				if id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\`) {
+					continue
+				}
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				normalized = append(normalized, id)
+			}
+			ai.Agent.Skills.UserEnabled = normalized
+		}
+		ai.Agent.CapabilityPolicy = normalizeCapabilityPolicy(ai.Agent.CapabilityPolicy)
+		if ai.Agent.ApprovalPolicy == nil {
+			ai.Agent.ApprovalPolicy = defaultApprovalPolicy()
+		} else {
+			normalizeApprovalPolicy(ai.Agent.ApprovalPolicy)
+		}
 		if ai.Agent.SessionTimeout < 0 {
 			ai.Agent.SessionTimeout = 0
 		} else if ai.Agent.SessionTimeout > 3600 {
@@ -421,6 +547,7 @@ func (ai *AI) Normalize() {
 			ai.Agent.MaxRetries = 10
 		}
 	}
+	ai.pruneOrphanedMCPCapabilityPolicies()
 	if ai.Editing == nil {
 		ai.Editing = defaultEditing()
 	} else {
@@ -471,7 +598,7 @@ func (ai *AI) Normalize() {
 		p.APIKey = strings.TrimSpace(p.APIKey)
 		p.Protocol = strings.ToLower(strings.TrimSpace(p.Protocol))
 		if p.Protocol == "" {
-			p.Protocol = "openai"
+			p.Protocol = util.OpenAIProtocolChatCompletions
 		}
 		if 1 > p.RequestTimeout {
 			p.RequestTimeout = 120
@@ -521,6 +648,10 @@ func (ai *AI) Normalize() {
 	if ai.Rerank.Timeout < 1 {
 		ai.Rerank.Timeout = 30
 	}
+	if util.RerankRequestFormatCohere != ai.Rerank.RequestFormat &&
+		util.RerankRequestFormatDashScope != ai.Rerank.RequestFormat {
+		ai.Rerank.RequestFormat = util.RerankRequestFormatCohere
+	}
 	if ai.Rerank.CandidateCount < 5 {
 		ai.Rerank.CandidateCount = 5
 	} else if ai.Rerank.CandidateCount > 100 {
@@ -528,6 +659,65 @@ func (ai *AI) Normalize() {
 	}
 	if !ast.IsNodeIDPattern(ai.Rerank.ID) {
 		ai.Rerank.ID = ast.NewNodeID()
+	}
+}
+
+func (ai *AI) pruneOrphanedMCPCapabilityPolicies() {
+	configuredServerIDs := make(map[string]bool, len(ai.MCP.Servers))
+	for _, server := range ai.MCP.Servers {
+		configuredServerIDs[url.PathEscape(server.ID)] = true
+	}
+
+	isOrphaned := func(id string) bool {
+		const prefix = "mcp/backend/"
+		if !strings.HasPrefix(id, prefix) {
+			return false
+		}
+		serverID, _, ok := strings.Cut(strings.TrimPrefix(id, prefix), "/")
+		return ok && !configuredServerIDs[serverID]
+	}
+	for id := range ai.Agent.CapabilityPolicy.Overrides {
+		if isOrphaned(id) {
+			delete(ai.Agent.CapabilityPolicy.Overrides, id)
+		}
+	}
+	for id := range ai.Agent.ApprovalPolicy.Overrides {
+		if isOrphaned(id) {
+			delete(ai.Agent.ApprovalPolicy.Overrides, id)
+		}
+	}
+}
+
+func normalizeApprovalPolicy(policy *ApprovalPolicy) {
+	// 旧版中的 confirm 表示未自动批准，实际仍按操作风险判断，因此迁移为 risk。
+	if policy.Default == ApprovalDecisionConfirm ||
+		policy.Default != ApprovalDecisionAllow && policy.Default != ApprovalDecisionRisk {
+		policy.Default = ApprovalDecisionRisk
+	}
+	if policy.Overrides == nil {
+		policy.Overrides = map[string]*CapabilityApproval{}
+	}
+	for id, override := range policy.Overrides {
+		if id == "" || override == nil {
+			delete(policy.Overrides, id)
+			continue
+		}
+		if override.Default != ApprovalDecisionAllow && override.Default != ApprovalDecisionConfirm &&
+			override.Default != ApprovalDecisionRisk {
+			override.Default = ""
+		}
+		if override.Actions == nil {
+			override.Actions = map[string]string{}
+		}
+		for action, decision := range override.Actions {
+			if decision != ApprovalDecisionAllow && decision != ApprovalDecisionConfirm &&
+				decision != ApprovalDecisionRisk {
+				delete(override.Actions, action)
+			}
+		}
+		if override.Default == "" && len(override.Actions) == 0 {
+			delete(policy.Overrides, id)
+		}
 	}
 }
 
@@ -731,6 +921,8 @@ func migrateMCP(raw map[string]any) *MCP {
 			Type:                 getString(sm, "type"),
 			Command:              getString(sm, "command"),
 			Args:                 getStringSlice(sm, "args"),
+			InheritEnv:           getStringSlice(sm, "inheritEnv"),
+			Env:                  getStringMap(sm, "env"),
 			URL:                  getString(sm, "url"),
 			Headers:              getStringMap(sm, "headers"),
 			Timeout:              getInt(sm, "timeout"),

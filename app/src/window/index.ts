@@ -27,11 +27,13 @@ import {hideAllElements} from "../protyle/ui/hideElements";
 import {reloadEmoji} from "../emoji";
 import {appearanceConfigApi} from "../config/tabs/appearanceRuntime";
 import {renderSnippet} from "../config/util/snippets";
-import {refreshThemeStyle, setBodyHighlight} from "../util/assets";
+import {refreshThemeStyle, reloadInlineStyles, setBodyHighlight} from "../util/assets";
 import {reloadSync} from "../util/reloadSync";
 import {setTitle} from "../util/processTitle";
 import {ensureUILayout} from "../util/ensureUILayout";
 import {applyEntryVisibility} from "../config/entryVisibility/runtime";
+import {removeBlockPanelEditors} from "../block/panelRemoval";
+import {updateServerAddresses} from "../config/tabs/accessRuntime";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -56,6 +58,9 @@ class App {
                                 break;
                             case "setAppearance":
                                 appearanceConfigApi.apply(data.data);
+                                break;
+                            case "reloadInlineStyles":
+                                void reloadInlineStyles();
                                 break;
                             case "setEntryVisibility":
                                 applyEntryVisibility(data.data);
@@ -91,6 +96,9 @@ class App {
                                 break;
                             case "setConf":
                                 window.siyuan.config = data.data;
+                                break;
+                            case "setServerAddrs":
+                                updateServerAddresses(data.data);
                                 break;
                             case "progress":
                                 progressLoading(data);
@@ -128,6 +136,7 @@ class App {
                                 break;
                             case "closeBox":
                             case "removeBox":
+                                removeBlockPanelEditors({notebookId: data.data.box});
                                 getAllTabs().forEach((tab) => {
                                     if (tab.headElement) {
                                         const initTab = tab.headElement.getAttribute("data-initdata");
@@ -141,6 +150,7 @@ class App {
                                 });
                                 break;
                             case "removeDoc":
+                                removeBlockPanelEditors({rootIDs: data.data.ids});
                                 getAllTabs().forEach((tab) => {
                                     if (tab.headElement) {
                                         const initTab = tab.headElement.getAttribute("data-initdata");

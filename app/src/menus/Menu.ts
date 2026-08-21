@@ -6,6 +6,7 @@ import {Constants} from "../constants";
 import {getTopBarHeight} from "../layout/getTopBarHeight";
 import {electronUndo} from "../protyle/undo";
 import {escapeAttr} from "../util/escape";
+import {setMenuInputCurrent} from "./menuKeyboard";
 /// #if !MOBILE
 import {applyMenuEntryVisibility} from "../config/entryVisibility/runtime";
 /// #endif
@@ -66,6 +67,17 @@ export class Menu {
     private sheetCanDrag = false;
     private sheetDragging = false;
     private suppressSheetClick = false;
+    private targetPositionFrame: number | undefined;
+
+    private updateTargetPosition = () => {
+        if (typeof this.targetPositionFrame === "number") {
+            cancelAnimationFrame(this.targetPositionFrame);
+        }
+        this.targetPositionFrame = requestAnimationFrame(() => {
+            this.targetPositionFrame = undefined;
+            this.resetPosition();
+        });
+    };
 
     constructor(element?: HTMLElement) {
         this.wheelEvent = "onwheel" in document.createElement("div") ? "wheel" : "mousewheel";
@@ -73,6 +85,15 @@ export class Menu {
 
         this.element = element || document.getElementById("commonMenu");
         this.element.querySelector(".b3-menu__title .b3-menu__label").innerHTML = window.siyuan.languages.back;
+        const activateKeymapInput = (event: Event) => {
+            const target = event.target as HTMLElement;
+            if (["INPUT", "TEXTAREA"].includes(target.tagName) &&
+                target.hasAttribute(Constants.ATTRIBUTE_MENU_KEYMAP)) {
+                setMenuInputCurrent(this.element, target);
+            }
+        };
+        this.element.addEventListener("focusin", activateKeymapInput);
+        this.element.addEventListener("pointerdown", activateKeymapInput);
         if (isMobile()) {
             this.element.addEventListener("touchstart", this.handleSheetTouchStart, {passive: true});
             this.element.addEventListener("touchmove", this.handleSheetTouchMove, {passive: false});
@@ -94,12 +115,13 @@ export class Menu {
             const target = event.target as Element;
             if (isMobile()) {
                 const titleElement = hasClosestByClassName(target, "b3-menu__title");
-                if (titleElement || (typeof event.detail === "string" && event.detail === "back")) {
+                const isSystemBack = typeof event.detail === "string" && event.detail === "back";
+                if ((titleElement && !titleElement.classList.contains("b3-menu__title--root")) || isSystemBack) {
                     const lastShowElements = this.element.querySelectorAll(".b3-menu__item--show");
                     if (lastShowElements.length > 0) {
                         lastShowElements[lastShowElements.length - 1].classList.remove("b3-menu__item--show");
                         if (this.element.classList.contains("b3-menu--sheet")) {
-                            this.setSheetHeight(this.element.dataset.position === "bottom" ? "bottom" : "all");
+                            this.setSheetHeight();
                         }
                     } else {
                         this.closeSheet();
@@ -137,7 +159,7 @@ export class Menu {
             itemElement.classList.add("b3-menu__item--show");
             if (!isSubMenuShown) {
                 if (this.element.classList.contains("b3-menu--sheet")) {
-                    this.setSheetHeight(this.element.dataset.position === "bottom" ? "bottom" : "all");
+                    this.setSheetHeight();
                 } else if (!this.element.classList.contains("b3-menu--fullscreen")) {
                     this.showSubMenu(subMenuElement);
                 }
@@ -236,7 +258,7 @@ export class Menu {
         this.element.style.transform = `translateY(${offset}px)`;
         const scrimElement = this.getFullscreenScrim();
         if (scrimElement) {
-            scrimElement.style.opacity = Math.max(0, .4 * (1 - offset / this.element.clientHeight)).toString();
+            scrimElement.style.opacity = Math.max(0, .2 * (1 - offset / this.element.clientHeight)).toString();
         }
         if (event.cancelable) {
             event.preventDefault();
@@ -308,21 +330,30 @@ export class Menu {
         fullscreenCloseTimeout = window.setTimeout(() => this.removeImmediately(), Constants.TIMEOUT_DBLCLICK);
     }
 
-    private setSheetHeight(position: "bottom" | "all") {
-        if (position === "bottom") {
-            this.element.style.height = "50vh";
+    private updateSheetTitle() {
+        if (!this.element.classList.contains("b3-menu--sheet")) {
             return;
         }
-        let itemsElement = this.element.lastElementChild;
+        const titleElement = this.element.firstElementChild as HTMLElement;
+        const labelElement = titleElement.querySelector(".b3-menu__label") as HTMLElement;
         const shownItems = this.element.querySelectorAll(".b3-menu__item--show");
-        if (shownItems.length > 0) {
-            itemsElement = shownItems[shownItems.length - 1]
-                .querySelector(":scope > .b3-menu__submenu > .b3-menu__items") || itemsElement;
+        if (shownItems.length === 0) {
+            titleElement.classList.add("b3-menu__title--root");
+            labelElement.textContent = "";
+            return;
         }
-        const maxHeight = window.innerHeight * .9;
-        const titleHeight = this.element.firstElementChild.getBoundingClientRect().height;
-        const contentHeight = itemsElement.scrollHeight;
-        this.element.style.height = Math.min(maxHeight, Math.max(160, titleHeight + contentHeight)) + "px";
+        titleElement.classList.remove("b3-menu__title--root");
+        const parentLabelElement = shownItems[shownItems.length - 1]
+            .querySelector(":scope > .b3-menu__label") as HTMLElement;
+        labelElement.textContent = parentLabelElement?.textContent.trim() || window.siyuan.languages.back;
+    }
+
+    private setSheetHeight() {
+        this.updateSheetTitle();
+        const mobileSize = window.siyuan.mobile.size;
+        const orientationSize = mobileSize.isLandscape ? mobileSize.landscape : mobileSize.portrait;
+        // 使用当前方向记录的完整视口高度，避免软键盘收起期间菜单高度被压缩
+        this.element.style.height = Math.max(window.innerHeight, orientationSize?.height1 || 0) * .56 + "px";
     }
 
     public showSubMenu(subMenuElement: HTMLElement) {
@@ -333,7 +364,7 @@ export class Menu {
             return;
         }
         if (this.element.classList.contains("b3-menu--sheet")) {
-            this.setSheetHeight(this.element.dataset.position === "bottom" ? "bottom" : "all");
+            this.setSheetHeight();
             return;
         }
         const itemRect = subMenuElement.parentElement.getBoundingClientRect();
@@ -427,7 +458,7 @@ export class Menu {
                 subElement.classList.add("b3-menu__item--current");
                 subElement.querySelector(".b3-menu__item--current")?.classList.remove("b3-menu__item--current");
                 if (this.element.classList.contains("b3-menu--sheet")) {
-                    this.setSheetHeight(this.element.dataset.position === "bottom" ? "bottom" : "all");
+                    this.setSheetHeight();
                 }
                 return;
             }
@@ -435,10 +466,30 @@ export class Menu {
         this.removeImmediately();
     }
 
+    private emitCommonMenu(type: TEventBus, detail: {
+        name: string | null,
+        from: string | null,
+        mode?: "popup" | "fullscreen",
+    }) {
+        if (this.element.id !== "commonMenu") {
+            return;
+        }
+        window.siyuan.ws?.app?.plugins?.forEach((plugin) => {
+            plugin.eventBus.emit(type, {
+                menu: this.element,
+                ...detail,
+            });
+        });
+    }
+
     private removeImmediately() {
+        const menuName = this.element.getAttribute("data-name");
+        const menuFrom = this.element.getAttribute("data-from");
+        const wasOpen = !this.element.classList.contains("fn__none");
         clearTimeout(fullscreenCloseTimeout);
         this.hideFullscreenScrim();
         this.finishSheetTouch();
+        this.stopTrackingTargetPosition();
         if (this.removeCB) {
             const removeCB = this.removeCB;
             this.removeCB = undefined;
@@ -446,6 +497,9 @@ export class Menu {
         }
         this.removeScrollEvent();
         this.element.firstElementChild.classList.add("fn__none");
+        this.element.firstElementChild.classList.remove("b3-menu__title--root");
+        (this.element.firstElementChild.querySelector(".b3-menu__label") as HTMLElement).innerHTML =
+            window.siyuan.languages.back;
         this.element.lastElementChild.innerHTML = "";
         this.element.lastElementChild.classList.remove("b3-menu__items--menu");
         this.element.lastElementChild.removeAttribute("style");  // 输入框 focus 后 boxShadow 显示不全
@@ -454,8 +508,10 @@ export class Menu {
         this.element.removeAttribute("style");  // zIndex
         this.element.removeAttribute("data-name");    // 标识再次点击不消失
         this.element.removeAttribute("data-from");    // 标识菜单入口
-        this.element.removeAttribute("data-position");
         this.data = undefined;    // 移除数据
+        if (wasOpen) {
+            this.emitCommonMenu("common-menu-closed", {name: menuName, from: menuFrom});
+        }
     }
 
     public append(element?: HTMLElement, index?: number) {
@@ -479,17 +535,30 @@ export class Menu {
         if (this.element.lastElementChild.innerHTML === "") {
             return;
         }
+        this.emitCommonMenu("common-menu-open", {
+            name: this.element.getAttribute("data-name"),
+            from: this.element.getAttribute("data-from"),
+            mode: "popup",
+        });
         window.addEventListener(isMobile() ? "touchmove" : this.wheelEvent, this.preventDefault, {passive: false});
         this.element.style.zIndex = (++window.siyuan.zIndex).toString();
         this.element.classList.remove("fn__none");
+        this.position = options;
         setPosition(this.element, options.x - (options.isLeft ? this.element.clientWidth : 0), options.y, options.h, options.w);
         this.updateMaxHeight(this.element, this.element.lastElementChild as HTMLElement);
-        this.position = options;
+        this.startTrackingTargetPosition();
     }
 
     public resetPosition() {
-        if (this.element.classList.contains("fn__none")) {
+        if (this.element.classList.contains("fn__none") || !this.position) {
             return;
+        }
+        if (this.position.target?.isConnected) {
+            const rect = this.position.target.getBoundingClientRect();
+            this.position.x = this.position.isLeft ? rect.right : rect.left;
+            this.position.y = rect.bottom;
+            this.position.h = rect.height;
+            this.position.w = rect.width;
         }
         setPosition(this.element, this.position.x - (this.position.isLeft ? this.element.clientWidth : 0), this.position.y, this.position.h, this.position.w);
         this.updateMaxHeight(this.element, this.element.lastElementChild as HTMLElement);
@@ -499,11 +568,36 @@ export class Menu {
         });
     }
 
+    private startTrackingTargetPosition() {
+        this.stopTrackingTargetPosition();
+        if (!this.position.target) {
+            return;
+        }
+        window.addEventListener("resize", this.updateTargetPosition);
+        window.visualViewport?.addEventListener("resize", this.updateTargetPosition);
+        window.visualViewport?.addEventListener("scroll", this.updateTargetPosition);
+    }
+
+    private stopTrackingTargetPosition() {
+        window.removeEventListener("resize", this.updateTargetPosition);
+        window.visualViewport?.removeEventListener("resize", this.updateTargetPosition);
+        window.visualViewport?.removeEventListener("scroll", this.updateTargetPosition);
+        if (typeof this.targetPositionFrame === "number") {
+            cancelAnimationFrame(this.targetPositionFrame);
+            this.targetPositionFrame = undefined;
+        }
+    }
+
     public fullscreen(position: "bottom" | "all" = "all") {
         applyMenuConfig(this.element);
         if (this.element.lastElementChild.innerHTML === "") {
             return;
         }
+        this.emitCommonMenu("common-menu-open", {
+            name: this.element.getAttribute("data-name"),
+            from: this.element.getAttribute("data-from"),
+            mode: "fullscreen",
+        });
         if (!isMobile()) {
             this.element.classList.add("b3-menu--fullscreen");
             this.element.style.zIndex = (++window.siyuan.zIndex).toString();
@@ -525,14 +619,13 @@ export class Menu {
         this.element.querySelectorAll(":scope > .b3-menu__items, .b3-menu__submenu > .b3-menu__items")
             .forEach(updateMenuItemGroupClasses);
         this.element.classList.add("b3-menu--fullscreen", "b3-menu--sheet");
-        this.element.dataset.position = position;
         this.element.style.transform = "translateY(100%)";
         this.showFullscreenScrim();
         this.element.style.zIndex = (++window.siyuan.zIndex).toString();
         this.element.firstElementChild.classList.remove("fn__none");
         this.element.classList.remove("fn__none");
         window.addEventListener("touchmove", this.preventDefault, {passive: false});
-        this.setSheetHeight(position);
+        this.setSheetHeight();
         void this.element.offsetHeight;
         requestAnimationFrame(() => {
             if (this.element.classList.contains("b3-menu--sheet")) {

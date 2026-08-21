@@ -10,22 +10,7 @@ import {Constants} from "../../../constants";
 import {clearSelect} from "../../util/clear";
 import {getAVVisibleViewIDs, setAVVisibleViewIDs} from "./viewVisibility";
 import {isNotEditBlock} from "../../wysiwyg/getBlock";
-
-// countFilterLeaves 递归统计过滤节点树中的叶子数量（分组不计入）。
-const countFilterLeaves = (filters: IAVFilter[]): number => {
-    let count = 0;
-    const walk = (nodes: IAVFilter[]) => {
-        nodes.forEach(n => {
-            if (n.filters) {
-                walk(n.filters);
-            } else {
-                count++;
-            }
-        });
-    };
-    walk(filters);
-    return count;
-};
+import {countFilterLeaves} from "./filterTree";
 
 export const setAVBlockVisibleViewIDs = (
     protyle: IProtyle,
@@ -120,7 +105,7 @@ export const openViewMenu = (options: { protyle: IProtyle, blockElement: HTMLEle
     menu.addItem({
         id: "duplicate",
         icon: "iconCopy",
-        label: window.siyuan.languages.duplicate,
+        label: window.siyuan.languages.duplicateCopy,
         click() {
             document.querySelector(".av__panel")?.remove();
             const id = Lute.NewNodeID();
@@ -329,7 +314,7 @@ ${data.viewType === "calendar" ? "" : `<button class="b3-menu__item" data-type="
     <svg class="b3-menu__icon">
         <use xlink:href="#iconCopy"></use>
     </svg>
-    <span class="b3-menu__label">${window.siyuan.languages.duplicate}</span>
+    <span class="b3-menu__label">${window.siyuan.languages.duplicateCopy}</span>
 </button>
 <button class="b3-menu__item b3-menu__item--warning${data.views.length > 1 ? "" : " fn__none"}" data-type="delete-view">
     <svg class="b3-menu__icon"><use xlink:href="#iconTrashcan"></use></svg>
@@ -431,9 +416,9 @@ export const getSwitcherHTML = (views: IAVView[], viewId: string, blockElement: 
     });
     const visibleSectionHTML = `<div data-av-view-section="visible">
 <button class="b3-menu__separator"></button>
-<button class="b3-menu__item b3-menu__item--readonly" data-type="nobg">
+<button class="b3-menu__item" data-type="nobg">
     <span class="b3-menu__label">${window.siyuan.languages.visibleViews}</span>
-    <span class="block__icon block__icon--show" data-type="av-view-hide-all">
+    <span class="block__icon" data-type="av-view-hide-all">
         ${window.siyuan.languages.hideAll}
         <span class="fn__space"></span>
         <svg><use xlink:href="#iconEyeoff"></use></svg>
@@ -442,9 +427,9 @@ export const getSwitcherHTML = (views: IAVView[], viewId: string, blockElement: 
 </div>${visibleHTML}`;
     const hiddenSectionHTML = hiddenHTML ? `<div data-av-view-section="hidden">
 <button class="b3-menu__separator"></button>
-<button class="b3-menu__item b3-menu__item--readonly" data-type="nobg">
+<button class="b3-menu__item" data-type="nobg">
     <span class="b3-menu__label">${window.siyuan.languages.hiddenViews}</span>
-    <span class="block__icon block__icon--show" data-type="av-view-show-all">
+    <span class="block__icon" data-type="av-view-show-all">
         ${window.siyuan.languages.showAll}
         <span class="fn__space"></span>
         <svg><use xlink:href="#iconEye"></use></svg>

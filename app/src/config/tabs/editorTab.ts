@@ -3,6 +3,9 @@ import {isBrowser, isMobile} from "../../util/functions";
 import {updateHotkeyTip} from "../../protyle/util/compatibility";
 import {editorConfigApi} from "./editorRuntime";
 import type {SettingTabBuilder} from "../setting/builder";
+import {controlSelect} from "../setting/control";
+import {genStackHtml} from "../render/render";
+import type {StackLine} from "../render/parts";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
 /// #endif
@@ -54,11 +57,70 @@ const registerEditorBehaviorGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.pasteURLAutoConvert,
         desc: window.siyuan.languages.pasteURLAutoConvertTip,
     });
+    group.switch("editor.keepLoadedContent", {
+        title: window.siyuan.languages.keepLazyLoad,
+        desc: window.siyuan.languages.keepLazyLoadTip,
+    });
     group.number("editor.dynamicLoadBlocks", {
         title: window.siyuan.languages.dynamicLoadBlocks,
         desc: window.siyuan.languages.dynamicLoadBlocksTip,
         min: 48,
     });
+    /// #if !MOBILE && !BROWSER
+    const assetOpenOptions = [
+        {value: "follow-tab", label: window.siyuan.languages.assetOpenFollowTab},
+        {value: "current", label: window.siyuan.languages.assetOpenCurrent},
+        {value: "right", label: window.siyuan.languages.insertRight},
+        {value: "bottom", label: window.siyuan.languages.insertBottom},
+        {value: "background", label: window.siyuan.languages.refTab},
+        {value: "new-window", label: window.siyuan.languages.openByNewWindow},
+        {value: "app", label: window.siyuan.languages.useDefault},
+        {value: "folder", label: window.siyuan.languages.showInFolder},
+    ];
+    const assetOpenControls = [
+        {
+            key: "click",
+            label: window.siyuan.languages.assetOpenClick,
+            control: controlSelect("editor.assetOpen.click", {options: assetOpenOptions}),
+        },
+        {
+            key: "ctrlClick",
+            label: window.siyuan.languages.assetOpenCtrlClick,
+            control: controlSelect("editor.assetOpen.ctrlClick", {options: assetOpenOptions}),
+        },
+        {
+            key: "altClick",
+            label: window.siyuan.languages.assetOpenAltClick,
+            control: controlSelect("editor.assetOpen.altClick", {options: assetOpenOptions}),
+        },
+        {
+            key: "shiftClick",
+            label: window.siyuan.languages.assetOpenShiftClick,
+            control: controlSelect("editor.assetOpen.shiftClick", {options: assetOpenOptions}),
+        },
+    ];
+    group.composite({
+        key: "assetOpen",
+        keywords: [
+            window.siyuan.languages.assetOpen,
+            window.siyuan.languages.assetOpenTip,
+            ...assetOpenControls.map((item) => item.label),
+            ...assetOpenOptions.map((item) => item.label),
+        ],
+        html: () => genStackHtml([
+            {left: {kind: "title", text: window.siyuan.languages.assetOpen}},
+            {left: {kind: "desc", text: window.siyuan.languages.assetOpenTip}},
+            ...assetOpenControls.map((item) => ({
+                left: {kind: "desc" as const, text: item.label},
+                right: item.control,
+            })),
+        ] as StackLine[]),
+        controls: assetOpenControls.map((item) => ({
+            control: item.control,
+            save: (value) => editorConfigApi.patch(`assetOpen.${item.key}`, value),
+        })),
+    });
+    /// #endif
 };
 
 /// #if !BROWSER
@@ -119,21 +181,6 @@ const bindDatabaseAttrSettingsVisibility = (root: HTMLElement) => {
     toggle();
 };
 
-const bindHeadingNumberFormatVisibility = (root: HTMLElement) => {
-    const headingNumberSwitch = root.querySelector<HTMLInputElement>(`#${CSS.escape("editor.headingNumber")}`);
-    if (!headingNumberSwitch) {
-        return;
-    }
-    const toggle = () => {
-        root.querySelector(`#${CSS.escape("editor.headingNumberFormat")}`)?.closest(".config-item")?.classList.toggle(
-            "fn__none",
-            !headingNumberSwitch.checked,
-        );
-    };
-    headingNumberSwitch.addEventListener("change", toggle);
-    toggle();
-};
-
 const registerEditorBlockFeaturesGroup = (tab: SettingTabBuilder) => {
     const group = tab.group("blockFeatures", window.siyuan.languages.configGroupBlockFeatures);
     group.switch("editor.displayNetImgMark", {
@@ -151,7 +198,6 @@ const registerEditorBlockFeaturesGroup = (tab: SettingTabBuilder) => {
     group.switch("editor.headingNumber", {
         title: window.siyuan.languages.headingNumber,
         desc: window.siyuan.languages.headingNumberTip,
-        afterMount: bindHeadingNumberFormatVisibility,
     });
     group.select("editor.headingNumberFormat", {
         title: window.siyuan.languages.headingNumberFormat,
@@ -245,6 +291,11 @@ const registerEditorBidirectionalGroup = (tab: SettingTabBuilder) => {
         desc: window.siyuan.languages.md41,
         mode: "textarea",
     });
+    group.textBlock("editor.backlinkMentionExclude", {
+        title: window.siyuan.languages.backlinkMentionExclude,
+        desc: window.siyuan.languages.md41,
+        mode: "textarea",
+    });
     group.switch("editor.backlinkContainChildren", {
         title: window.siyuan.languages.backlinkContainChildren,
         desc: window.siyuan.languages.backlinkContainChildrenTip,
@@ -274,6 +325,10 @@ const registerEditorMarkdownBlockGroup = (tab: SettingTabBuilder) => {
     group.switch("editor.markdown.codeBlockMiddleDot", {
         title: window.siyuan.languages.codeBlockMiddleDot,
         desc: window.siyuan.languages.codeBlockMiddleDotTip,
+    });
+    group.switch("editor.markdown.blockFullWidthTaskList", {
+        title: window.siyuan.languages.editorMarkdownBlockFullWidthTaskList,
+        desc: window.siyuan.languages.editorMarkdownBlockFullWidthTaskListTip,
     });
 };
 
@@ -307,6 +362,10 @@ const registerEditorMarkdownInlineGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.editorMarkdownInlineStrikethrough,
         desc: window.siyuan.languages.editorMarkdownInlineStrikethroughTip,
     });
+    group.switch("editor.markdown.inlineFullWidthStrikethrough", {
+        title: window.siyuan.languages.editorMarkdownInlineFullWidthStrikethrough,
+        desc: window.siyuan.languages.editorMarkdownInlineFullWidthStrikethroughTip,
+    });
     group.switch("editor.markdown.inlineMark", {
         title: window.siyuan.languages.editorMarkdownInlineMark,
         desc: window.siyuan.languages.editorMarkdownInlineMarkTip,
@@ -323,6 +382,10 @@ const registerEditorAdvancedGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.katexMacros,
         desc: window.siyuan.languages.katexMacrosTip,
         mode: "textarea",
+    });
+    group.switch("editor.dragHTMLFileToIframe", {
+        title: window.siyuan.languages.dragHTMLFileToIframe,
+        desc: window.siyuan.languages.dragHTMLFileToIframeTip,
     });
     group.switch("editor.allowSVGScript", {
         title: window.siyuan.languages.allowSVGScript,

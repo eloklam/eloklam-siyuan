@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,10 +17,16 @@
 package api
 
 import (
+	"errors"
+	"io"
+	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
+	"github.com/siyuan-note/siyuan/kernel/bazaar"
 	"github.com/siyuan-note/siyuan/kernel/model"
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
@@ -31,6 +37,90 @@ var validPackageTypes = map[string]bool{
 	"icons":     true,
 	"templates": true,
 	"widgets":   true,
+}
+
+var (
+	getBazaarPackageUserRatingsModel = model.GetInstalledBazaarPackageUserRatings
+	setBazaarPackageRatingModel      = model.SetBazaarPackageRating
+)
+
+func installLocalBazaarPackage(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bazaar.MaxLocalPackageArchiveSize+1024*1024)
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		ret.Code = 1
+		ret.Msg = "Marketplace package file is required"
+		return
+	}
+	if fileHeader.Size > bazaar.MaxLocalPackageArchiveSize {
+		ret.Code = 1
+		ret.Msg = "Marketplace package file is too large"
+		return
+	}
+
+	tempDir := filepath.Join(util.TempDir, "bazaar", "upload", gulu.Rand.String(7))
+	if err = os.MkdirAll(tempDir, 0755); err != nil {
+		ret.Code = 1
+		ret.Msg = err.Error()
+		return
+	}
+	defer os.RemoveAll(tempDir)
+	archivePath := filepath.Join(tempDir, "package.zip")
+	uploaded, err := fileHeader.Open()
+	if err != nil {
+		ret.Code = 1
+		ret.Msg = err.Error()
+		return
+	}
+	defer uploaded.Close()
+	target, err := os.OpenFile(archivePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		ret.Code = 1
+		ret.Msg = err.Error()
+		return
+	}
+	written, copyErr := io.Copy(target, io.LimitReader(uploaded, bazaar.MaxLocalPackageArchiveSize+1))
+	closeErr := target.Close()
+	if copyErr != nil {
+		ret.Code = 1
+		ret.Msg = copyErr.Error()
+		return
+	}
+	if closeErr != nil {
+		ret.Code = 1
+		ret.Msg = closeErr.Error()
+		return
+	}
+	if written > bazaar.MaxLocalPackageArchiveSize {
+		ret.Code = 1
+		ret.Msg = "Marketplace package file is too large"
+		return
+	}
+
+	result, installErr := model.InstallLocalBazaarPackage(archivePath, c.PostForm("frontend"), c.PostForm("overwrite") == "true")
+	if installErr != nil {
+		ret.Code = 1
+		ret.Msg = installErr.Error()
+		if result != nil {
+			reason := "install-failed"
+			if errors.Is(installErr, model.ErrLocalBazaarPackageExists) {
+				reason = "package-exists"
+			} else if errors.Is(installErr, model.ErrLocalBazaarPackageIncompatible) {
+				reason = "package-incompatible"
+			}
+			ret.Data = map[string]any{
+				"reason":        reason,
+				"packageType":   result.PackageType,
+				"packageName":   result.PackageName,
+				"minAppVersion": result.MinAppVersion,
+			}
+		}
+		return
+	}
+	ret.Data = result
 }
 
 func batchUpdatePackage(c *gin.Context) {
@@ -175,6 +265,194 @@ func getBazaarPackage(c *gin.Context) {
 		"installed": installed,
 		"available": available,
 	}
+}
+
+func getBazaarPackageRatings(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var pkgType string
+	var packageNamesArg []any
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("packageType", &pkgType, true, true),
+		util.BindJsonArg("packageNames", &packageNamesArg, true, false),
+	) {
+		return
+	}
+	if !validPackageTypes[pkgType] {
+		ret.Code = 1
+		ret.Msg = "Invalid package type"
+		return
+	}
+
+	packageNames := make([]string, 0, len(packageNamesArg))
+	for _, item := range packageNamesArg {
+		packageName, elemOK := item.(string)
+		if !elemOK {
+			ret.Code = -1
+			ret.Msg = "Field [packageNames]: each element should be of type [String]"
+			return
+		}
+		packageNames = append(packageNames, packageName)
+	}
+
+	ratings, eligiblePackageNames, err := model.GetInstalledBazaarPackageRatings(c.Request.Context(), pkgType, packageNames)
+	if nil != err {
+		ret.Code = 1
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = bazaarPackageRatingsResponseData(ratings, eligiblePackageNames)
+}
+
+func bazaarPackageRatingsResponseData(ratings map[string]*bazaar.PackageRating,
+	eligiblePackageNames []string) map[string]any {
+	return map[string]any{
+		"ratings":              ratings,
+		"eligiblePackageNames": eligiblePackageNames,
+	}
+}
+
+func getBazaarPackageUserRatings(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var pkgType string
+	var packageNamesArg []any
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("packageType", &pkgType, true, true),
+		util.BindJsonArg("packageNames", &packageNamesArg, true, false),
+	) {
+		return
+	}
+	if !validPackageTypes[pkgType] {
+		ret.Code = 1
+		ret.Msg = "Invalid package type"
+		return
+	}
+
+	packageNames := make([]string, 0, len(packageNamesArg))
+	for _, item := range packageNamesArg {
+		packageName, elemOK := item.(string)
+		if !elemOK {
+			ret.Code = -1
+			ret.Msg = "Field [packageNames]: each element should be of type [String]"
+			return
+		}
+		packageNames = append(packageNames, packageName)
+	}
+
+	userRatings, eligiblePackageNames, err := getBazaarPackageUserRatingsModel(
+		c.Request.Context(), pkgType, packageNames)
+	if nil != err {
+		setBazaarPackageRatingError(ret, err)
+		return
+	}
+	ret.Data = bazaarPackageUserRatingsResponseData(userRatings, eligiblePackageNames)
+}
+
+func bazaarPackageUserRatingsResponseData(userRatings map[string]int, eligiblePackageNames []string) map[string]any {
+	return map[string]any{
+		"userRatings":          userRatings,
+		"eligiblePackageNames": eligiblePackageNames,
+	}
+}
+
+func getBazaarPackageRating(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var pkgType, packageName string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("packageType", &pkgType, true, true),
+		util.BindJsonArg("packageName", &packageName, true, true),
+	) {
+		return
+	}
+	if !validPackageTypes[pkgType] {
+		ret.Code = 1
+		ret.Msg = "Invalid package type"
+		return
+	}
+
+	rating, ratingAvailable, userRating, err := model.GetBazaarPackageRating(c.Request.Context(), pkgType, packageName)
+	if nil != err {
+		setBazaarPackageRatingError(ret, err)
+		return
+	}
+	ret.Data = bazaarPackageRatingResponseData(rating, ratingAvailable, userRating)
+}
+
+func setBazaarPackageRating(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var pkgType, packageName string
+	var ratingArg float64
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("packageType", &pkgType, true, true),
+		util.BindJsonArg("packageName", &packageName, true, true),
+		util.BindJsonArg("rating", &ratingArg, true, false),
+	) {
+		return
+	}
+	if !validPackageTypes[pkgType] {
+		ret.Code = 1
+		ret.Msg = "Invalid package type"
+		return
+	}
+	if ratingArg < 0 || 5 < ratingArg || ratingArg != math.Trunc(ratingArg) {
+		ret.Code = 1
+		ret.Msg = "Rating must be an integer from 0 to 5"
+		return
+	}
+
+	rating, ratingAvailable, userRating, err := setBazaarPackageRatingModel(
+		c.Request.Context(), pkgType, packageName, int(ratingArg))
+	if nil != err {
+		setBazaarPackageRatingError(ret, err)
+		return
+	}
+	ret.Data = bazaarPackageRatingResponseData(rating, ratingAvailable, userRating)
+}
+
+func setBazaarPackageRatingError(ret *gulu.Result, err error) {
+	ret.Code = 1
+	ret.Msg = err.Error()
+	if errors.Is(err, model.ErrBazaarRatingRateLimited) {
+		ret.Data = map[string]any{"errorCode": "bazaarRatingRateLimited"}
+	}
+}
+
+func bazaarPackageRatingResponseData(rating *bazaar.PackageRating, ratingAvailable bool, userRating int) map[string]any {
+	ret := map[string]any{
+		"ratingAvailable": ratingAvailable,
+		"userRating":      userRating,
+	}
+	if nil != rating {
+		ret["rating"] = rating
+	}
+	return ret
 }
 
 func getBazaarPackageREADME(c *gin.Context) {

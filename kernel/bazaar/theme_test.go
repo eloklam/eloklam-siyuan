@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,9 @@ func TestBuildBazaarThemeCompatibility(t *testing.T) {
 		wantIncompatible   bool
 		wantDisallowAction bool
 	}{
-		{name: "missing field", frontend: "mobile"},
+		{name: "missing field on mobile", frontend: "mobile", wantIncompatible: true, wantDisallowAction: true},
+		{name: "missing field on browser mobile", frontend: "browser-mobile", wantIncompatible: true, wantDisallowAction: true},
+		{name: "missing field on desktop", frontend: "desktop"},
 		{name: "all frontends", frontends: []string{"all"}, frontend: "mobile"},
 		{name: "supported frontend", frontends: []string{"desktop", "mobile"}, frontend: "mobile"},
 		{name: "unsupported frontend", frontends: []string{"desktop"}, frontend: "mobile", wantIncompatible: true, wantDisallowAction: true},
@@ -41,7 +43,7 @@ func TestBuildBazaarThemeCompatibility(t *testing.T) {
 					Name:      "theme",
 					Frontends: test.frontends,
 				},
-			}, nil, "themes", test.frontend)
+			}, nil, nil, false, "themes", test.frontend)
 			if nil == pkg || nil == pkg.BazaarIncompatible {
 				t.Fatal("expected theme compatibility metadata")
 			}

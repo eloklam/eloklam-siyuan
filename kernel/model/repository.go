@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -58,6 +58,7 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/av"
 	"github.com/siyuan-note/siyuan/kernel/cache"
 	"github.com/siyuan-note/siyuan/kernel/conf"
+	"github.com/siyuan-note/siyuan/kernel/heif"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/task"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -519,12 +520,18 @@ func OpenRepoSnapshotFile(fileID string) (title, content string, displayInText b
 					repoBoxID = parts[0]
 				}
 				if repoBoxID != "" && IsEncryptedBox(repoBoxID) {
+					// 加密仓库快照的 HEIF 预览不落盘，保持与旧版普通文件展示行为一致。
+					if heif.IsPath(file.Path) {
+						return
+					}
 					HoldBoxReadLock(repoBoxID)
 					defer ReleaseBoxReadLock(repoBoxID)
 					// 加密 asset：尝试解密后预览，无法解密则 fail-closed
 					if dek, dekErr := GetDEKIfUnlocked(repoBoxID); dekErr == nil && dek != nil {
 						diskName := filepath.Base(file.Path)
-						if plainData, decErr := DecryptAsset(repoBoxID, diskName, dek, data); decErr == nil {
+						plainData, decErr := DecryptAsset(repoBoxID, diskName, dek, data)
+						clear(dek)
+						if decErr == nil {
 							data = plainData
 						} else {
 							logging.LogWarnf("decrypt repo snapshot asset [%s] failed: %s", file.Path, decErr)
@@ -1105,6 +1112,7 @@ func ImportRepoKey(base64Key string) (retKey string, err error) {
 		return "", errors.New(Conf.Language(157))
 	}
 
+	suspendLANSyncManager()
 	Conf.Repo.Key = key
 	Conf.Save()
 	logging.LogInfof("imported repo key [%x]", sha1.Sum(Conf.Repo.Key))
@@ -1117,12 +1125,14 @@ func ImportRepoKey(base64Key string) (retKey string, err error) {
 	}
 
 	initDataRepo()
+	refreshLANSyncManager()
 	return
 }
 
 func ResetRepo() (err error) {
 	logging.LogInfof("resetting data repo...")
 	msgId := util.PushMsg(Conf.Language(144), 1000*60)
+	suspendLANSyncManager()
 
 	repo, err := newRepository()
 	if err != nil {
@@ -1138,6 +1148,7 @@ func ResetRepo() (err error) {
 	Conf.Repo.Key = nil
 	Conf.Sync.Enabled = false
 	Conf.Save()
+	refreshLANSyncManager()
 
 	util.PushUpdateMsg(msgId, Conf.Language(145), 3000)
 	task.AppendAsyncTaskWithDelay(task.ReloadUI, 2*time.Second, util.ReloadUI)
@@ -1198,6 +1209,7 @@ func InitRepoKeyFromPassphrase(passphrase string) (err error) {
 	}
 
 	util.PushMsg(Conf.Language(136), 3000)
+	suspendLANSyncManager()
 	if err = os.RemoveAll(Conf.Repo.GetSaveDir()); err != nil {
 		return
 	}
@@ -1225,11 +1237,13 @@ func InitRepoKeyFromPassphrase(passphrase string) (err error) {
 	logging.LogInfof("inited repo key [%x]", sha1.Sum(Conf.Repo.Key))
 
 	initDataRepo()
+	refreshLANSyncManager()
 	return
 }
 
 func InitRepoKey() (err error) {
 	util.PushMsg(Conf.Language(136), 3000)
+	suspendLANSyncManager()
 
 	if err = os.RemoveAll(Conf.Repo.GetSaveDir()); err != nil {
 		return
@@ -1262,6 +1276,7 @@ func InitRepoKey() (err error) {
 	logging.LogInfof("inited repo key [%x]", sha1.Sum(Conf.Repo.Key))
 
 	initDataRepo()
+	refreshLANSyncManager()
 	return
 }
 
@@ -1728,24 +1743,43 @@ func IsSyncingFile(rootID string) (ret bool) {
 	return
 }
 
+func syncStatusBarDisabled() bool {
+	return util.StatusBarCfg.MsgDataSyncDisabled
+}
+
+func pushSyncStatusBar(msg string) {
+	if syncStatusBarDisabled() {
+		return
+	}
+	util.PushStatusBar(msg)
+}
+
+func newSyncContext() map[string]any {
+	pushTarget := eventbus.CtxPushMsgToStatusBar
+	if syncStatusBarDisabled() {
+		pushTarget = eventbus.CtxPushMsgToNone
+	}
+	return map[string]any{eventbus.CtxPushMsg: pushTarget}
+}
+
 func syncRepoDownload() (err error) {
 	if 1 > len(Conf.Repo.Key) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := Conf.Language(26)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		err = errors.New(msg)
 		return
 	}
 
-	repo, err := newRepository()
+	repo, err := newSyncRepository()
 	if err != nil {
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", err)
 		logging.LogError(msg)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
@@ -1762,14 +1796,14 @@ func syncRepoDownload() (err error) {
 		msg := fmt.Sprintf(Conf.Language(80), formatRepoErrorMsg(err))
 		Conf.Sync.Stat = msg
 		Conf.Save()
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
 
 	beforeSyncPetals := getPetals()
 
-	syncContext := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar}
+	syncContext := newSyncContext()
 	cloudStart := time.Now()
 	mergeResult, trafficStat, err := repo.SyncDownload(syncContext)
 	cloudElapsed := time.Since(cloudStart)
@@ -1788,14 +1822,15 @@ func syncRepoDownload() (err error) {
 		}
 		Conf.Sync.Stat = msg
 		Conf.Save()
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
 
-	util.PushStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
+	pushSyncStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
 	Conf.Sync.Synced = util.CurrentTimeMillis()
-	msg := fmt.Sprintf(Conf.Language(150), trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomFloor(uint64(trafficStat.DownloadBytes), 2))
+	msg := fmt.Sprintf(Conf.Language(150), trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomFloor(uint64(trafficStat.DownloadBytes+trafficStat.PeerDownloadBytes), 2))
+	msg = appendLANSyncTrafficStat(msg, trafficStat)
 	Conf.Sync.Stat = msg
 	Conf.Save()
 	autoSyncErrCount = 0
@@ -1814,19 +1849,19 @@ func syncRepoUpload() (err error) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := Conf.Language(26)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		err = errors.New(msg)
 		return
 	}
 
-	repo, err := newRepository()
+	repo, err := newSyncRepository()
 	if err != nil {
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", err)
 		logging.LogError(msg)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
@@ -1843,12 +1878,12 @@ func syncRepoUpload() (err error) {
 		msg := fmt.Sprintf(Conf.Language(80), formatRepoErrorMsg(err))
 		Conf.Sync.Stat = msg
 		Conf.Save()
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
 
-	syncContext := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar}
+	syncContext := newSyncContext()
 	cloudStart := time.Now()
 	trafficStat, err := repo.SyncUpload(syncContext)
 	cloudElapsed := time.Since(cloudStart)
@@ -1867,14 +1902,15 @@ func syncRepoUpload() (err error) {
 		}
 		Conf.Sync.Stat = msg
 		Conf.Save()
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
 
-	util.PushStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
+	pushSyncStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
 	Conf.Sync.Synced = util.CurrentTimeMillis()
-	msg := fmt.Sprintf(Conf.Language(150), trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomCeil(uint64(trafficStat.DownloadBytes), 2))
+	msg := fmt.Sprintf(Conf.Language(150), trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomCeil(uint64(trafficStat.DownloadBytes+trafficStat.PeerDownloadBytes), 2))
+	msg = appendLANSyncTrafficStat(msg, trafficStat)
 	Conf.Sync.Stat = msg
 	Conf.Save()
 	autoSyncErrCount = 0
@@ -1882,6 +1918,7 @@ func syncRepoUpload() (err error) {
 
 	postProcessStart := time.Now()
 	processSyncMergeResult(false, true, &dejavu.MergeResult{}, trafficStat, "u", elapsed)
+	notifyLANSyncCommit(repo)
 	logging.LogInfof("upload data repo phases [index=%.2fs, cloud=%.2fs, post-process=%.2fs, total=%.2fs]",
 		indexElapsed.Seconds(), cloudElapsed.Seconds(), time.Since(postProcessStart).Seconds(), time.Since(start).Seconds())
 	return
@@ -1895,43 +1932,34 @@ func bootSyncRepo() (err error) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := Conf.Language(26)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		err = errors.New(msg)
 		return
 	}
 
-	repo, err := newRepository()
+	repo, err := newSyncRepository()
 	if err != nil {
 		autoSyncErrCount++
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", html.EscapeString(err.Error()))
 		logging.LogError(msg)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
 
 	isBootSyncing.Store(true)
-	bootStart := time.Now()
 
 	waitGroup := sync.WaitGroup{}
-	var beforeIndex, afterIndex *entity.Index
-	var indexElapsed time.Duration
-	var indexChangeGen uint64
-	var indexStable bool
 	var indexErr error
 	waitGroup.Go(func() {
 		defer logging.Recover()
 
-		indexStartChangeGen := syncDataChangeGen.Load()
 		start := time.Now()
-		beforeIndex, afterIndex, indexErr = indexRepoBeforeCloudSync(repo)
-		indexElapsed = time.Since(start)
-		indexChangeGen = syncDataChangeGen.Load()
-		indexStable = indexStartChangeGen == indexChangeGen
-		logging.LogInfof("boot index repo elapsed [%.2fs]", indexElapsed.Seconds())
+		_, _, indexErr = indexRepoBeforeCloudSync(repo)
+		logging.LogInfof("boot index repo elapsed [%.2fs]", time.Since(start).Seconds())
 	})
 	var cloudLatest *entity.Index
 	var cloudLatestErr error
@@ -1939,8 +1967,8 @@ func bootSyncRepo() (err error) {
 		defer logging.Recover()
 
 		start := time.Now()
-		syncContext := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar}
-		cloudLatest, cloudLatestErr = repo.GetCloudLatest(syncContext)
+		syncContext := newSyncContext()
+		cloudLatest, cloudLatestErr = repo.GetCloudLatestFast(syncContext)
 		if nil != cloudLatestErr && !errors.Is(cloudLatestErr, cloud.ErrCloudObjectNotFound) {
 			logging.LogErrorf("download cloud latest failed: %s", cloudLatestErr)
 		}
@@ -1955,10 +1983,11 @@ func bootSyncRepo() (err error) {
 	}
 
 	var fetchedFiles []*entity.File
+	var prefetchTraffic *dejavu.DownloadTrafficStat
 	if nil == err {
 		start := time.Now()
-		syncContext := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar}
-		fetchedFiles, err = repo.GetSyncCloudFiles(cloudLatest, syncContext)
+		syncContext := newSyncContext()
+		fetchedFiles, prefetchTraffic, err = repo.GetSyncCloudFilesWithTraffic(cloudLatest, syncContext)
 		logging.LogInfof("boot get sync cloud files elapsed [%.2fs]", time.Since(start).Seconds())
 	}
 
@@ -1977,7 +2006,7 @@ func bootSyncRepo() (err error) {
 		}
 		Conf.Sync.Stat = msg
 		Conf.Save()
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		BootSyncSucc = 1
 		isBootSyncing.Store(false)
@@ -2007,11 +2036,12 @@ func bootSyncRepo() (err error) {
 			defer unlockSync()
 
 			logging.LogInfof("syncing prepared boot data repo [device=%s, kernel=%s, provider=%d]", Conf.System.ID, KernelID, Conf.Sync.Provider)
-			var syncErr error
-			if indexStable && indexChangeGen == syncDataChangeGen.Load() {
-				syncErr = syncIndexedRepoAfterBootWithDNSRetry(repo, beforeIndex, afterIndex, bootStart, indexElapsed)
-			} else {
-				_, syncErr = syncRepoWithDNSRetry(false, false)
+			syncStart := time.Now()
+			indexStart := time.Now()
+			beforeIndex, afterIndex, syncErr := indexRepoBeforeCloudSync(repo)
+			indexElapsed := time.Since(indexStart)
+			if nil == syncErr {
+				syncErr = syncIndexedRepoAfterBootWithDNSRetry(repo, beforeIndex, afterIndex, syncStart, indexElapsed, prefetchTraffic)
 			}
 			if syncErr != nil {
 				logging.LogErrorf("boot background sync repo failed: %s", syncErr)
@@ -2030,20 +2060,20 @@ func syncRepo(exit, byHand bool) (dataChanged bool, err error) {
 		planSyncAfter(fixSyncInterval)
 
 		msg := Conf.Language(26)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		err = errors.New(msg)
 		return
 	}
 
-	repo, err := newRepository()
+	repo, err := newSyncRepository()
 	if err != nil {
 		autoSyncErrCount++
 		planSyncAfter(fixSyncInterval)
 
 		msg := fmt.Sprintf("sync repo failed: %s", err)
 		logging.LogError(msg)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		return
 	}
@@ -2061,7 +2091,7 @@ func syncRepo(exit, byHand bool) (dataChanged bool, err error) {
 		msg := fmt.Sprintf(Conf.Language(80), formatRepoErrorMsg(err))
 		Conf.Sync.Stat = msg
 		Conf.Save()
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		if 1 > autoSyncErrCount || byHand {
 			util.PushErrMsg(msg, 0)
 		}
@@ -2071,14 +2101,14 @@ func syncRepo(exit, byHand bool) (dataChanged bool, err error) {
 		return
 	}
 
-	dataChanged, err = syncIndexedRepo(repo, exit, byHand, beforeIndex, afterIndex, start, indexElapsed, false)
+	dataChanged, err = syncIndexedRepo(repo, exit, byHand, beforeIndex, afterIndex, start, indexElapsed, false, nil)
 	return
 }
 
-func syncIndexedRepo(repo *dejavu.Repo, exit, byHand bool, beforeIndex, afterIndex *entity.Index, start time.Time, indexElapsed time.Duration, skipCloudPreflight bool) (dataChanged bool, err error) {
+func syncIndexedRepo(repo *dejavu.Repo, exit, byHand bool, beforeIndex, afterIndex *entity.Index, start time.Time, indexElapsed time.Duration, skipCloudPreflight bool, prefetchTraffic *dejavu.DownloadTrafficStat) (dataChanged bool, err error) {
 	beforeSyncPetals := getPetals()
 
-	syncContext := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar}
+	syncContext := newSyncContext()
 	if skipCloudPreflight {
 		// 启动同步已经读取过云端索引并预取了文件，锁内同步会再次校验最新版本。
 		syncContext["skipCloudPreflight"] = true
@@ -2102,7 +2132,7 @@ func syncIndexedRepo(repo *dejavu.Repo, exit, byHand bool, beforeIndex, afterInd
 		}
 		Conf.Sync.Stat = msg
 		Conf.Save()
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 		if 1 > autoSyncErrCount || byHand {
 			util.PushErrMsg(msg, 0)
 		}
@@ -2111,12 +2141,20 @@ func syncIndexedRepo(repo *dejavu.Repo, exit, byHand bool, beforeIndex, afterInd
 		}
 		return
 	}
+	if nil != prefetchTraffic {
+		trafficStat.DownloadFileCount += prefetchTraffic.DownloadFileCount
+		trafficStat.DownloadBytes += prefetchTraffic.DownloadBytes
+		trafficStat.PeerDownloadFileCount += prefetchTraffic.PeerDownloadFileCount
+		trafficStat.PeerDownloadBytes += prefetchTraffic.PeerDownloadBytes
+		trafficStat.PeerFallbackCount += prefetchTraffic.PeerFallbackCount
+	}
 
 	dataChanged = nil == beforeIndex || beforeIndex.ID != afterIndex.ID || mergeResult.DataChanged()
 
-	util.PushStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
+	pushSyncStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
 	Conf.Sync.Synced = util.CurrentTimeMillis()
-	msg := fmt.Sprintf(Conf.Language(150), trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomCeil(uint64(trafficStat.DownloadBytes), 2))
+	msg := fmt.Sprintf(Conf.Language(150), trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomCeil(uint64(trafficStat.DownloadBytes+trafficStat.PeerDownloadBytes), 2))
+	msg = appendLANSyncTrafficStat(msg, trafficStat)
 	Conf.Sync.Stat = msg
 	Conf.Save()
 	autoSyncErrCount = 0
@@ -2124,6 +2162,9 @@ func syncIndexedRepo(repo *dejavu.Repo, exit, byHand bool, beforeIndex, afterInd
 	calcPetalDiff(beforeSyncPetals, mergeResult)
 	postProcessStart := time.Now()
 	processSyncMergeResult(exit, byHand, mergeResult, trafficStat, "a", elapsed)
+	if dataChanged {
+		notifyLANSyncCommit(repo)
+	}
 	postProcessElapsed := time.Since(postProcessStart)
 	logging.LogInfof("sync data repo phases [index=%.2fs, cloud=%.2fs, post-process=%.2fs, total=%.2fs]",
 		indexElapsed.Seconds(), cloudElapsed.Seconds(), postProcessElapsed.Seconds(), time.Since(start).Seconds())
@@ -2139,8 +2180,8 @@ func syncIndexedRepo(repo *dejavu.Repo, exit, byHand bool, beforeIndex, afterInd
 	return
 }
 
-func syncIndexedRepoAfterBootWithDNSRetry(repo *dejavu.Repo, beforeIndex, afterIndex *entity.Index, start time.Time, indexElapsed time.Duration) (err error) {
-	_, err = syncIndexedRepo(repo, false, false, beforeIndex, afterIndex, start, indexElapsed, true)
+func syncIndexedRepoAfterBootWithDNSRetry(repo *dejavu.Repo, beforeIndex, afterIndex *entity.Index, start time.Time, indexElapsed time.Duration, prefetchTraffic *dejavu.DownloadTrafficStat) (err error) {
+	_, err = syncIndexedRepo(repo, false, false, beforeIndex, afterIndex, start, indexElapsed, true, prefetchTraffic)
 	if nil != err && flushAndRetryOnDNSError(err) {
 		_, err = syncRepo(false, false)
 	}
@@ -2172,21 +2213,24 @@ func calcPetalDiff(beforeSyncPetals []*Petal, mergeResult *dejavu.MergeResult) {
 }
 
 func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, trafficStat *dejavu.TrafficStat, mode string, elapsed time.Duration) {
-	logging.LogInfof("synced data repo [device=%s, kernel=%s, provider=%d, mode=%s/%t, ufc=%d, dfc=%d, ucc=%d, dcc=%d, ub=%s, db=%s] in [%.2fs], merge result [conflicts=%d, upserts=%d, removes=%d]\n\n",
+	logging.LogInfof("synced data repo [device=%s, kernel=%s, provider=%d, mode=%s/%t, ufc=%d, dfc=%d, ucc=%d, dcc=%d, ub=%s, db=%s, pfc=%d, pcc=%d, pb=%s, pf=%d] in [%.2fs], merge result [conflicts=%d, upserts=%d, removes=%d]\n\n",
 		Conf.System.ID, KernelID, Conf.Sync.Provider, mode, byHand,
 		trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomCeil(uint64(trafficStat.DownloadBytes), 2),
+		trafficStat.PeerDownloadFileCount, trafficStat.PeerDownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.PeerDownloadBytes), 2), trafficStat.PeerFallbackCount,
 		elapsed.Seconds(),
-		len(mergeResult.Conflicts), len(mergeResult.Upserts), len(mergeResult.Removes))
+		mergeResult.ConflictCount(), len(mergeResult.Upserts), len(mergeResult.Removes))
 
 	//logSyncMergeResult(mergeResult)
 
 	var needReloadFiletree bool
-	if 0 < len(mergeResult.Conflicts) {
+	conflictCount := mergeResult.ConflictCount()
+	if 0 < conflictCount || mergeResult.HasHistory() {
 		luteEngine := util.NewLute()
-		if Conf.Sync.GenerateConflictDoc {
+		if 0 < conflictCount && Conf.Sync.GenerateConflictDoc {
 			// 云端同步发生冲突时生成副本 https://github.com/siyuan-note/siyuan/issues/5687
 
-			for _, file := range mergeResult.Conflicts {
+			conflictCopyFiles := mergeResult.ConflictCopyFiles()
+			for _, file := range conflictCopyFiles {
 				if !strings.HasSuffix(file.Path, ".sy") {
 					continue
 				}
@@ -2232,14 +2276,16 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 				}
 			}
 
-			needReloadFiletree = true
+			needReloadFiletree = 0 < len(conflictCopyFiles)
 		}
 
-		historyDir := filepath.Join(util.HistoryDir, mergeResult.Time.Format("2006-01-02-150405")+"-sync")
-		indexHistoryDir(filepath.Base(historyDir), luteEngine)
+		if mergeResult.HasHistory() {
+			historyDir := filepath.Join(util.HistoryDir, mergeResult.Time.Format("2006-01-02-150405")+"-sync")
+			indexHistoryDir(filepath.Base(historyDir), luteEngine)
+		}
 	}
 
-	if 1 > len(mergeResult.Upserts) && 1 > len(mergeResult.Removes) && 1 > len(mergeResult.Conflicts) { // 没有数据变更
+	if !mergeResult.DataChanged() { // 没有数据变更
 		syncSameCount.Add(1)
 		if 10 < syncSameCount.Load() {
 			syncSameCount.Store(5)
@@ -2258,7 +2304,7 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	var upserts, removes []string
 	var upsertTrees int
 	// 可能需要重新加载部分功能
-	var needReloadFlashcard, needReloadOcrTexts, needReloadPlugin, needReloadSnippet bool
+	var needReloadFlashcard, needReloadInlineStyles, needReloadOcrTexts, needReloadPlugin, needReloadSnippet bool
 	reloadPluginSet := hashset.New()     // 插件代码变更 data/plugins/
 	dataChangePluginSet := hashset.New() // 插件存储数据变更 data/storage/petal/
 	needUnindexBoxes, needIndexBoxes := map[string]bool{}, map[string]bool{}
@@ -2318,6 +2364,10 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 
 		if file.Path == "/snippets/conf.json" {
 			needReloadSnippet = true
+		}
+
+		if isInlineStylesRepoPath(file.Path) {
+			needReloadInlineStyles = true
 		}
 
 		if strings.Contains(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
@@ -2395,6 +2445,10 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			needReloadSnippet = true
 		}
 
+		if isInlineStylesRepoPath(file.Path) {
+			needReloadInlineStyles = true
+		}
+
 		if strings.Contains(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
 			cache.RemoveAVData(strings.TrimSuffix(filepath.Base(file.Path), ".json"))
 		}
@@ -2433,6 +2487,10 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 
 	syncingFiles = sync.Map{}
 	syncingStorages.Store(false)
+	if needReloadInlineStyles && !exit {
+		util.BroadcastByType("main", "reloadInlineStyles", 0, "", nil)
+		util.ReloadPublishServiceSessions()
+	}
 	removedEncryptedBox := false
 	for boxID := range removedBoxConfs {
 		if IsEncryptedBox(boxID) || removedBoxCryptoBackups[boxID] {
@@ -2491,12 +2549,12 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 		}
 
 		time.Sleep(2 * time.Second)
-		util.PushStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
+		pushSyncStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
 
-		if 0 < len(mergeResult.Conflicts) {
+		if 0 < mergeResult.ConflictCount() {
 			syConflict := false
-			for _, file := range mergeResult.Conflicts {
-				if strings.HasSuffix(file.Path, ".sy") {
+			for _, path := range mergeResult.ConflictPaths() {
+				if strings.HasSuffix(path, ".sy") {
 					syConflict = true
 					break
 				}
@@ -2510,17 +2568,49 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	}()
 }
 
+func appendLANSyncTrafficStat(message string, trafficStat *dejavu.TrafficStat) string {
+	if nil == Conf.Sync || nil == Conf.Sync.LAN || !Conf.Sync.LAN.Enabled {
+		return message
+	}
+	traffic := humanize.BytesCustomCeil(uint64(trafficStat.PeerDownloadBytes), 2)
+	return message + `<br data-type="lanSyncTraffic">&emsp;` + fmt.Sprintf(Conf.Language(370), traffic)
+}
+
+func removeLANSyncTrafficStat(message string) string {
+	const marker = `<br data-type="lanSyncTraffic">`
+	if index := strings.Index(message, marker); 0 <= index {
+		return message[:index]
+	}
+
+	// 兼容已保存的无标记局域网流量统计。
+	const separator = "<br>&emsp;"
+	index := strings.LastIndex(message, separator)
+	if 0 > index {
+		return message
+	}
+	lastLine := message[index+len(separator):]
+	for _, language := range util.Langs {
+		format := language[370]
+		prefix := strings.TrimSuffix(format, "%s")
+		if prefix != format && strings.HasPrefix(lastLine, prefix) {
+			return message[:index]
+		}
+	}
+	return message
+}
+
 func logSyncMergeResult(mergeResult *dejavu.MergeResult) {
-	if 1 > len(mergeResult.Conflicts) && 1 > len(mergeResult.Upserts) && 1 > len(mergeResult.Removes) {
+	if !mergeResult.DataChanged() {
 		return
 	}
 
-	if 0 < len(mergeResult.Conflicts) {
+	conflictPaths := mergeResult.ConflictPaths()
+	if 0 < len(conflictPaths) {
 		logBuilder := bytes.Buffer{}
-		for i, f := range mergeResult.Conflicts {
+		for i, path := range conflictPaths {
 			logBuilder.WriteString("  ")
-			logBuilder.WriteString(f.Path)
-			if i < len(mergeResult.Conflicts)-1 {
+			logBuilder.WriteString(path)
+			if i < len(conflictPaths)-1 {
 				logBuilder.WriteString("\n")
 			}
 		}
@@ -2568,8 +2658,7 @@ func indexRepoBeforeCloudSync(repo *dejavu.Repo) (beforeIndex, afterIndex *entit
 		checkChunks = false
 	}
 
-	afterIndex, err = repo.Index("[Sync] Cloud sync", checkChunks,
-		map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBar})
+	afterIndex, err = repo.Index("[Sync] Cloud sync", checkChunks, newSyncContext())
 	if err != nil {
 		logging.LogErrorf("index data repo before cloud sync failed: %s", err)
 		return
@@ -2580,13 +2669,13 @@ func indexRepoBeforeCloudSync(repo *dejavu.Repo) (beforeIndex, afterIndex *entit
 		// 对新创建的快照需要更新备注，加入耗时统计
 		afterIndex.Memo = fmt.Sprintf("[Sync] Cloud sync, completed in %.2fs", elapsed.Seconds())
 		if err = repo.PutIndex(afterIndex); err != nil {
-			util.PushStatusBar("Save data snapshot for cloud sync failed")
+			pushSyncStatusBar("Save data snapshot for cloud sync failed")
 			logging.LogErrorf("put index into data repo before cloud sync failed: %s", err)
 			return
 		}
-		util.PushStatusBar(fmt.Sprintf(Conf.Language(147), elapsed.Seconds()))
+		pushSyncStatusBar(fmt.Sprintf(Conf.Language(147), elapsed.Seconds()))
 	} else {
-		util.PushStatusBar(fmt.Sprintf(Conf.Language(148), elapsed.Seconds()))
+		pushSyncStatusBar(fmt.Sprintf(Conf.Language(148), elapsed.Seconds()))
 	}
 
 	if Conf.Repo.SyncIndexTiming < elapsed.Milliseconds() {

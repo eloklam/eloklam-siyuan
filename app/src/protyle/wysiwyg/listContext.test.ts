@@ -1,11 +1,22 @@
 import {describe, it} from "node:test";
 import * as assert from "node:assert/strict";
 import {
+    getAppendListContext,
+    getFirstListItemElement,
     getFollowingOrderedListMarkerUpdates,
+    getLastListItemElement,
     getListContext,
     getListConversionType,
+    getOrderedListMarkerUpdates,
+    getOrderedListMaxStart,
+    getPreviousListItemID,
     getListShortcutAction,
+    isEmptyListItemBlock,
+    isListItemActionElement,
+    parseOrderedListStart,
+    shouldCreateListItemChildOnEnter,
     shouldIgnoreListShortcut,
+    shouldOpenListItemAttr,
     type TListSubtype
 } from "./listContext";
 
@@ -48,6 +59,12 @@ class TestElement {
 }
 
 const asHTMLElement = (element: TestElement) => element as unknown as HTMLElement;
+
+const createActionElement = (parentType: string) => ({
+    parentElement: {
+        getAttribute: (name: string) => name === "data-type" ? parentType : null,
+    },
+}) as unknown as Element;
 
 const createList = (subtype: TListSubtype, ...children: TestElement[]) => {
     const paragraph = new TestElement("NodeParagraph", "paragraph");
@@ -117,6 +134,83 @@ describe("getListContext", () => {
     });
 });
 
+describe("getAppendListContext", () => {
+    it("uses the nearest list in a nested list", () => {
+        const paragraph = new TestElement("NodeParagraph", "paragraph");
+        const innerListItem = new TestElement("NodeListItem", "inner-item", "u").append(paragraph);
+        const innerList = new TestElement("NodeList", "inner-list", "u").append(innerListItem);
+        const outerListItem = new TestElement("NodeListItem", "outer-item", "u").append(innerList);
+        const outerList = new TestElement("NodeList", "outer-list", "u").append(outerListItem);
+        const editor = new TestElement().append(outerList);
+
+        const context = getAppendListContext(asHTMLElement(paragraph), asHTMLElement(editor));
+
+        assert.equal(context?.listElement, asHTMLElement(innerList));
+        assert.equal(context?.listItemElement, asHTMLElement(innerListItem));
+    });
+
+    it("uses a selected list as the current list", () => {
+        const {list, editor} = createList("o");
+
+        const context = getAppendListContext(asHTMLElement(list), asHTMLElement(editor));
+
+        assert.equal(context?.listElement, asHTMLElement(list));
+        assert.equal(context?.listItemElement, undefined);
+    });
+
+    it("supports a focused list item without its list wrapper", () => {
+        const paragraph = new TestElement("NodeParagraph", "paragraph");
+        const listItem = new TestElement("NodeListItem", "list-item", "t").append(paragraph);
+        const editor = new TestElement().append(listItem);
+
+        const context = getAppendListContext(asHTMLElement(paragraph), asHTMLElement(editor));
+
+        assert.equal(context?.listElement, undefined);
+        assert.equal(context?.listItemElement, asHTMLElement(listItem));
+    });
+
+    it("does not cross the current editor boundary", () => {
+        const paragraph = new TestElement("NodeParagraph", "paragraph");
+        const editor = new TestElement().append(paragraph);
+        new TestElement("NodeListItem", "list-item", "u").append(editor);
+
+        assert.equal(getAppendListContext(asHTMLElement(paragraph), asHTMLElement(editor)), undefined);
+    });
+});
+
+describe("getLastListItemElement", () => {
+    it("ignores non-list-item children at the end", () => {
+        const first = new TestElement("NodeListItem", "first", "u");
+        const last = new TestElement("NodeListItem", "last", "u");
+        const list = new TestElement("NodeList", "list", "u").append(first, last, new TestElement());
+
+        assert.equal(getLastListItemElement(asHTMLElement(list)), asHTMLElement(last));
+    });
+});
+
+describe("getFirstListItemElement", () => {
+    it("ignores non-list-item children at the beginning", () => {
+        const first = new TestElement("NodeListItem", "first", "u");
+        const last = new TestElement("NodeListItem", "last", "u");
+        const list = new TestElement("NodeList", "list", "u").append(new TestElement(), first, last);
+
+        assert.equal(getFirstListItemElement(asHTMLElement(list)), asHTMLElement(first));
+    });
+});
+
+describe("getPreviousListItemID", () => {
+    it("returns the original predecessor of a focused list item", () => {
+        const first = new TestElement("NodeListItem", "first", "o");
+        const middle = new TestElement("NodeListItem", "middle", "o");
+        const last = new TestElement("NodeListItem", "last", "o");
+        const list = new TestElement("NodeList", "list", "o").append(first, middle, last, new TestElement());
+
+        assert.equal(getPreviousListItemID(asHTMLElement(list), "middle"), "first");
+        assert.equal(getPreviousListItemID(asHTMLElement(list), "first"), undefined);
+        assert.equal(getPreviousListItemID(asHTMLElement(list), "missing"), undefined);
+    });
+});
+
 describe("getListShortcutAction", () => {
     it("cancels or converts a single empty list", () => {
         const {paragraph, editor} = createList("u");
@@ -174,6 +268,30 @@ describe("getListShortcutAction", () => {
     });
 });
 
+describe("isEmptyListItemBlock", () => {
+    it("treats empty text and a single soft line as empty", () => {
+        assert.equal(isEmptyListItemBlock("", false), true);
+        assert.equal(isEmptyListItemBlock("\n", false), true);
+    });
+
+    it("treats text and images as content", () => {
+        assert.equal(isEmptyListItemBlock("content", false), false);
+        assert.equal(isEmptyListItemBlock("", true), false);
+    });
+});
+
+describe("shouldCreateListItemChildOnEnter", () => {
+    it("uses normal block creation for a non-empty trailing child", () => {
+        assert.equal(shouldCreateListItemChildOnEnter(false, true, false), true);
+    });
+
+    it("keeps list handling for primary, non-trailing, and empty blocks", () => {
+        assert.equal(shouldCreateListItemChildOnEnter(true, true, false), false);
+        assert.equal(shouldCreateListItemChildOnEnter(false, false, false), false);
+        assert.equal(shouldCreateListItemChildOnEnter(false, true, true), false);
+    });
+});
+
 describe("getFollowingOrderedListMarkerUpdates", () => {
     it("increments following markers after inserting a list item", () => {
         assert.deepEqual(getFollowingOrderedListMarkerUpdates("1.", ["2.", "3."]), ["3.", "4."]);
@@ -185,11 +303,84 @@ describe("getFollowingOrderedListMarkerUpdates", () => {
     });
 });
 
+describe("getOrderedListMarkerUpdates", () => {
+    it("preserves ordered lists starting from zero", () => {
+        assert.deepEqual(getOrderedListMarkerUpdates(["0.", "1."]), [undefined, undefined]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["5.", "9."]), [undefined, "6."]);
+    });
+
+    it("supports an explicit zero start index", () => {
+        assert.deepEqual(getOrderedListMarkerUpdates(["1.", "2."], 0), ["0.", "1."]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["1.", "2.", "0."], 0), ["0.", "1.", "2."]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["2.", "0.", "1."], 0), ["0.", "1.", "2."]);
+    });
+
+    it("preserves an explicit custom start when the original first item is removed", () => {
+        assert.deepEqual(getOrderedListMarkerUpdates(["1.", "12.", "13."], 10), ["10.", "11.", "12."]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["4.", "5.", "2."], 4), [undefined, undefined, "6."]);
+    });
+
+    it("replaces invalid markers instead of producing NaN", () => {
+        assert.deepEqual(getOrderedListMarkerUpdates(["NaN.", "NaN."]), ["1.", "2."]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["2.", "3."], Number.NaN), ["1.", "2."]);
+    });
+
+    it("renumbers the complete parent list after focused list edits", () => {
+        assert.deepEqual(getOrderedListMarkerUpdates(["10.", "11.", "12.", "12.", "13.", "14.", "15."]),
+            [undefined, undefined, undefined, "13.", "14.", "15.", "16."]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["10.", "11.", "13.", "14.", "15.", "16."]),
+            [undefined, undefined, "12.", "13.", "14.", "15."]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["10.", "11.", "1.", "12.", "13.", "14.", "15."]),
+            [undefined, undefined, "12.", "13.", "14.", "15.", "16."]);
+        assert.deepEqual(getOrderedListMarkerUpdates(["10.", "11.", "14.", "15.", "16.", "17.", "18."]),
+            [undefined, undefined, "12.", "13.", "14.", "15.", "16."]);
+    });
+});
+
+describe("parseOrderedListStart", () => {
+    it("accepts non-negative integers within the list range", () => {
+        assert.equal(parseOrderedListStart("0", 3), 0);
+        assert.equal(parseOrderedListStart("0005", 3), 5);
+        assert.equal(parseOrderedListStart("999999997", 3), 999999997);
+        assert.equal(getOrderedListMaxStart(3), 999999997);
+    });
+
+    it("rejects malformed and overflowing values", () => {
+        assert.equal(parseOrderedListStart("-1", 3), undefined);
+        assert.equal(parseOrderedListStart("1.5", 3), undefined);
+        assert.equal(parseOrderedListStart("1x", 3), undefined);
+        assert.equal(parseOrderedListStart("999999998", 3), undefined);
+        assert.equal(parseOrderedListStart("1000000000", 1), undefined);
+        assert.equal(parseOrderedListStart("1", 0), undefined);
+    });
+});
+
 describe("shouldIgnoreListShortcut", () => {
     it("ignores only a selected list item", () => {
         assert.equal(shouldIgnoreListShortcut(true, "NodeListItem"), true);
         assert.equal(shouldIgnoreListShortcut(true, "NodeList"), false);
         assert.equal(shouldIgnoreListShortcut(false, "NodeListItem"), false);
+    });
+});
+
+describe("shouldOpenListItemAttr", () => {
+    it("prioritizes Shift-click on an editable list item marker", () => {
+        assert.equal(shouldOpenListItemAttr(true, false, createActionElement("NodeListItem")), true);
+    });
+
+    it("keeps range selection for other targets and read-only editors", () => {
+        assert.equal(shouldOpenListItemAttr(true, false, createActionElement("NodeCodeBlock")), false);
+        assert.equal(shouldOpenListItemAttr(true, true, createActionElement("NodeListItem")), false);
+        assert.equal(shouldOpenListItemAttr(false, false, createActionElement("NodeListItem")), false);
+        assert.equal(shouldOpenListItemAttr(true, false, false), false);
+    });
+});
+
+describe("isListItemActionElement", () => {
+    it("recognizes only actions directly owned by a list item", () => {
+        assert.equal(isListItemActionElement(createActionElement("NodeListItem")), true);
+        assert.equal(isListItemActionElement(createActionElement("NodeCodeBlock")), false);
+        assert.equal(isListItemActionElement(false), false);
     });
 });
 

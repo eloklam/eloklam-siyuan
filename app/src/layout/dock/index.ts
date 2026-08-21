@@ -16,12 +16,18 @@ import {Backlink} from "./Backlink";
 import {AgentChat} from "./agent/AgentChat";
 import {Calendar} from "./Calendar";
 import {adjustDockPadding, resetFloatDockSize} from "./util";
-import {hasClosestByAttribute, hasClosestByClassName} from "../../protyle/util/hasClosest";
+import {hasClosestByClassName} from "../../protyle/util/hasClosest";
 import type {App} from "../../index";
 import {Plugin} from "../../plugin";
 import {Custom} from "./Custom";
 import {clearBeforeResizeTop, recordBeforeResizeTop} from "../../protyle/util/resize";
 import {Constants} from "../../constants";
+import {
+    type IPluginDockPlacementState,
+    updatePluginDockPlacements,
+    updatePluginDockShowStates,
+} from "./pluginDockState";
+import {getDockHotkey} from "./hotkey";
 
 const TYPES = ["file", "outline", "bookmark", "tag", "graph", "globalGraph", "backlink", "agentChat", "calendar"];
 
@@ -266,7 +272,8 @@ export class Dock {
                 let minSize = 232;
                 Array.from(this.layout.element.querySelectorAll(".file-tree")).find((item) => {
                     if (item.classList.contains("sy__backlink") || item.classList.contains("sy__graph")
-                        || item.classList.contains("sy__globalGraph")) {
+                        || item.classList.contains("sy__globalGraph")
+                        || item.classList.contains("sy__calendar")) {
                         if (!item.classList.contains("fn__none") && !hasClosestByClassName(item, "fn__none")) {
                             minSize = 320;
                             return true;
@@ -529,9 +536,6 @@ export class Dock {
                     });
                 }
             }
-            if (isSaveLayout) {
-                this.saveLocalPlugin(type, {show: false});
-            }
         } else {
             this.elements[index].querySelectorAll(".dock__item--active").forEach(item => {
                 item.classList.remove("dock__item--active", "dock__item--activefocus");
@@ -704,10 +708,11 @@ export class Dock {
             if (document.activeElement) {
                 (document.activeElement as HTMLElement).blur();
             }
-            if (isSaveLayout) {
-                this.saveLocalPlugin(type, {show: true});
-            }
             this.showDock();
+        }
+
+        if (isSaveLayout) {
+            this.saveLocalPluginShow(index);
         }
 
         // dock 中两个面板的显示关系
@@ -838,33 +843,21 @@ export class Dock {
         setTimeout(() => {
             saveLayout();
         }, Constants.TIMEOUT_TRANSITION);
-        let position: TPluginDockPosition;
-        const leftDockElement = hasClosestByAttribute(sourceElement, "id", "dockLeft");
-        const rightDockElement = hasClosestByAttribute(sourceElement, "id", "dockRight");
-        if (leftDockElement) {
-            if (leftDockElement.lastElementChild.contains(sourceElement)) {
-                position = "BottomLeft";
-            } else {
-                position = "Left" + (index === 0 ? "Top" : "Bottom") as TPluginDockPosition;
-            }
-        } else if (rightDockElement) {
-            if (rightDockElement.lastElementChild.contains(sourceElement)) {
-                position = "BottomRight";
-            } else {
-                position = "Right" + (index === 0 ? "Top" : "Bottom") as TPluginDockPosition;
-            }
+        const placements = sourceDock.getPluginDockPlacements();
+        if (sourceDock !== this) {
+            placements.push(...this.getPluginDockPlacements());
         }
-        let sortIndex = 0;
-        let previousElement = sourceElement;
-        while (previousElement.previousElementSibling) {
-            sortIndex++;
-            previousElement = previousElement.previousElementSibling;
+        const movedPlacement = placements.find((item) => item.type === type);
+        if (movedPlacement && Object.keys(size).length > 0) {
+            movedPlacement.size = size;
         }
-        this.saveLocalPlugin(type, {
-            index: sortIndex,
-            position,
-            size
-        });
+        if (updatePluginDockPlacements(
+            placements,
+            this.app.plugins,
+            window.siyuan.storage[Constants.LOCAL_PLUGIN_DOCKS],
+        )) {
+            setStorageVal(Constants.LOCAL_PLUGIN_DOCKS, window.siyuan.storage[Constants.LOCAL_PLUGIN_DOCKS]);
+        }
         adjustDockPadding();
         this.adjustSplit();
         sourceDock.adjustSplit();
@@ -877,7 +870,7 @@ export class Dock {
         if (custom.parent) {
             custom.parent.parent.removeTab(custom.parent.id);
         }
-        if (this.elements[0].parentElement.querySelectorAll(".dock__item").length === 1) {
+        if (!this.elements[0].parentElement.querySelector(".dock__item[data-type]")) {
             this.elements[0].parentElement.classList.add("fn__none");
             adjustDockPadding();
         }
@@ -940,7 +933,8 @@ export class Dock {
             } else if (item.type === "tags") {
                 item.icon = "iconTag";
             }
-            html += `<span data-height="${item.size.height}" data-width="${item.size.width}" data-type="${item.type}" data-index="${index}" data-hotkey="${item.hotkey || ""}" data-hotkeylangid="${item.hotkeyLangId || ""}" data-title="${item.title}" data-position="${tooltipPosition}" class="dock__item${item.show ? " dock__item--active" : ""} ariaLabel" aria-label="<span style='white-space:pre'>${item.title} ${item.hotkey ? updateHotkeyTip(item.hotkey) : ""}${window.siyuan.languages.dockTip}</span>">
+            const hotkey = getDockHotkey(item);
+            html += `<span data-height="${item.size.height}" data-width="${item.size.width}" data-type="${item.type}" data-index="${index}" data-hotkeylangid="${item.hotkeyLangId || ""}" data-title="${item.title}" data-position="${tooltipPosition}" class="dock__item${item.show ? " dock__item--active" : ""} ariaLabel" aria-label="<span style='white-space:pre'>${item.title} ${hotkey ? updateHotkeyTip(hotkey) : ""}${window.siyuan.languages.dockTip}</span>">
     <svg><use xlink:href="#${item.icon}"></use></svg>
 </span>`;
             this.data[item.type] = true;
@@ -977,6 +971,29 @@ export class Dock {
         return "8west";
     }
 
+    private getPluginDockPlacements() {
+        const states: IPluginDockPlacementState[] = [];
+        [0, 1].forEach((index) => {
+            const position: TPluginDockPosition = this.position === "Bottom"
+                ? (index === 0 ? "BottomLeft" : "BottomRight")
+                : this.position + (index === 0 ? "Top" : "Bottom") as TPluginDockPosition;
+            let itemIndex = 0;
+            this.elements[index].querySelectorAll(".dock__item").forEach((item) => {
+                const type = item.getAttribute("data-type");
+                if (!type) {
+                    return;
+                }
+                states.push({
+                    type,
+                    position,
+                    index: itemIndex,
+                });
+                itemIndex++;
+            });
+        });
+        return states;
+    }
+
     private adjustSplit() {
         if (this.position !== "Bottom") {
             if (this.elements[0].innerHTML && this.elements[1].innerHTML) {
@@ -1011,5 +1028,25 @@ export class Dock {
                 return true;
             }
         });
+    }
+
+    private saveLocalPluginShow(index: number) {
+        const states: {type: string, show: boolean}[] = [];
+        this.elements[index].querySelectorAll(".dock__item").forEach((item) => {
+            const type = item.getAttribute("data-type");
+            if (type) {
+                states.push({
+                    type,
+                    show: item.classList.contains("dock__item--active"),
+                });
+            }
+        });
+        if (updatePluginDockShowStates(
+            states,
+            this.app.plugins,
+            window.siyuan.storage[Constants.LOCAL_PLUGIN_DOCKS],
+        )) {
+            setStorageVal(Constants.LOCAL_PLUGIN_DOCKS, window.siyuan.storage[Constants.LOCAL_PLUGIN_DOCKS]);
+        }
     }
 }

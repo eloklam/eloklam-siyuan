@@ -1,7 +1,7 @@
 type TPluginDockPosition = "LeftTop" | "LeftBottom" | "RightTop" | "RightBottom" | "BottomLeft" | "BottomRight"
 type TDockPosition = "Left" | "Right" | "Bottom"
 type TWS = "main" | "filetree" | "protyle" | "backlink" | "bookmark" | "graph" | "outline" | "tag" | "agentChat" | "calendar"
-type TDock = "file" | "outline" | "bookmark" | "tag" | "graph" | "globalGraph" | "backlink" | "agentChat" | "calendar"
+type TDock = "file" | "outline" | "inbox" | "bookmark" | "tag" | "graph" | "globalGraph" | "backlink" | "agentChat" | "calendar"
 type TTab = "Outline" | "Graph" | "Backlink" | "Asset" | "Editor" | "Search" | "siyuan-card"
 type TOperation =
     "insert"
@@ -22,6 +22,7 @@ type TOperation =
     | "addFlashcards"
     | "removeFlashcards"
     | "updateAttrViewCell"
+    | "updateAttrViewCells"
     | "updateAttrViewCol"
     | "updateAttrViewColTemplate"
     | "sortAttrViewRow"
@@ -98,15 +99,16 @@ type TOperation =
     | "setAttrViewCalendarNewItemTarget"
     | "setAttrViewCalendarFieldMapping"
 type TBazaarType = "templates" | "icons" | "widgets" | "themes" | "plugins"
+type TBazaarPackageInvalidReason = "missing-manifest" | "invalid-manifest" | "name-mismatch"
 type TCardType = "doc" | "notebook" | "all"
 type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "click-blockicon" | "click-editorcontent" | "click-pdf" | "click-editortitleicon" | "click-flashcard-action" |
     "open-noneditableblock" |
     "open-menu-blockref" | "open-menu-fileannotationref" | "open-menu-tag" | "open-menu-link" | "open-menu-image" |
     "open-menu-av" | "open-menu-content" | "open-menu-breadcrumbmore" | "open-menu-doctree" | "open-menu-inbox" |
-    "open-siyuan-url-plugin" | "open-siyuan-url-block" | "opened-notebook" |
+    "open-siyuan-url-plugin" | "open-siyuan-url-block" | "open-asset" | "open-link" | "opened-notebook" |
     "closed-notebook" |
-    "paste" |
+    "paste" | "before-upload-assets" |
     "input-search" |
     "loaded-protyle-dynamic" | "loaded-protyle-static" |
     "switch-protyle" | "switch-protyle-mode" |
@@ -114,7 +116,9 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "lock-screen" |
     "mobile-keyboard-show" | "mobile-keyboard-hide" |
     "code-language-update" | "code-language-change" |
-    "kernel-plugin-state-change"
+    "kernel-plugin-state-change" |
+    "before-show-tooltip" | "before-hide-tooltip" |
+    "common-menu-open" | "common-menu-closed"
 type TAVView = "table" | "gallery" | "kanban" | "calendar"
 type TAVAlign = "" | "left" | "center" | "right"
 type TAVDateFormat = "" | "full" | "month-day-year" | "day-month-year" | "year-month-day"
@@ -302,6 +306,9 @@ interface Window {
         toCanvas: (element: Element, options?: IHtmlToImageOptions) => Promise<HTMLCanvasElement>
         toBlob: (element: Element, options?: IHtmlToImageOptions) => Promise<Blob>
     };
+    modernScreenshot: {
+        domToBlob: (element: Element, options?: IModernScreenshotOptions) => Promise<Blob>
+    };
     siyuan: ISiyuan;
     JSAndroid: {
         openAuthURL(url: string): void
@@ -378,14 +385,100 @@ interface Window {
 
 interface ILocalFiles {
     path: string,
-    size: number
+    size: number | null,
+    isDir?: boolean
+}
+
+type TAssetUploadSource = "paste" | "drop" | "file-picker" | "programmatic"
+type TAssetUploadTarget = "editor" | "av-cell" | "background" | "pdf-annotation"
+type TAssetUploadStatus = "success" | "partial" | "failed" | "canceled"
+type TAssetUploadRejectionReason = "name-empty" | "size-limit" | "type-not-accepted"
+
+interface IAssetUploadPosition {
+    x: number,
+    y: number
+}
+
+type IAssetUploadInput = {
+    kind: "files",
+    files: File[]
+} | {
+    kind: "local-files",
+    files: ILocalFiles[]
+}
+
+type IAssetUploadDecision = {
+    action: "replace",
+    input: IAssetUploadInput
+} | {
+    action: "cancel"
+}
+
+interface IAssetUploadRejection {
+    index: number,
+    name: string,
+    reasons: TAssetUploadRejectionReason[]
+}
+
+interface IAssetUploadSuccess {
+    index: number,
+    name: string,
+    path: string
+}
+
+interface IAssetUploadFailure {
+    index: number,
+    name: string,
+    error: string
+}
+
+interface IAssetUploadResult {
+    requestId: string,
+    status: TAssetUploadStatus,
+    /** 插件链处理结束后的完整输入。 */
+    input: IAssetUploadInput,
+    /** 通过前端校验并实际提交上传的输入。 */
+    acceptedInput?: IAssetUploadInput,
+    /** 被前端校验拒绝的文件及其在完整输入中的位置。 */
+    rejected?: IAssetUploadRejection[],
+    /** 按 acceptedInput 中的索引记录成功结果，可区分同名文件。 */
+    succFiles?: IAssetUploadSuccess[],
+    /** 按 acceptedInput 中的索引记录失败结果。 */
+    failedFiles?: IAssetUploadFailure[],
+    succMap?: Record<string, string>,
+    errFiles?: string[],
+    error?: string
+}
+
+/** 不得在该事件上调用 `preventDefault()`，取消上传应使用 `respondWith({action: "cancel"})`。 */
+interface IBeforeUploadAssetsDetail {
+    requestId: string,
+    /** PDF 标注等无编辑器上传场景不提供该字段。 */
+    protyle?: IProtyle,
+    source: TAssetUploadSource,
+    target: TAssetUploadTarget,
+    position?: IAssetUploadPosition,
+    /** 替换输入必须保持的精确文件数量。 */
+    requiredFileCount?: number,
+    /** 当前目标支持的输入类型；未提供时支持 files 和 local-files。 */
+    allowedInputKinds?: Array<IAssetUploadInput["kind"]>,
+    input: IAssetUploadInput,
+    /** 插件处理的取消信号，编辑器销毁、插件卸载或处理超时时触发。 */
+    signal: AbortSignal,
+    /** 必须同步调用且每次事件只允许调用一次，异步处理应将 Promise 作为参数传入，每个插件默认 120 秒超时。 */
+    respondWith(response: IAssetUploadDecision | PromiseLike<IAssetUploadDecision>): void,
+    /**
+     * 必须同步注册，经思源前端上传协调层发起的资源写入成功、失败或取消时执行一次。
+     * 不包含正文或属性视图写入，也不覆盖 HTTP API、CLI、MCP、同步、导入、历史恢复等内核写入。
+     */
+    onComplete(callback: (result: IAssetUploadResult) => void): void
 }
 
 interface IClipboardData {
     textHTML?: string,
     textPlain?: string,
     siyuanHTML?: string,
-    files?: File[],
+    files?: FileList | DataTransferItemList | File[],
     localFiles?: ILocalFiles[],
 }
 
@@ -407,7 +500,8 @@ interface IPosition {
     y: number,
     w?: number,
     h?: number,
-    isLeft?: boolean
+    isLeft?: boolean,
+    target?: HTMLElement
 }
 
 interface ISaveLayout {
@@ -652,6 +746,7 @@ interface ISiyuan {
     },
     dragElement?: HTMLElement,
     dragTitle?: string,
+    dragTab?: ITabDragData,
     currentDragOverTabHeadersElement?: HTMLElement
     touchDragActive?: boolean,
     touchDragGhost?: HTMLElement | null,
@@ -700,6 +795,11 @@ interface IOperation {
     format?: string // 属性视图字段格式化
     keyID?: string // updateAttrViewCell 专享
     rowID?: string // updateAttrViewCell 专享
+    cellUpdates?: Array<{
+        keyID: string,
+        rowID: string,
+        data: IAVCellValue,
+    }> // updateAttrViewCells 专享
     data?: any, // updateAttr 时为  { old: IObject, new: IObject }, updateAttrViewCell 时为 {TAVCol: {content: string}}
     parentID?: string
     previousID?: string
@@ -746,6 +846,16 @@ interface IHtmlToImageOptions {
     [key: string]: unknown;
     imagePlaceholder?: string;
     onImageErrorHandler?: (event: Event) => void;
+}
+
+interface IModernScreenshotOptions {
+    [key: string]: unknown;
+    type?: string;
+    scale?: number;
+    maximumCanvasSize?: number;
+    fetch?: {
+        placeholderImage?: string;
+    };
 }
 
 interface ILayoutJSON extends ILayoutOptions {
@@ -830,11 +940,12 @@ interface IOpenFileOptions {
     rootIcon?: string, // 文档图标
     id?: string,  // file 必填
     rootID?: string, // file 必填
+    notebookId?: string,
     position?: string, // file 或者 asset，打开位置
     page?: number | string, // asset
     mode?: TEditorMode // file
     action?: TProtyleAction[]
-    keepCursor?: boolean // file，是否跳转到新 tab 上
+    keepCursor?: boolean // file 或 asset，是否跳转到新 tab 上
     zoomIn?: boolean // 是否缩放
     removeCurrentTab?: boolean // 在当前页签打开时需移除原有页签
     openNewTab?: boolean // 使用新页签打开
@@ -856,6 +967,15 @@ interface ITab {
     title?: string;
     panel?: string;
     callback?: (tab: import("../layout/Tab").Tab) => void;
+}
+
+interface ITabDragData {
+    title?: string;
+    icon?: string;
+    docIcon?: string;
+    pin: boolean;
+    focus: boolean;
+    unupdate: boolean;
 }
 
 interface IWebSocketData {
@@ -917,6 +1037,14 @@ interface IFile {
     id: string;
     count: number;
     subFileCount: number;
+    childrenSortMode?: number | null;
+}
+
+interface IFileTreeList {
+    files: IFile[];
+    box: string;
+    path: string;
+    effectiveSortMode?: number;
 }
 
 interface IBlockTree {
@@ -1012,6 +1140,14 @@ interface IBazaarFunding {
     custom?: string[];
 }
 
+type TBazaarRatingDistribution = [number, number, number, number, number];
+
+interface IBazaarRating {
+    average: number;
+    count: number;
+    distribution: TBazaarRatingDistribution;
+}
+
 interface IBazaarItem {
     preferredName: string;
     minAppVersion: string;
@@ -1022,11 +1158,17 @@ interface IBazaarItem {
     keywords: string[];
     preferredDesc: string;
     preferredReadme: string;
+    deprecated?: boolean;
+    deprecatedReason?: Record<string, string>;
+    preferredDeprecatedReason?: string;
+    alternatives?: string[];
     iconURL: string;
     stars: number;
     author: string;
     updated: string;
     downloads: number;
+    ratingAvailable?: boolean;
+    rating?: IBazaarRating;
     disallowInstall: boolean;
     current: boolean;
     installed: boolean;
@@ -1048,9 +1190,11 @@ interface IBazaarItem {
     preferredFunding: string;
     disallowUpdate: boolean;
     updateRequiredMinAppVer?: string;
+    invalidReason?: TBazaarPackageInvalidReason;
     installedIncompatible?: boolean; // 仅插件/主题
     bazaarIncompatible?: boolean; // 仅插件/主题
     enabled?: boolean; // 仅 plugin
+    userDisabledInPublish?: boolean; // 仅 plugin
     modes?: string[]; // 仅 theme
 }
 
@@ -1325,7 +1469,8 @@ interface IAVCellValue {
     block?: {
         content: string,
         id?: string,
-        icon?: string
+        icon?: string,
+        refSubtype?: "s" | "d"
     }
     url?: {
         content: string

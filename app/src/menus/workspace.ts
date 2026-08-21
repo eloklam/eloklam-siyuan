@@ -11,6 +11,7 @@ import {isInAndroid, isInHarmony, isInMobileApp, isIPad, setStorageVal, writeTex
 import {openCard} from "../card/openCard";
 import {openSetting} from "../config";
 import {getAllDocks} from "../layout/getAll";
+import {getDockHotkey} from "../layout/dock/hotkey";
 import {exportLayout, getAllLayout} from "../layout/util";
 import {getDockByType} from "../layout/tabUtil";
 import {exitSiYuan, lockScreen} from "../dialog/processSystem";
@@ -163,7 +164,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
             dockMenu.push({
                 id: item.type,
                 icon: item.icon,
-                accelerator: item.hotkey,
+                accelerator: getDockHotkey(item),
                 label: item.title,
                 click() {
                     getDockByType(item.type).toggleModel(item.type);
@@ -301,11 +302,15 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                             if (hasClosestByClassName(event.target as Element, "b3-menu__action")) {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                fetchPost("/api/system/removeWorkspaceDir", {path: item.path}, () => {
-                                    confirmDialog(window.siyuan.languages.deleteOpConfirm, window.siyuan.languages.removeWorkspacePhysically.replace("${x}", item.path), () => {
-                                        fetchPost("/api/system/removeWorkspaceDirPhysically", {path: item.path});
-                                    }, undefined, true);
-                                });
+                                if (item.path === window.siyuan.config.system.workspaceDir) {
+                                    fetchPost("/api/system/removeWorkspaceDir", {path: item.path});
+                                    return;
+                                }
+                                confirmDialog(window.siyuan.languages.deleteOpConfirm, window.siyuan.languages.removeWorkspacePhysically.replace("${x}", item.path), () => {
+                                    fetchPost("/api/system/removeWorkspaceDirPhysically", {path: item.path});
+                                }, () => {
+                                    fetchPost("/api/system/removeWorkspaceDir", {path: item.path});
+                                }, true);
                                 return;
                             }
                             confirmDialog(window.siyuan.languages.confirm, `${pathPosix().basename(window.siyuan.config.system.workspaceDir)} -> ${pathPosix().basename(item.path)}?`, () => {
@@ -562,7 +567,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
             label: window.siyuan.languages.debug,
             icon: "iconBug",
             click: () => {
-                ipcRenderer.send(Constants.SIYUAN_CMD, "openDevTools");
+                ipcRenderer.send(Constants.SIYUAN_CMD, "toggleDevTools");
             }
         }).element);
         /// #endif

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -130,6 +130,10 @@ func QueryRefCount(defIDs []string) (ret map[string]int) {
 func ExistRefByDefIDsInBox(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs []string, boxID string) (ret bool, err error) {
 	const batchSize = 900
 
+	defIDs = filterNonEmptyRefCheckIDs(defIDs)
+	defRootIDs = filterNonEmptyRefCheckIDs(defRootIDs)
+	excludeBlockIDs = filterNonEmptyRefCheckIDs(excludeBlockIDs)
+	excludeRootIDs = filterNonEmptyRefCheckIDs(excludeRootIDs)
 	excludeBlockIDSet := map[string]struct{}{}
 	for _, id := range excludeBlockIDs {
 		excludeBlockIDSet[id] = struct{}{}
@@ -159,6 +163,9 @@ func ExistRefByDefIDsInBox(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs [
 				if scanErr := rows.Scan(&blockID, &rootID); scanErr != nil {
 					rows.Close()
 					return false, scanErr
+				}
+				if "" == strings.TrimSpace(blockID) || "" == strings.TrimSpace(rootID) {
+					continue
 				}
 				if _, excluded := excludeBlockIDSet[blockID]; excluded {
 					continue
@@ -196,6 +203,114 @@ func ExistRefByDefIDs(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs []stri
 	}
 	for _, boxID := range GetEncryptedBoxIDs() {
 		if ret, err = ExistRefByDefIDsInBox(defIDs, defRootIDs, excludeBlockIDs, excludeRootIDs, boxID); err != nil || ret {
+			return
+		}
+	}
+	return
+}
+
+// QueryBoundBlockAVIDsInBox 查询删除集合中绑定块所属的属性视图。
+func QueryBoundBlockAVIDsInBox(blockIDs, rootIDs []string, boxID string) (ret map[string][]string, err error) {
+	const batchSize = 900
+
+	blockIDs = filterNonEmptyRefCheckIDs(blockIDs)
+	rootIDs = filterNonEmptyRefCheckIDs(rootIDs)
+	ret = map[string][]string{}
+	queryByColumn := func(column string, ids []string) error {
+		for start := 0; start < len(ids); start += batchSize {
+			end := start + batchSize
+			if len(ids) < end {
+				end = len(ids)
+			}
+			batch := ids[start:end]
+			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+			args := make([]any, 0, len(batch))
+			for _, id := range batch {
+				args = append(args, id)
+			}
+			rows, queryErr := queryForBox(boxID, "SELECT id, ial FROM blocks WHERE "+column+" IN ("+placeholders+") AND instr(ial, 'custom-avs=') > 0", args...)
+			if nil != queryErr {
+				return queryErr
+			}
+			for rows.Next() {
+				var blockID, ialContent string
+				if scanErr := rows.Scan(&blockID, &ialContent); nil != scanErr {
+					rows.Close()
+					return scanErr
+				}
+				if "" == strings.TrimSpace(blockID) {
+					continue
+				}
+				ialContent = strings.TrimPrefix(ialContent, "{:")
+				ialContent = strings.TrimSuffix(ialContent, "}")
+				for _, kv := range parse.Tokens2IAL([]byte(ialContent)) {
+					if 2 > len(kv) || "custom-avs" != kv[0] {
+						continue
+					}
+					for avID := range strings.SplitSeq(kv[1], ",") {
+						avID = strings.TrimSpace(avID)
+						if "" != avID && !gulu.Str.Contains(avID, ret[blockID]) {
+							ret[blockID] = append(ret[blockID], avID)
+						}
+					}
+				}
+			}
+			if rowsErr := rows.Err(); nil != rowsErr {
+				rows.Close()
+				return rowsErr
+			}
+			if closeErr := rows.Close(); nil != closeErr {
+				return closeErr
+			}
+		}
+		return nil
+	}
+
+	if err = queryByColumn("id", blockIDs); nil != err {
+		return
+	}
+	err = queryByColumn("root_id", rootIDs)
+	return
+}
+
+func filterNonEmptyRefCheckIDs(ids []string) (ret []string) {
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if "" == id {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ret = append(ret, id)
+	}
+	return
+}
+
+// QueryBoundBlockAVIDs 查询全局库及所有已打开加密库中删除集合内的数据库绑定块。
+func QueryBoundBlockAVIDs(blockIDs, rootIDs []string) (ret map[string][]string, err error) {
+	ret = map[string][]string{}
+	merge := func(boxID string) error {
+		boxRet, queryErr := QueryBoundBlockAVIDsInBox(blockIDs, rootIDs, boxID)
+		if nil != queryErr {
+			return queryErr
+		}
+		for blockID, avIDs := range boxRet {
+			for _, avID := range avIDs {
+				if !gulu.Str.Contains(avID, ret[blockID]) {
+					ret[blockID] = append(ret[blockID], avID)
+				}
+			}
+		}
+		return nil
+	}
+	if err = merge(""); nil != err {
+		return
+	}
+	for _, boxID := range GetEncryptedBoxIDs() {
+		if err = merge(boxID); nil != err {
 			return
 		}
 	}

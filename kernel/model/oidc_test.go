@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -442,7 +442,7 @@ func TestWriteOIDCCallbackPageUsesSharedOAuthStyle(t *testing.T) {
 	writeOIDCCallbackPage(context, false, "登录失败<script>")
 
 	page := recorder.Body.String()
-	for _, expected := range []string{`lang="zh-CN"`, `class="mark mark--error"`, "登录失败&lt;script&gt;"} {
+	for _, expected := range []string{`lang="zh-CN"`, `class="brand">SiYuan</div>`, `class="mark mark--error"`, "登录失败&lt;script&gt;"} {
 		if !strings.Contains(page, expected) {
 			t.Fatalf("OIDC callback page does not contain %q: %s", expected, page)
 		}

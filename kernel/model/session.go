@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -255,7 +255,7 @@ func CheckAuth(c *gin.Context) {
 
 		// Authenticate requests with the Origin header other than 127.0.0.1 https://github.com/siyuan-note/siyuan/issues/9180
 		clientIP := c.ClientIP()
-		host := c.GetHeader("Host")
+		host := c.Request.Host
 		origin := c.GetHeader("Origin")
 		forwardedHost := c.GetHeader("X-Forwarded-Host")
 		if !localhost ||
@@ -288,7 +288,8 @@ func CheckAuth(c *gin.Context) {
 			c.Next()
 			return
 		}
-		if strings.HasPrefix(c.Request.RequestURI, "/api/system/exit") {
+		if strings.HasPrefix(c.Request.RequestURI, "/api/system/exit") ||
+			strings.HasPrefix(c.Request.RequestURI, "/api/system/uiproc") {
 			c.Set(RoleContextKey, RoleAdministrator)
 			c.Next()
 			return
@@ -312,7 +313,7 @@ func CheckAuth(c *gin.Context) {
 	workspaceSession := util.GetWorkspaceSession(session)
 	if IsWorkspaceSessionAuthenticated(workspaceSession) {
 		// 校验 Origin 防止跨站请求伪造 https://github.com/siyuan-note/siyuan/security/advisories/GHSA-hhm2-g993-p656
-		if !util.IsSessionOriginAllowed(c.GetHeader("Origin"), c.GetHeader("Host")) {
+		if !util.IsSessionOriginAllowed(c.GetHeader("Origin"), c.Request.Host) {
 			logging.LogWarnf("invalid Origin [%s] for session auth [ip=%s]", c.GetHeader("Origin"), c.ClientIP())
 			c.JSON(http.StatusUnauthorized, map[string]any{"code": -1, "msg": "Auth failed: invalid Origin"})
 			c.Abort()
@@ -481,7 +482,7 @@ func Timing(c *gin.Context) {
 	c.Next()
 	elapsed := int(time.Now().UnixMilli() - now)
 	if timing < elapsed {
-		logging.LogWarnf("[%s] elapsed [%dms]", c.Request.RequestURI, elapsed)
+		logging.LogWarnf("[%s] elapsed [%dms]", p, elapsed)
 		util.PushMsg(Conf.Language(tip), 7000)
 	}
 }
@@ -544,6 +545,15 @@ func ControlConcurrency(c *gin.Context) {
 		strings.HasPrefix(function, "search") ||
 		strings.HasPrefix(function, "render") ||
 		strings.HasPrefix(function, "ls") {
+		c.Next()
+		return
+	}
+
+	// 仅对已注册的静态 /api/ 路径做并发控制：路由表有限，requesting map 不会无界增长；
+	// 未知路径与带参数通配路由直接放行 https://github.com/siyuan-note/siyuan/security/advisories/GHSA-p59v-3q54-qq55
+	if !strings.HasPrefix(reqPath, "/api/") ||
+		"" == c.FullPath() ||
+		strings.ContainsAny(c.FullPath(), ":*") {
 		c.Next()
 		return
 	}

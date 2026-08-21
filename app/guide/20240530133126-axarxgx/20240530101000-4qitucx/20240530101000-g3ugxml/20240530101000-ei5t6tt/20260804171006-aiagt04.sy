@@ -6,7 +6,7 @@
 		"id": "20260804171006-aiagt04",
 		"title": "AI エージェント",
 		"type": "doc",
-		"updated": "20260804180000"
+		"updated": "20260816130653"
 	},
 	"Children": [
 		{
@@ -164,7 +164,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170027-2jaadkf",
-				"updated": "20260804180000"
+				"updated": "20260816114944"
 			},
 			"Children": [
 				{
@@ -385,7 +385,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260804170039-9kcdqv4",
-				"updated": "20260804180000"
+				"updated": "20260816114944"
 			},
 			"Children": [
 				{
@@ -399,22 +399,17 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170040-m2zcmhf",
-				"updated": "20260804180000"
+				"updated": "20260816114944"
 			},
 			"Children": [
 				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Enter"
-				},
-				{
 					"Type": "NodeText",
-					"Data": " で送信し、"
+					"Data": "デフォルトでは "
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Shift"
+					"TextMarkTextContent": "Ctrl"
 				},
 				{
 					"Type": "NodeText",
@@ -427,7 +422,20 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " で改行します。エージェントの実行中は停止ボタンで現在のタスクを中断できます。目的、範囲、出力先を明確に指定すると、通常はより安定した結果が得られます。"
+					"Data": " / "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "⌘Enter"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " で送信します。ショートカットはカスタマイズできます。"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "エージェントの実行中は停止ボタンで現在のタスクを中断できます。目的、範囲、出力先を明確に指定すると、通常はより安定した結果が得られます。"
 				}
 			]
 		},
@@ -580,7 +588,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170050-7cf4sou",
-				"updated": "20260804180000"
+				"updated": "20260816130653"
 			},
 			"Children": [
 				{
@@ -594,7 +602,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170051-4l1ozje",
-				"updated": "20260804180000"
+				"updated": "20260816130653"
 			},
 			"Children": [
 				{
@@ -617,7 +625,16 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " の下に配置します。"
+					"Data": " の下に配置します。ユーザーディレクトリ "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "~/.agents/skills/"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " の読み取り専用スキルを個別に有効にすることもできます。"
 				}
 			]
 		},
@@ -714,7 +731,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170054-qfoixg9",
-				"updated": "20260804180000"
+				"updated": "20260812170000"
 			},
 			"Children": [
 				{
@@ -728,7 +745,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170055-a7wg3um",
-				"updated": "20260804180000"
+				"updated": "20260812170000"
 			},
 			"Children": [
 				{
@@ -760,7 +777,22 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " で stdio または HTTP サービスを追加し、コマンド、引数、URL、HTTP ヘッダー、タイムアウトを設定して、接続状態とツール数を確認できます。"
+					"Data": " で stdio または HTTP サービスを追加し、コマンド、引数、環境変数、URL、HTTP ヘッダー、タイムアウトを設定して、接続状態とツール数を確認できます。"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "ここで設定するのは、エージェントが呼び出す外部 MCP サービスです。外部 MCP クライアントを SiYuan に接続する方法については、"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20260804223003-mcpsv04",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "MCP サービス"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " を参照してください。"
 				}
 			]
 		},
@@ -769,12 +801,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170056-7d7fak1",
-				"updated": "20260804180000"
+				"updated": "20260812170000"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "認証が必要な HTTP サービスでは OAuth 認証が案内されます。再利用するシークレットとパラメーターは "
+					"Data": "stdio サービスは、ユーザーが選択したカーネル環境変数だけを継承し、起動するたびに現在の値を読み取ります。環境変数の各項目ではシークレットと変数も参照できます。シークレットを参照すると、その平文がこのプログラムと子プロセスに渡され、直接入力した値は平文で保存されます。認証が必要な HTTP サービスでは OAuth 認証が案内されます。再利用するシークレットとパラメーターは "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -792,7 +824,18 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " で管理できます。外部 MCP ツールはローカルデータの送信、外部システムの変更、料金の発生を伴う場合があるため、確認カードの影響を確認してください。"
+					"Data": " で管理できます。詳しくは、"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20260804185003-secvr04",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "シークレットと変数"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " を参照してください。外部 MCP ツールはローカルデータの送信、外部システムの変更、料金の発生を伴う場合があるため、確認カードの影響を確認してください。"
 				}
 			]
 		},
@@ -983,7 +1026,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260804170109-yrnzqjt",
-				"updated": "20260804180000"
+				"updated": "20260804205607"
 			},
 			"Children": [
 				{
@@ -997,12 +1040,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170110-e38e283",
-				"updated": "20260804180000"
+				"updated": "20260804205607"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "各ターンで最初にデータを書き込む前に、エージェントはデータスナップショットを自動作成します。作成されるスナップショットは 1 ターンにつき最大 1 つです。結果が適切でない場合は、セッション内のスナップショット通知からロールバックできます。"
+					"Data": "各ターンで最初にワークスペースのデータへ書き込む前に、エージェントはデータスナップショットを自動作成します。作成されるスナップショットは 1 ターンにつき最大 1 つです。結果が適切でない場合は、セッション内のスナップショット通知からロールバックできます。"
 				}
 			]
 		},
@@ -1011,12 +1054,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260804170111-8dl6p54",
-				"updated": "20260804180000"
+				"updated": "20260804205607"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "スナップショットはワークスペースのデータを対象とします。回答の再生成、タスクの停止、セッションの削除では、完了済みの書き込み操作は自動的に元に戻りません。"
+					"Data": "スナップショットはワークスペースのデータを対象としますが、外部 MCP サービスやプラグインが外部システムに加えた変更は対象外です。回答の再生成、タスクの停止、セッションの削除でも、完了済みの書き込み操作は自動的に元に戻りません。"
 				}
 			]
 		},

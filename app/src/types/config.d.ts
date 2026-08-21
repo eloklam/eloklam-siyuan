@@ -172,6 +172,22 @@ declare namespace Config {
         temperature: number;
         maxCompletionTokens: number;
         maxToolCallRounds: number;
+        capabilityPolicy: ICapabilityPolicy;
+        skills: {
+            userEnabled: string[];
+        };
+        approvalPolicy: {
+            default: "risk" | "allow";
+            overrides: Record<string, {
+                default: "" | "risk" | "confirm" | "allow";
+                actions: Record<string, "risk" | "confirm" | "allow">;
+            }>;
+        };
+    }
+
+    export interface ICapabilityPolicy {
+        default: "allow" | "deny";
+        overrides: Record<string, "allow" | "deny">;
     }
 
     /**
@@ -214,6 +230,7 @@ declare namespace Config {
         endpoint: string;
         apiKey: string;
         name: string;
+        requestFormat: "cohere" | "dashscope";
         timeout: number;
         candidateCount: number;
     }
@@ -249,6 +266,7 @@ declare namespace Config {
      */
     export interface IMCP {
         servers: IMCPServer[];
+        exposurePolicy: ICapabilityPolicy;
     }
 
     export interface IMCPServer {
@@ -259,6 +277,8 @@ declare namespace Config {
         type: string;
         command: string;
         args?: string[];
+        inheritEnv?: string[];
+        env?: Record<string, string>;
         headers?: Record<string, string>;
         timeout: number;
         trustToolAnnotations: boolean;
@@ -361,12 +381,9 @@ declare namespace Config {
         frontends?: string[];
     }
 
-    export type TEntryVisibilityBase = "simple" | "full";
-
     export interface IEntryVisibilityProfile {
         id: string;
         name: string;
-        base: TEntryVisibilityBase;
         entries: Record<string, boolean>;
         orders: Record<string, string[]>;
     }
@@ -382,6 +399,7 @@ declare namespace Config {
         msgTaskHistoryDatabaseIndexCommitDisabled: boolean;
         msgTaskAssetDatabaseIndexCommitDisabled: boolean;
         msgTaskHistoryGenerateFileDisabled: boolean;
+        msgDataSyncDisabled: boolean;
     }
 
     /**
@@ -393,6 +411,8 @@ declare namespace Config {
         workspaceNotSSD: boolean;
         browserCompatibility: boolean;
         selectAllTip?: boolean;
+        selectAllIncompleteTip?: boolean;
+        formatPainterTip?: boolean;
     }
 
     /**
@@ -471,6 +491,14 @@ declare namespace Config {
          */
         inlineStrikethrough: boolean;
         /**
+         * Whether to enable the full-width inline strikethrough
+         */
+        inlineFullWidthStrikethrough: boolean;
+        /**
+         * Whether to enable the full-width task list shortcut
+         */
+        blockFullWidthTaskList: boolean;
+        /**
          * Whether to enable the inline mark
          */
         inlineMark: boolean;
@@ -480,10 +508,25 @@ declare namespace Config {
         codeBlockMiddleDot: boolean;
     }
 
+    export type TAssetOpenAction = "follow-tab" | "current" | "right" | "bottom" | "background" |
+        "new-window" | "app" | "folder";
+
+    export interface IAssetOpen {
+        click: TAssetOpenAction;
+        ctrlClick: TAssetOpenAction;
+        altClick: TAssetOpenAction;
+        shiftClick: TAssetOpenAction;
+    }
+
     /**
      * SiYuan editor related configuration
      */
     export interface IEditor {
+
+        /**
+         * Asset opening behavior
+         */
+        assetOpen: IAssetOpen;
 
         /**
          * Whether to allow to execute javascript in the SVG
@@ -508,6 +551,10 @@ declare namespace Config {
          * The default number of backlinks to mention
          */
         backmentionExpandCount: number;
+        /**
+         * Backlink mention keyword exclusion list (separated by commas `,`)
+         */
+        backlinkMentionExclude: string;
         /**
          * Whether the backlink contains children
          */
@@ -578,6 +625,10 @@ declare namespace Config {
          */
         databaseAttrUseTabs: boolean;
         /**
+         * Whether to retain dynamically loaded content blocks
+         */
+        keepLoadedContent: boolean;
+        /**
          * The number of blocks loaded each time they are dynamically loaded
          */
         dynamicLoadBlocks: number;
@@ -617,17 +668,13 @@ declare namespace Config {
          */
         floatWindowDelay: number;
         /**
-         * The font used in the editor
+         * 编辑器字体，按优先级从高到低排列
          */
-        fontFamily: string;
-        /**
-         * The font weight used in the editor, 0 means not set
-         */
-        fontWeight: number;
-        /**
-         * Label shown in Settings for the selected editor font (e.g. PostScript name + subfamily). May be empty; falls back to fontFamily in UI when empty.
-         */
-        fontFamilyDisplay: string;
+        fontFamilies: Array<{
+            family: string;
+            weight: number;
+            displayName: string;
+        }>;
         /**
          * The font size used in the editor
          */
@@ -677,6 +724,10 @@ declare namespace Config {
          * Whether to auto-convert pasted URLs to links
          */
         pasteURLAutoConvert: boolean;
+        /**
+         * Whether to embed dragged HTML files as IFrame blocks
+         */
+        dragHTMLFileToIframe: boolean;
         /**
          * Whether to enable read-only mode
          */
@@ -862,6 +913,10 @@ declare namespace Config {
          * Whether to open the file in the current tab
          */
         openFilesUseCurrentTab: boolean;
+        /**
+         * Whether to close tabs by double-clicking
+         */
+        closeTabOnDoubleClick: boolean;
         /**
          * The storage path of the new document created using block references
          */
@@ -1165,6 +1220,8 @@ declare namespace Config {
         insertBefore: IKey;
         insertBottom: IKey;
         insertRight: IKey;
+        insertSuperBlockLeft: IKey;
+        insertSuperBlockRight: IKey;
         jumpToParentNext: IKey;
         moveToDown: IKey;
         moveToUp: IKey;
@@ -1183,6 +1240,8 @@ declare namespace Config {
         refresh: IKey;
         refTab: IKey;
         rename: IKey;
+        selectToPageEnd: IKey;
+        selectToPageStart: IKey;
         showInFolder: IKey;
         spaceRepetition: IKey;
         switchReadonly: IKey;
@@ -1256,6 +1315,8 @@ declare namespace Config {
      * SiYuan editor list shortcut keys
      */
     export interface IKeymapEditorList extends IKeys {
+        prependListItem: IKey;
+        appendListItem: IKey;
         checkToggle: IKey;
         indent: IKey;
         outdent: IKey;
@@ -1295,6 +1356,8 @@ declare namespace Config {
         stickSearch: IKey;
         replace: IKey;
         closeTab: IKey;
+        agentChat: IKey;
+        agentSend: IKey;
         fileTree: IKey;
         outline: IKey;
         bookmark: IKey;
@@ -1606,10 +1669,15 @@ declare namespace Config {
 
     /**
      * A named secret. The value is AES-encrypted at rest on the kernel side.
+     * The secret is only interpolated into HTTP outbound requests when the
+     * destination host is in the allowed hosts list; an empty list denies all
+     * HTTP requests. stdio MCP server environment variables are not restricted
+     * by this list.
      */
     export interface ISecret {
         name: string;
         value: string;
+        allowedHosts: string[];
     }
 
     /**
@@ -1742,6 +1810,18 @@ declare namespace Config {
         synced: number;
         webdav: ISyncWebDAV;
         local: ISyncLocal;
+        lan: ISyncLAN;
+    }
+
+    export interface ISyncLAN {
+        /**
+         * Whether to enable LAN sync acceleration
+         */
+        enabled: boolean;
+        /**
+         * Maximum number of concurrent peer requests
+         */
+        maxConcurrentReqs: number;
     }
 
     /**
@@ -1967,7 +2047,8 @@ declare namespace Config {
         port: string;
         /**
          * The protocol used by the proxy server
-         * - Empty String: Use the system proxy settings
+         * - Empty String: Direct connection
+         * - `system`: Use the system proxy settings
          * - `http`: HTTP
          * - `https`: HTTPS
          * - `socks5`: SOCKS5
@@ -1977,12 +2058,13 @@ declare namespace Config {
 
     /**
      * The protocol used by the proxy server
-     * - Empty String: Use the system proxy settings
+     * - Empty String: Direct connection
+     * - `system`: Use the system proxy settings
      * - `http`: HTTP
      * - `https`: HTTPS
      * - `socks5`: SOCKS5
      */
-    export type TSystemNetworkProxyScheme = "" | "http" | "https" | "socks5";
+    export type TSystemNetworkProxyScheme = "" | "system" | "http" | "https" | "socks5";
 
     /**
      * The operating system name determined at compile time (obtained using the command `go tool
@@ -2043,10 +2125,6 @@ declare namespace Config {
      * SiYuan dock tab data
      */
     export interface IUILayoutDockTab {
-        /**
-         * Dock tab hotkey
-         */
-        hotkey?: string;
         /**
          * Hotkey description ID
          */

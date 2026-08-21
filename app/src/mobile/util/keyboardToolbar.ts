@@ -12,20 +12,44 @@ import {getCurrentEditor} from "../editor";
 import {convertFontSize, fontEvent, getFontNodeElements, getFontSizeInfo} from "../../protyle/toolbar/Font";
 import {hideElements} from "../../protyle/ui/hideElements";
 import {softEnter} from "../../protyle/wysiwyg/enter";
-import {isInAndroid, isInEdge, isInHarmony, isInMobileApp} from "../../protyle/util/compatibility";
+import {
+    isDisabledFeature,
+    isInAndroid,
+    isInEdge,
+    isInHarmony,
+    isInMobileApp,
+} from "../../protyle/util/compatibility";
 import {tabCodeBlock} from "../../protyle/wysiwyg/codeBlock";
-import {callMobileAppShowKeyboard, canInput, keyboardLockUntil} from "./mobileAppUtil";
+import {armKeyboardLock, callMobileAppShowKeyboard, canInput, keyboardLockUntil} from "./mobileAppUtil";
 import {isNotEditBlock} from "../../protyle/wysiwyg/getBlock";
 import {getMirror, getUndoRootID, hasUndoStateMirror, initMirror} from "../../protyle/undo/globalUndo";
+import {getMobilePluginToolbarItems} from "./pluginToolbar";
+import {escapeHtml} from "../../util/escape";
+import {
+    encodeStyle1,
+    getInlineStyleByValue,
+    getInlineStyleIDFromValue,
+    getInlineStylePreview,
+    getInlineStylesCache,
+    getInlineStyleType,
+    INLINE_BACKGROUND_COLORS,
+    INLINE_FONT_COLORS,
+    TInlineStyleType,
+} from "../../protyle/toolbar/inlineStyle";
+import {openInlineStyleDialog} from "../../protyle/toolbar/inlineStyleDialog";
+import {
+    getKeyboardHideResult,
+    getMovingSelectionEndpoint,
+    hasFixedSelectionEndpointChanged,
+    hasVisibleSelectionText,
+    isTableCellSelectAll,
+    KeyboardHideResult,
+    shouldHideKeyboardAfterResize,
+    shouldPreserveTableCellSelectAll,
+    type TSelectionEndpoint,
+} from "./touchSelection";
 
-let renderKeyboardToolbarTimeout: number;
-let scrollSelectionIntoViewTimeout: number;
-let clearRenderGutterAfterScroll: () => void;
-let showUtil = false;
-let preventRender = false;
-let preventRenderTimeout: number;
-let restoringAndroidReadonlySelection = false;
-let lastAndroidReadonlySelection: {
+type TAndroidBoundedSelection = {
     container: HTMLElement,
     anchorNode: Node,
     anchorOffset: number,
@@ -33,53 +57,261 @@ let lastAndroidReadonlySelection: {
     focusOffset: number,
 };
 
-const preserveAndroidReadonlySelection = () => {
-    if (!isInAndroid() || restoringAndroidReadonlySelection) {
+type TAndroidTableCellSelectAll = {
+    cell: HTMLTableCellElement,
+    editableElement: HTMLElement,
+    expiresAt: number,
+    range: Range,
+};
+
+const ANDROID_TABLE_CELL_SELECT_ALL_TIMEOUT = 2000;
+
+let renderKeyboardToolbarTimeout: number;
+let scrollSelectionIntoViewTimeout: number;
+let clearRenderGutterAfterScroll: () => void;
+let showUtil = false;
+let preventRender = false;
+let preventRenderTimeout: number;
+let restoringAndroidBoundedSelection = false;
+let lastAndroidBoundedSelection: TAndroidBoundedSelection | undefined;
+let androidMovingSelectionEndpoint: TSelectionEndpoint | undefined;
+let pendingAndroidTableCellSelectAll: TAndroidTableCellSelectAll | undefined;
+let restoringAndroidTableCellSelectAll = false;
+
+export const updateMobilePluginToolbar = (protyle: IProtyle) => {
+    const currentProtyle = getCurrentEditor()?.protyle;
+    if (currentProtyle && currentProtyle !== protyle) {
+        return;
+    }
+    const inlineToolbarElement = document.querySelector<HTMLElement>(
+        '#keyboardToolbar .keyboard__action[data-type="inline-memo"]')?.parentElement;
+    if (!inlineToolbarElement) {
+        return;
+    }
+    inlineToolbarElement.querySelectorAll('[data-plugin-toolbar="true"]').forEach(item => item.remove());
+    getMobilePluginToolbarItems(protyle.options.toolbar, Constants.INLINE_TYPE).forEach(toolbarItem => {
+        const itemElement = document.createElement("button");
+        itemElement.className = "keyboard__action";
+        itemElement.dataset.type = toolbarItem.name;
+        itemElement.dataset.pluginToolbar = "true";
+        itemElement.innerHTML = `<svg><use xlink:href="#${toolbarItem.icon}"></use></svg>`;
+        const label = toolbarItem.tip || (toolbarItem.lang ? window.siyuan.languages[toolbarItem.lang] : "");
+        if (label) {
+            itemElement.setAttribute("aria-label", label);
+        }
+        inlineToolbarElement.append(itemElement);
+    });
+};
+
+const clearAndroidBoundedSelection = () => {
+    lastAndroidBoundedSelection = undefined;
+    androidMovingSelectionEndpoint = undefined;
+};
+
+export const resetAndroidBoundedSelectionGesture = () => {
+    androidMovingSelectionEndpoint = undefined;
+};
+
+const rememberAndroidTableCellSelectAll = () => {
+    if (!isInAndroid() || restoringAndroidTableCellSelectAll) {
+        return;
+    }
+    const selection = getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return;
+    }
+    const range = selection.getRangeAt(0);
+    const startCell = (hasClosestByTag(range.startContainer, "TD") ||
+        hasClosestByTag(range.startContainer, "TH")) as HTMLTableCellElement;
+    const endCell = (hasClosestByTag(range.endContainer, "TD") ||
+        hasClosestByTag(range.endContainer, "TH")) as HTMLTableCellElement;
+    if (!startCell || startCell !== endCell || !isTableCellSelectAll(range.toString(), startCell.textContent)) {
+        if (pendingAndroidTableCellSelectAll && startCell && startCell !== pendingAndroidTableCellSelectAll.cell) {
+            pendingAndroidTableCellSelectAll = undefined;
+        }
+        return;
+    }
+    const editor = getCurrentEditor();
+    const editableElement = (canInput(document.activeElement) ||
+        hasClosestByAttribute(range.startContainer, "contenteditable", "true", true)) as HTMLElement;
+    if (!editor || !editableElement || !editor.protyle.wysiwyg.element.contains(startCell) ||
+        !(editableElement === startCell || editableElement.contains(startCell) || startCell.contains(editableElement))) {
+        return;
+    }
+    pendingAndroidTableCellSelectAll = {
+        cell: startCell,
+        editableElement,
+        expiresAt: Date.now() + ANDROID_TABLE_CELL_SELECT_ALL_TIMEOUT,
+        range: range.cloneRange(),
+    };
+};
+
+const hasRecentAndroidTableCellSelectAll = (pendingSelection = pendingAndroidTableCellSelectAll) =>
+    !!pendingSelection && shouldPreserveTableCellSelectAll(pendingSelection.expiresAt, Date.now()) &&
+    pendingSelection.cell.isConnected && pendingSelection.editableElement.isConnected &&
+    pendingSelection.range.startContainer.isConnected && pendingSelection.range.endContainer.isConnected;
+
+const restoreRecentAndroidTableCellSelectAll = () => {
+    const pendingSelection = pendingAndroidTableCellSelectAll;
+    pendingAndroidTableCellSelectAll = undefined;
+    if (!pendingSelection || !hasRecentAndroidTableCellSelectAll(pendingSelection)) {
         return false;
     }
+    restoringAndroidTableCellSelectAll = true;
+    try {
+        armKeyboardLock();
+        pendingSelection.editableElement.focus({preventScroll: true});
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(pendingSelection.range);
+    } finally {
+        window.setTimeout(() => {
+            restoringAndroidTableCellSelectAll = false;
+        });
+    }
+    return true;
+};
+
+const getAndroidBoundedSelection = (selection: Selection, container: HTMLElement): TAndroidBoundedSelection => ({
+    container,
+    anchorNode: selection.anchorNode,
+    anchorOffset: selection.anchorOffset,
+    focusNode: selection.focusNode,
+    focusOffset: selection.focusOffset,
+});
+
+const hasSelectionPointChanged = (node: Node, offset: number, previousNode: Node, previousOffset: number) =>
+    node !== previousNode || offset !== previousOffset;
+
+const restoreAndroidBoundedSelection = (selection: Selection, restored: TAndroidBoundedSelection) => {
+    lastAndroidBoundedSelection = restored;
+    restoringAndroidBoundedSelection = true;
+    try {
+        selection.setBaseAndExtent(
+            restored.anchorNode,
+            restored.anchorOffset,
+            restored.focusNode,
+            restored.focusOffset,
+        );
+    } finally {
+        window.setTimeout(() => {
+            restoringAndroidBoundedSelection = false;
+        });
+    }
+    return true;
+};
+
+const getAndroidSelectionContainer = (selection: Selection) => {
+    const previousContainer = lastAndroidBoundedSelection?.container;
+    if (previousContainer?.classList.contains("agent-chat__body") &&
+        (previousContainer.contains(selection.anchorNode) || previousContainer.contains(selection.focusNode))) {
+        return previousContainer;
+    }
+    const anchorAgentBody = hasClosestByClassName(selection.anchorNode, "agent-chat__body", true);
+    const focusAgentBody = hasClosestByClassName(selection.focusNode, "agent-chat__body", true);
+    if (anchorAgentBody && anchorAgentBody === focusAgentBody) {
+        return anchorAgentBody;
+    }
+
     const protyle = getCurrentEditor()?.protyle;
     const previewVisible = protyle && !protyle.preview.element.classList.contains("fn__none");
     if (!protyle || (!protyle.disabled && !previewVisible)) {
-        lastAndroidReadonlySelection = undefined;
+        return;
+    }
+    return previewVisible ? protyle.preview.previewElement : protyle.wysiwyg.element;
+};
+
+const preserveAndroidBoundedSelection = () => {
+    if (!isInAndroid() || restoringAndroidBoundedSelection) {
         return false;
     }
     const selection = getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed ||
         !selection.anchorNode || !selection.focusNode) {
-        lastAndroidReadonlySelection = undefined;
+        clearAndroidBoundedSelection();
         return false;
     }
-    const container = previewVisible ? protyle.preview.previewElement : protyle.wysiwyg.element;
+    const container = getAndroidSelectionContainer(selection);
+    if (!container) {
+        clearAndroidBoundedSelection();
+        return false;
+    }
     const contains = (node: Node) => node === container || container.contains(node);
     const anchorInside = contains(selection.anchorNode);
     const focusInside = contains(selection.focusNode);
+    const current = getAndroidBoundedSelection(selection, container);
+    const previous = lastAndroidBoundedSelection;
+    const previousAvailable = previous?.container === container &&
+        previous.anchorNode.isConnected && previous.focusNode.isConnected &&
+        contains(previous.anchorNode) && contains(previous.focusNode);
+    if (container.classList.contains("agent-chat__body")) {
+        if (!previousAvailable) {
+            androidMovingSelectionEndpoint = undefined;
+            if (anchorInside && focusInside) {
+                lastAndroidBoundedSelection = current;
+            } else {
+                clearAndroidBoundedSelection();
+            }
+            return false;
+        }
+        const anchorChanged = hasSelectionPointChanged(
+            current.anchorNode,
+            current.anchorOffset,
+            previous.anchorNode,
+            previous.anchorOffset,
+        );
+        const focusChanged = hasSelectionPointChanged(
+            current.focusNode,
+            current.focusOffset,
+            previous.focusNode,
+            previous.focusOffset,
+        );
+        androidMovingSelectionEndpoint = getMovingSelectionEndpoint(
+            androidMovingSelectionEndpoint,
+            anchorChanged,
+            focusChanged,
+        );
+        if (!androidMovingSelectionEndpoint) {
+            if (anchorInside && focusInside) {
+                lastAndroidBoundedSelection = current;
+                return false;
+            }
+            return restoreAndroidBoundedSelection(selection, previous);
+        }
+        const movingAnchor = androidMovingSelectionEndpoint === "anchor";
+        const movingEndpointInside = movingAnchor ? anchorInside : focusInside;
+        if (!movingEndpointInside || hasFixedSelectionEndpointChanged(
+            androidMovingSelectionEndpoint,
+            anchorChanged,
+            focusChanged,
+        )) {
+            return restoreAndroidBoundedSelection(selection, {
+                container,
+                anchorNode: movingAnchor && anchorInside ? current.anchorNode : previous.anchorNode,
+                anchorOffset: movingAnchor && anchorInside ? current.anchorOffset : previous.anchorOffset,
+                focusNode: !movingAnchor && focusInside ? current.focusNode : previous.focusNode,
+                focusOffset: !movingAnchor && focusInside ? current.focusOffset : previous.focusOffset,
+            });
+        }
+        lastAndroidBoundedSelection = current;
+        return false;
+    }
+    androidMovingSelectionEndpoint = undefined;
     if (anchorInside && focusInside) {
-        lastAndroidReadonlySelection = {
-            container,
-            anchorNode: selection.anchorNode,
-            anchorOffset: selection.anchorOffset,
-            focusNode: selection.focusNode,
-            focusOffset: selection.focusOffset,
-        };
+        lastAndroidBoundedSelection = current;
         return false;
     }
-    const previous = lastAndroidReadonlySelection;
-    if (!previous || previous.container !== container || anchorInside === focusInside ||
-        !previous.anchorNode.isConnected || !previous.focusNode.isConnected) {
-        lastAndroidReadonlySelection = undefined;
+    if (!previousAvailable || anchorInside === focusInside) {
+        clearAndroidBoundedSelection();
         return false;
     }
-    restoringAndroidReadonlySelection = true;
-    selection.setBaseAndExtent(
-        anchorInside ? selection.anchorNode : previous.anchorNode,
-        anchorInside ? selection.anchorOffset : previous.anchorOffset,
-        focusInside ? selection.focusNode : previous.focusNode,
-        focusInside ? selection.focusOffset : previous.focusOffset,
-    );
-    window.setTimeout(() => {
-        restoringAndroidReadonlySelection = false;
+    return restoreAndroidBoundedSelection(selection, {
+        container,
+        anchorNode: anchorInside ? current.anchorNode : previous.anchorNode,
+        anchorOffset: anchorInside ? current.anchorOffset : previous.anchorOffset,
+        focusNode: focusInside ? current.focusNode : previous.focusNode,
+        focusOffset: focusInside ? current.focusOffset : previous.focusOffset,
     });
-    return true;
 };
 
 const preventKeyboardToolbarRender = () => {
@@ -130,25 +362,45 @@ const getSlashItem = (value: string, icon: string, text: string, focus = "false"
 
 export const renderTextMenu = (protyle: IProtyle, toolbarElement: Element) => {
     let colorHTML = "";
-    ["", "var(--b3-font-color1)", "var(--b3-font-color2)", "var(--b3-font-color3)", "var(--b3-font-color4)",
-        "var(--b3-font-color5)", "var(--b3-font-color6)", "var(--b3-font-color7)", "var(--b3-font-color8)",
-        "var(--b3-font-color9)", "var(--b3-font-color10)", "var(--b3-font-color11)", "var(--b3-font-color12)",
-        "var(--b3-font-color13)"].forEach((item, index) => {
+    INLINE_FONT_COLORS.forEach((item, index) => {
         colorHTML += `<button class="keyboard__slash-item" data-type="color">
     <span class="keyboard__slash-icon" ${item ? `style="color:${item}"` : ""}>A</span>
-    <span class="keyboard__slash-text">${window.siyuan.languages.colorFont} ${item ? index + 1 : window.siyuan.languages.default}</span>
+    <span class="keyboard__slash-text">${window.siyuan.languages.colorFont} ${item ? index : window.siyuan.languages.default}</span>
 </button>`;
     });
     let bgHTML = "";
-    ["", "var(--b3-font-background1)", "var(--b3-font-background2)", "var(--b3-font-background3)", "var(--b3-font-background4)",
-        "var(--b3-font-background5)", "var(--b3-font-background6)", "var(--b3-font-background7)", "var(--b3-font-background8)",
-        "var(--b3-font-background9)", "var(--b3-font-background10)", "var(--b3-font-background11)", "var(--b3-font-background12)",
-        "var(--b3-font-background13)"].forEach((item, index) => {
+    INLINE_BACKGROUND_COLORS.forEach((item, index) => {
         bgHTML += `<button class="keyboard__slash-item" data-type="backgroundColor">
     <span class="keyboard__slash-icon" ${item ? `style="background-color:${item}"` : ""}>A</span>
-    <span class="keyboard__slash-text">${window.siyuan.languages.colorPrimary} ${item ? index + 1 : window.siyuan.languages.default}</span>
+    <span class="keyboard__slash-text">${window.siyuan.languages.colorPrimary} ${item ? index : window.siyuan.languages.default}</span>
 </button>`;
     });
+    let customColorHTML = "";
+    let customBackgroundHTML = "";
+    let customStyleHTML = "";
+    getInlineStylesCache().styles.forEach(style => {
+        const type = getInlineStyleType(style);
+        if (!type) {
+            return;
+        }
+        const preview = getInlineStylePreview(style);
+        const html = `<button class="keyboard__slash-item" data-type="${type}" data-inline-style-id="${style.id}">
+    <span class="keyboard__slash-icon" style="${preview.color ? `color:${preview.color};` : ""}${preview.backgroundColor ? `background-color:${preview.backgroundColor};` : ""}">A</span>
+    <span class="keyboard__slash-text">${escapeHtml(style.name)}</span>
+</button>`;
+        if (type === "color") {
+            customColorHTML += html;
+        } else if (type === "backgroundColor") {
+            customBackgroundHTML += html;
+        } else {
+            customStyleHTML += html;
+        }
+    });
+    const getManageHTML = (type: TInlineStyleType) => window.siyuan.config.readonly || window.siyuan.isPublish ? "" :
+        `<button class="keyboard__slash-item" data-action="manageInlineStyle" data-inline-style-type="${type}">
+    <svg class="keyboard__slash-icon"><use xlink:href="#iconSettings"></use></svg>
+    <span class="keyboard__slash-text">${window.siyuan.languages.manageCustomColors}</span>
+</button>`;
 
     const nodeElements = getFontNodeElements(protyle);
     let disableFont = false;
@@ -168,17 +420,21 @@ export const renderTextMenu = (protyle: IProtyle, toolbarElement: Element) => {
 <div data-id="lastUsedWrap" class="keyboard__slash-block">`;
         lastFonts.forEach((item: string) => {
             const lastFontStatus = item.split(Constants.ZWSP);
+            const inlineStyleID = getInlineStyleIDFromValue(item);
+            const inlineStyle = getInlineStyleByValue(item);
+            const customLabel = inlineStyle ? escapeHtml(inlineStyle.name) :
+                (inlineStyleID ? window.siyuan.languages.custom : "");
             switch (lastFontStatus[0]) {
                 case "color":
                     lastColorHTML += `<button class="keyboard__slash-item" data-type="${lastFontStatus[0]}">
     <span class="keyboard__slash-icon" ${lastFontStatus[1] ? `style="color:${lastFontStatus[1]}"` : ""} >A</span>
-    <span class="keyboard__slash-text">${window.siyuan.languages.colorFont} ${lastFontStatus[1] ? parseInt(lastFontStatus[1].replace("var(--b3-font-color", "")) + 1 : window.siyuan.languages.default}</span>
+    <span class="keyboard__slash-text">${customLabel || window.siyuan.languages.colorFont + " " + (lastFontStatus[1]?.match(/^var\(--b3-font-color(\d+)\)$/)?.[1] || window.siyuan.languages.default)}</span>
 </button>`;
                     break;
                 case "backgroundColor":
                     lastColorHTML += `<button class="keyboard__slash-item" data-type="${lastFontStatus[0]}">
     <span class="keyboard__slash-icon" ${lastFontStatus[1] ? `style="background-color:${lastFontStatus[1]}"` : ""}>A</span>
-    <span class="keyboard__slash-text">${window.siyuan.languages.colorPrimary} ${lastFontStatus[1] ? parseInt(lastFontStatus[1].replace("var(--b3-font-background", "")) + 1 : window.siyuan.languages.default}</span>
+    <span class="keyboard__slash-text">${customLabel || window.siyuan.languages.colorPrimary + " " + (lastFontStatus[1]?.match(/^var\(--b3-font-background(\d+)\)$/)?.[1] || window.siyuan.languages.default)}</span>
 </button>`;
                     break;
                 case "style2":
@@ -200,9 +456,10 @@ export const renderTextMenu = (protyle: IProtyle, toolbarElement: Element) => {
                     break;
                 case "style1":
                     if (lastFontStatus[1]) {
+                        const builtInStyle = lastFontStatus[2]?.match(/^var\(--b3-card-([a-z]+)-color\)$/)?.[1];
                         lastColorHTML += `<button class="keyboard__slash-item" data-type="${lastFontStatus[0]}">
     <span class="keyboard__slash-icon" style="background-color:${lastFontStatus[1]};color:${lastFontStatus[2]}">A</span>
-    <span class="keyboard__slash-text">${window.siyuan.languages[lastFontStatus[2].replace("var(--b3-card-", "").replace("-color)", "") + "Style"]}</span>
+    <span class="keyboard__slash-text">${customLabel || (builtInStyle ? window.siyuan.languages[builtInStyle + "Style"] : window.siyuan.languages.color)}</span>
 </button>`;
                     } else {
                         lastColorHTML += `<button class="keyboard__slash-item" data-type="${lastFontStatus[0]}">
@@ -245,14 +502,20 @@ export const renderTextMenu = (protyle: IProtyle, toolbarElement: Element) => {
         <span class="keyboard__slash-icon" style="color: var(--b3-card-success-color);background-color: var(--b3-card-success-background);">A</span>
         <span class="keyboard__slash-text">${window.siyuan.languages.successStyle}</span>
     </button>
+    ${customStyleHTML}
+    ${getManageHTML("style1")}
 </div>
 <div data-id="colorFont" class="keyboard__slash-title">${window.siyuan.languages.colorFont}</div>
 <div data-id="colorFontWrap" class="keyboard__slash-block">
     ${colorHTML}
+    ${customColorHTML}
+    ${getManageHTML("color")}
 </div>
 <div data-id="colorPrimary" class="keyboard__slash-title">${window.siyuan.languages.colorPrimary}</div>
 <div data-id="colorPrimaryWrap" class="keyboard__slash-block">
     ${bgHTML}
+    ${customBackgroundHTML}
+    ${getManageHTML("backgroundColor")}
 </div>
 <div data-id="fontStyle" class="keyboard__slash-title">${window.siyuan.languages.fontStyle}</div>
 <div data-id="fontStyleWrap" class="keyboard__slash-block">
@@ -346,7 +609,7 @@ const renderSlashMenu = (protyle: IProtyle, toolbarElement: Element) => {
     ${getSlashItem(Constants.ZWSP + 2, "iconImage", window.siyuan.languages.assets)}
     ${getSlashItem("((", "iconRef", window.siyuan.languages.ref, "true")}
     ${getSlashItem("{{", "iconSQL", window.siyuan.languages.blockEmbed, "true")}
-    ${getSlashItem(Constants.ZWSP + 5, "iconSparkles", window.siyuan.languages.aiWriting)}
+    ${isDisabledFeature("ai") ? "" : getSlashItem(Constants.ZWSP + 5, "iconSparkles", window.siyuan.languages.aiWriting)}
     ${getSlashItem('<div data-type="NodeAttributeView" data-av-type="table"></div>', "iconDatabase", window.siyuan.languages.database, "true")}
     ${getSlashItem(Constants.ZWSP + 6, "iconFile", window.siyuan.languages.newSubDocRef)}
 </div>
@@ -563,19 +826,24 @@ export const showKeyboardToolbar = () => {
         hideKeyboardToolbarUtil();
     }
     const toolbarElement = document.getElementById("keyboardToolbar");
-    window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: true}));
     const selection = getSelection();
     if (selection.rangeCount > 0 &&
         hasClosestByClassName(selection.getRangeAt(0).startContainer, "agent-chat__composer-host", true)) {
         // 智能体发送框自带操作栏，不能显示会作用于下层文档的移动端编辑工具栏。
+        window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: true}));
         toolbarElement.classList.add("fn__none");
         document.getElementById("model").style.paddingBottom = "";
         return;
     }
-    if (!toolbarElement.classList.contains("fn__none") || getSelection().rangeCount === 0) {
+    if (!toolbarElement.classList.contains("fn__none")) {
+        window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: true}));
+        return;
+    }
+    if (selection.rangeCount === 0) {
         return;
     }
     toolbarElement.classList.remove("fn__none");
+    window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: true}));
     toolbarElement.style.zIndex = (++window.siyuan.zIndex).toString();
     updateKeyboardToolbarPosition();
     const modelElement = document.getElementById("model");
@@ -657,7 +925,6 @@ export const hideKeyboardToolbar = () => {
     clearTimeout(renderKeyboardToolbarTimeout);
     clearTimeout(scrollSelectionIntoViewTimeout);
     clearRenderGutterAfterScroll?.();
-    window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: false}));
     if (showUtil) {
         return;
     }
@@ -678,6 +945,33 @@ export const hideKeyboardToolbar = () => {
     if (modelElement.style.transform === "translateX(0px)") {
         modelElement.style.paddingBottom = "";
     }
+    window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: false}));
+};
+
+export const hideKeyboardToolbarByApp = (preserveSelection = false) => {
+    const tableCellSelectionRestored = preserveSelection && restoreRecentAndroidTableCellSelectAll();
+    if (tableCellSelectionRestored) {
+        return KeyboardHideResult.RestoreTableCellSelection;
+    }
+    preventKeyboardToolbarRender();
+    hideKeyboardToolbar();
+    const editor = getCurrentEditor();
+    const selection = getSelection();
+    if (!editor) {
+        return KeyboardHideResult.Cleanup;
+    }
+    hideElements(["util"], editor.protyle);
+    const range = selection?.rangeCount > 0 && !selection.isCollapsed ? selection.getRangeAt(0) : undefined;
+    const hasVisibleEditorSelection = !!range && hasVisibleSelectionText(range.toString()) &&
+        editor.protyle.wysiwyg.element.contains(range.startContainer) &&
+        editor.protyle.wysiwyg.element.contains(range.endContainer);
+    const result = getKeyboardHideResult(preserveSelection, tableCellSelectionRestored, hasVisibleEditorSelection);
+    if (result === KeyboardHideResult.PreserveSelection || !hasVisibleEditorSelection) {
+        return result;
+    }
+    (document.activeElement as HTMLElement)?.blur();
+    selection?.removeAllRanges();
+    return result;
 };
 
 export const activeBlur = () => {
@@ -714,7 +1008,8 @@ export const initKeyboardToolbar = () => {
         viewportHandler();
     }
     document.addEventListener("selectionchange", () => {
-        if (preserveAndroidReadonlySelection()) {
+        rememberAndroidTableCellSelectAll();
+        if (preserveAndroidBoundedSelection()) {
             return;
         }
         if (preventRender || (getCurrentEditor()?.protyle?.toolbar.isMultiSelectMode())) {
@@ -755,7 +1050,7 @@ export const initKeyboardToolbar = () => {
                     const isInputFocused = document.activeElement && (
                         ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) ||
                         (document.activeElement as HTMLElement).isContentEditable);
-                    if (!isInputFocused) {
+                    if (shouldHideKeyboardAfterResize(isInputFocused, hasRecentAndroidTableCellSelectAll())) {
                         activeBlur();
                     }
                 } else if (!preventRender) {
@@ -778,7 +1073,7 @@ export const initKeyboardToolbar = () => {
                     const isInputFocused = document.activeElement && (
                         ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) ||
                         (document.activeElement as HTMLElement).isContentEditable);
-                    if (!isInputFocused) {
+                    if (shouldHideKeyboardAfterResize(isInputFocused, hasRecentAndroidTableCellSelectAll())) {
                         activeBlur();
                     }
                 } else if (!preventRender) {
@@ -849,13 +1144,21 @@ export const initKeyboardToolbar = () => {
             event.preventDefault();
         }
     });
-    toolbarElement.addEventListener(isInAndroid() || isInHarmony() ? "touchend" : "click", (event) => {
+    toolbarElement.addEventListener(isInAndroid() || isInHarmony() ? "touchend" : "click", async (event) => {
         if (moved) {
             return;
         }
         const protyle = getCurrentEditor()?.protyle;
         const target = event.target as HTMLElement;
         const slashBtnElement = hasClosestByClassName(event.target as HTMLElement, "keyboard__slash-item");
+        if (slashBtnElement && slashBtnElement.dataset.action === "manageInlineStyle") {
+            openInlineStyleDialog(slashBtnElement.dataset.inlineStyleType as TInlineStyleType, () => {
+                renderTextMenu(protyle, toolbarElement);
+            });
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
         if (slashBtnElement && !slashBtnElement.getAttribute("data-type")) {
             const dataValue = decodeURIComponent(slashBtnElement.getAttribute("data-value"));
             if (dataValue === Constants.ZWSP + 3) {
@@ -866,6 +1169,8 @@ export const initKeyboardToolbar = () => {
             event.stopPropagation();
             if (dataValue === "((" || dataValue === "{{") {
                 // (( / {{ 的候选列表无输入框，需保持键盘不收起，否则无法继续输入筛选 https://github.com/siyuan-note/siyuan/issues/17877
+                // 关闭插入菜单，保留光标和软键盘用于输入查询条件
+                hideKeyboardToolbarUtil();
                 callMobileAppShowKeyboard();
                 if (isInHarmony() || isInAndroid()) {
                     setTimeout(() => focusByRange(protyle.toolbar.range), Constants.TIMEOUT_TRANSITION);
@@ -888,7 +1193,7 @@ export const initKeyboardToolbar = () => {
             const focusRange = !buttonElement.classList.contains("keyboard__slash-item");
             if (type === "style1") {
                 fontEvent(protyle, nodeElements, type,
-                    itemElement.style.backgroundColor + Constants.ZWSP + itemElement.style.color, focusRange);
+                    encodeStyle1(itemElement.style.backgroundColor, itemElement.style.color), focusRange);
             } else if (type === "fontSize") {
                 fontEvent(protyle, nodeElements, type, itemElement.textContent.trim(), focusRange);
             } else if (type === "backgroundColor") {
@@ -1030,21 +1335,17 @@ export const initKeyboardToolbar = () => {
             return;
         } else if (type === "outdent") {
             if (nodeElement.classList.contains("code-block")) {
-                if (range.toString() !== "") {
-                    tabCodeBlock(protyle, nodeElement, range, true);
-                }
+                tabCodeBlock(protyle, nodeElement, range, true);
             } else {
-                listOutdent(protyle, [nodeElement.parentElement], range);
+                await listOutdent(protyle, [nodeElement.parentElement], range);
             }
             focusByRange(range);
             return;
         } else if (type === "indent") {
             if (nodeElement.classList.contains("code-block")) {
-                if (range.toString() !== "") {
-                    tabCodeBlock(protyle, nodeElement, range);
-                }
+                tabCodeBlock(protyle, nodeElement, range);
             } else {
-                listIndent(protyle, [nodeElement.parentElement], range);
+                await listIndent(protyle, [nodeElement.parentElement], range);
             }
             focusByRange(range);
             return;

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -66,7 +66,11 @@ func CheckPluginAccessableInPublish(name string) bool {
 	}
 
 	found, _, _, _, disabledInPublish, disallowInstall, _ := bazaar.ParseInstalledPlugin(name, "")
-	return found && !disabledInPublish && !disallowInstall
+	return found && isPetalAccessableInPublish(petal, disabledInPublish, disallowInstall)
+}
+
+func isPetalAccessableInPublish(petal *Petal, disabledInPublish, disallowInstall bool) bool {
+	return petal != nil && petal.Enabled && !petal.UserDisabledInPublish && !disabledInPublish && !disallowInstall
 }
 
 func CheckWidgetAccessableInPublish(name string) bool {
@@ -74,7 +78,7 @@ func CheckWidgetAccessableInPublish(name string) bool {
 		return false
 	}
 	widget, err := bazaar.ParsePackageJSON(filepath.Join(util.DataDir, "widgets", name, "widget.json"))
-	return err == nil && widget != nil && !widget.DisabledInPublish
+	return err == nil && bazaar.IsValidInstalledPackage(widget, name) && !widget.DisabledInPublish
 }
 
 func CheckWidgetAccessableByPublishAccess(c *gin.Context, name string, publishAccess PublishAccess) bool {

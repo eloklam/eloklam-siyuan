@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -612,14 +612,34 @@ func insertLocalAssets(c *gin.Context) {
 		isUpload = isUploadArg.(bool)
 	}
 	id := arg["id"].(string)
-	succMap, err := model.InsertLocalAssets(id, assetPaths, isUpload)
+	fromHTMLPaste, _ := arg["fromHTMLPaste"].(bool)
+	var succMap map[string]any
+	var succFiles []model.AssetUploadSuccess
+	var failedFiles []model.AssetUploadFailure
+	var err error
+	if fromHTMLPaste {
+		succMap, succFiles, failedFiles, err = model.InsertHTMLLocalAssets(id, assetPaths)
+	} else {
+		succMap, succFiles, failedFiles, err = model.InsertLocalAssets(id, assetPaths, isUpload)
+	}
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
 	}
+	errFiles := make([]string, 0, len(failedFiles))
+	for _, failedFile := range failedFiles {
+		errFiles = append(errFiles, failedFile.Name)
+	}
 	ret.Data = map[string]any{
-		"succMap": succMap,
+		"errFiles":    errFiles,
+		"failedFiles": failedFiles,
+		"succFiles":   succFiles,
+		"succMap":     succMap,
+	}
+	if 0 < len(failedFiles) {
+		ret.Code = -1
+		ret.Msg = failedFiles[0].Error
 	}
 }
 
@@ -654,14 +674,20 @@ func insertCover(c *gin.Context) {
 	}
 
 	id := arg["id"].(string)
-	succMap, err := model.InsertLocalAssets(id, []string{srcPath}, true)
+	succMap, succFiles, failedFiles, err := model.InsertLocalAssets(id, []string{srcPath}, true)
 	if nil != err {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
 	}
+	if 0 < len(failedFiles) {
+		ret.Code = -1
+		ret.Msg = failedFiles[0].Error
+		return
+	}
 
 	ret.Data = map[string]any{
-		"succMap": succMap,
+		"succFiles": succFiles,
+		"succMap":   succMap,
 	}
 }

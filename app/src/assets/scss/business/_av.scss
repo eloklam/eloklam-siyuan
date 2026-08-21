@@ -15,14 +15,6 @@
     .av__group-icon--hover {
       opacity: 1;
     }
-
-    .av__views-switcher--all {
-      display: flex;
-
-      & + .fn__space {
-        display: block;
-      }
-    }
   }
 
   &--touch {
@@ -30,14 +22,6 @@
     .av__group-icon--hover,
     .av__row--footer .av__calc {
       opacity: 1;
-    }
-
-    .av__views-switcher--all {
-      display: flex;
-
-      & + .fn__space {
-        display: block;
-      }
     }
 
     .av__selection-toolbar {
@@ -143,8 +127,9 @@
     &--fixed {
       background-color: var(--b3-parent-background);
       box-sizing: border-box;
+      box-shadow: 0 -1px inset var(--b3-theme-background-light), 0 0 0 1px var(--b3-parent-background);
       position: fixed;
-      z-index: 4;
+      z-index: 3;
     }
 
     &--show .block__icon {
@@ -156,14 +141,8 @@
       width: 1em;
     }
 
-    &-switcher--all,
-    &-switcher--all + .fn__space {
-      display: none;
-    }
-
     .b3-text-field {
       transition: var(--b3-width-transition);
-      outline: none;
       white-space: nowrap;
       overflow: auto;
       padding-right: 0;
@@ -305,6 +284,8 @@
 
   &__scroll {
     overflow: auto hidden;
+    position: relative;
+    z-index: 2;
   }
 
   &__spacer {
@@ -342,8 +323,7 @@
     }
 
     &--select,
-    &--hl,
-    &--locate {
+    &--hl {
       &:not(.av__row--header) .av__cell,
       &:not(.av__row--header) .av__firstcol {
         background-color: var(--b3-theme-primary-lightest);
@@ -352,16 +332,6 @@
       .av__firstcol svg {
         opacity: 1;
       }
-    }
-
-    &--locate::before {
-      border: 2px solid var(--b3-theme-primary-lighter);
-      border-radius: var(--b3-border-radius-s);
-      content: '';
-      inset: 1px;
-      pointer-events: none;
-      position: absolute;
-      z-index: 4;
     }
 
     &--header {
@@ -489,7 +459,7 @@
       }
 
       &:hover {
-        &:not(.av__gallery-item--select):not(.av__gallery-item--locate)::before {
+        &:not(.av__gallery-item--select)::before {
           background-color: var(--b3-theme-surface-light);
         }
 
@@ -498,8 +468,7 @@
         }
       }
 
-      &--select::before,
-      &--locate::before {
+      &--select::before {
         background-color: var(--b3-theme-primary-lightest) !important;
         opacity: 1 !important;
       }
@@ -860,26 +829,6 @@
     }
   }
 
-  &__card-layout-select {
-    background-color: transparent;
-
-    &:hover,
-    &:focus {
-      background-color: transparent;
-    }
-  }
-
-  &__card-layout-label {
-    color: var(--b3-theme-on-surface);
-    line-height: 14px;
-    margin: 0;
-    padding: 0 8px;
-  }
-
-  &__card-layout-separator {
-    margin-bottom: 8px;
-  }
-
   &__cell {
     box-sizing: border-box;
     position: relative;
@@ -1169,7 +1118,7 @@
     display: flex;
     background-color: var(--b3-parent-background);
 
-    &:has(> .av__cell, > .av__calc) {
+    &--freeze {
       box-shadow: inset -1px 0 0 var(--b3-border-color);
     }
   }
@@ -1227,6 +1176,14 @@
     transform: translateX(-50%);
     width: 1px;
     z-index: 1000;
+  }
+
+  &__width-scroll-spacer {
+    height: 1px;
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
   }
 
   &__width-tip {
@@ -1916,7 +1873,7 @@
           opacity: 0.26;
         }
 
-        &:hover:not(.av__gallery-item--select):not(.av__gallery-item--locate)::before {
+        &:hover:not(.av__gallery-item--select)::before {
           background-color: var(--b3-av-kanban-background);
           opacity: 0.38;
         }
@@ -2085,11 +2042,14 @@ img.av__cellassetimg {
 }
 
 .av__relation-panel {
+  padding-bottom: 0;
+
   .av__relation {
     min-width: 0;
   }
 
   .av__relation-table {
+    border-radius: 0 0 var(--b3-border-radius-b) var(--b3-border-radius-b);
     overflow: auto;
     overscroll-behavior: contain;
     padding: 0;
@@ -2266,6 +2226,10 @@ img.av__cellassetimg {
   .av__relation-table-footer {
     border-radius: 0;
     margin: 0;
+
+    &.b3-list--empty {
+      padding-bottom: 8px;
+    }
   }
 
   .av__relation-table-row.dragover__top::after,

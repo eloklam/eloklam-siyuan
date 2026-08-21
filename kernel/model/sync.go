@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -34,6 +34,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/siyuan-note/dejavu"
 	"github.com/siyuan-note/dejavu/cloud"
+	"github.com/siyuan-note/eventbus"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/cache"
 	"github.com/siyuan-note/siyuan/kernel/conf"
@@ -50,17 +51,41 @@ func SyncDataDownload() {
 		return
 	}
 
+	scope := lanSyncScope()
+	latestID := getSyncCloudLatestID()
+	if "" != latestID {
+		_, _ = syncRemoteRequests.do(scope, latestID, func() error {
+			lockSync()
+			defer unlockSync()
+			if syncRemoteRequests.isCompleted(scope, latestID) {
+				return nil
+			}
+			err := syncDataDownloadLocked()
+			if nil == err {
+				completeCurrentSyncRemoteRequest(scope)
+			}
+			return err
+		})
+		return
+	}
+
 	unlock, ok := lockSyncRequest(&syncDownloadRequests)
 	if !ok {
 		return
 	}
 	defer unlock()
+	if err := syncDataDownloadLocked(); nil == err {
+		completeCurrentSyncRemoteRequest(scope)
+	}
+}
+
+func syncDataDownloadLocked() (err error) {
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 
 	now := util.CurrentTimeMillis()
 	Conf.Sync.Synced = now
 
-	err := syncRepoDownloadWithDNSRetry()
+	err = syncRepoDownloadWithDNSRetry()
 	code := 1
 	if err != nil {
 		code = 2
@@ -69,6 +94,41 @@ func SyncDataDownload() {
 	if 1 == code {
 		consumeShorthands()
 	}
+	return
+}
+
+func getSyncCloudLatestID() (ret string) {
+	// 同步感知消息不包含云端提交 ID，需要先读取最新索引，以便和局域网提交提示使用同一个去重键。
+	repo, err := newSyncRepository()
+	if nil != err {
+		logging.LogWarnf("create repo before perceived sync failed: %s", err)
+		return
+	}
+	syncContext := map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToNone}
+	latest, err := repo.GetCloudLatestFast(syncContext)
+	if nil != err {
+		logging.LogWarnf("get cloud latest before perceived sync failed: %s", err)
+		return
+	}
+	if nil != latest {
+		ret = latest.ID
+	}
+	return
+}
+
+func completeCurrentSyncRemoteRequest(scope string) {
+	// 完整同步可能在合并本地变更后生成新的最新索引，同时记录实际结果可覆盖两类通知到达顺序相反的情况。
+	repo, err := newRepository()
+	if nil != err {
+		logging.LogWarnf("create repo after remote sync failed: %s", err)
+		return
+	}
+	latest, err := repo.Latest()
+	if nil != err {
+		logging.LogWarnf("get local latest after remote sync failed: %s", err)
+		return
+	}
+	syncRemoteRequests.complete(scope, latest.ID)
 }
 
 func SyncDataUpload() {
@@ -98,10 +158,9 @@ func SyncDataUpload() {
 }
 
 var (
-	syncSameCount     = atomic.Int32{}
-	syncDataChangeGen = atomic.Uint64{}
-	autoSyncErrCount  = 0
-	fixSyncInterval   = 5 * time.Minute
+	syncSameCount    = atomic.Int32{}
+	autoSyncErrCount = 0
+	fixSyncInterval  = 5 * time.Minute
 
 	syncPlanTimeLock = sync.Mutex{}
 	syncPlanTime     = time.Now().Add(fixSyncInterval)
@@ -123,6 +182,7 @@ func SyncDataJob() {
 
 func BootSyncData() {
 	defer logging.Recover()
+	refreshLANSyncManager()
 
 	if Conf.Sync.Perception {
 		connectSyncWebSocket()
@@ -356,7 +416,7 @@ func removeIndexes(removeFilePaths []string) (removeRootIDs []string) {
 
 		msg := fmt.Sprintf(Conf.Language(39), rootID)
 		util.IncBootProgress(bootProgressPart, msg)
-		util.PushStatusBar(msg)
+		pushSyncStatusBar(msg)
 
 		cache.RemoveTreeData(rootID)
 		block := treenode.GetBlockTree(rootID)
@@ -409,7 +469,7 @@ func upsertIndexes(upsertFilePaths []string) (upsertRootIDs []string) {
 			p := strings.TrimPrefix(upsertFile, box)
 			msg := fmt.Sprintf(Conf.Language(40), util.GetTreeID(p))
 			util.IncBootProgress(bootProgressPart, msg)
-			util.PushStatusBar(msg)
+			pushSyncStatusBar(msg)
 
 			rootID := util.GetTreeID(p)
 			cache.RemoveTreeData(rootID)
@@ -450,6 +510,7 @@ func SetCloudSyncDir(name string) {
 
 	Conf.Sync.CloudName = name
 	Conf.Save()
+	refreshLANSyncManager()
 }
 
 func SetSyncGenerateConflictDoc(b bool) {
@@ -460,6 +521,7 @@ func SetSyncGenerateConflictDoc(b bool) {
 func SetSyncEnable(b bool) {
 	Conf.Sync.Enabled = b
 	Conf.Save()
+	refreshLANSyncManager()
 }
 
 func SetSyncInterval(interval int) {
@@ -499,6 +561,7 @@ func SetSyncMode(mode int) {
 func SetSyncProvider(provider int) (err error) {
 	Conf.Sync.Provider = provider
 	Conf.Save()
+	refreshLANSyncManager()
 	return
 }
 
@@ -514,6 +577,7 @@ func SetSyncProviderS3(s3 *conf.S3) (err error) {
 
 	Conf.Sync.S3 = s3
 	Conf.Save()
+	refreshLANSyncManager()
 	return
 }
 
@@ -534,6 +598,7 @@ func SetSyncProviderWebDAV(webdav *conf.WebDAV) (err error) {
 
 	Conf.Sync.WebDAV = webdav
 	Conf.Save()
+	refreshLANSyncManager()
 	return
 }
 
@@ -573,6 +638,7 @@ func SetSyncProviderLocal(local *conf.Local) (err error) {
 
 	Conf.Sync.Local = local
 	Conf.Save()
+	refreshLANSyncManager()
 	return
 }
 
@@ -839,6 +905,9 @@ func getSyncIgnoreLines() (ret []string) {
 	ret = append(ret, "20210808180117-czj9bvb/**/*")
 	ret = append(ret, "20211226090932-5lcq56f/**/*")
 	ret = append(ret, "20240530133126-axarxgx/**/*")
+	// 视图状态仅在当前设备使用，不参与数据同步。
+	ret = append(ret, "/storage/view-state.json")
+	ret = append(ret, "/storage/view-state-corrupted-*.json")
 	// 忽略用户指南的数据库 JSON 文件
 	for _, avName := range getAllUserGuideAVJSONFiles() {
 		ret = append(ret, "/storage/av/"+avName)
@@ -849,7 +918,6 @@ func getSyncIgnoreLines() (ret []string) {
 }
 
 func IncSync() {
-	syncDataChangeGen.Add(1)
 	syncSameCount.Store(0)
 	planSyncAfter(time.Duration(Conf.Sync.Interval) * time.Second)
 }

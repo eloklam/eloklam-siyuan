@@ -17,7 +17,8 @@ import {showMessage} from "../../../dialog/message";
 import {writeText} from "../../util/compatibility";
 import {Constants} from "../../../constants";
 import {openDatabaseRowByData} from "./openDatabaseRow";
-import {getAVColumnTextMeasurer, getAVTableFitWidths} from "./columnWidth";
+import {getAVColumnTextMeasurer, getAVRelationColumnWidth, getAVTableFitWidths} from "./columnWidth";
+import {getSearchAVFocus} from "./searchAVFocus";
 
 interface IAVItem {
     avID: string;
@@ -56,15 +57,11 @@ const genSearchList = (element: Element, keyword: string, options: IOpenSearchAV
     }, (response) => {
         let html = "";
         const results = response.data.results as Array<IAVItem & { children: IAVItem[] }>;
-        const hasMatchedView = showViews && results.some((item) => item.children?.some((subItem) => subItem.matched));
-        let focusAssigned = false;
+        const focus = getSearchAVFocus(results, keyword);
         results.forEach((item, index) => {
             const hasChildren = item.children && item.children.length > 0 && showViews;
             const expandChildren = hasChildren && item.children.some((subItem) => subItem.matched);
-            const focusParent = !hasMatchedView && index === 0;
-            if (focusParent) {
-                focusAssigned = true;
-            }
+            const focusParent = focus?.resultIndex === index && focus.viewIndex === undefined;
             html += `<div class="b3-list-item b3-list-item--narrow${focusParent ? " b3-list-item--focus" : ""}" data-av-id="${item.avID}" data-block-id="${item.blockID}">
     <span class="b3-list-item__toggle b3-list-item__toggle--hl${showViews ? "" : " fn__none"}" style="height:auto;align-self: stretch;margin: 4px 0;">
         <svg class="b3-list-item__arrow${expandChildren ? " b3-list-item__arrow--open" : ""}">${hasChildren ? '<use xlink:href="#iconRight"></use>' : ""}</svg>
@@ -80,12 +77,9 @@ const genSearchList = (element: Element, keyword: string, options: IOpenSearchAV
 </div>`;
             if (hasChildren) {
                 html += `<div class="${expandChildren ? "" : "fn__none"}">`;
-                item.children.forEach((subItem) => {
+                item.children.forEach((subItem, viewIndex) => {
                     const viewDefaultName = getViewName(subItem.viewLayout);
-                    const focusView = !focusAssigned && Boolean(subItem.matched);
-                    if (focusView) {
-                        focusAssigned = true;
-                    }
+                    const focusView = focus?.resultIndex === index && focus.viewIndex === viewIndex;
                     html += `<div style="padding-left: 48px;" class="b3-list-item b3-list-item--narrow${focusView ? " b3-list-item--focus" : ""}" data-av-id="${subItem.avID}" data-view-id="${subItem.viewID}" data-block-id="${subItem.blockID}">
 <span class="b3-list-item__text">${escapeHtml(subItem.viewName)}</span> 
 <span class="b3-list-item__meta">${viewDefaultName}</span>
@@ -391,7 +385,10 @@ const getRelationGridTemplate = (columns: IAVColumn[], rows: IAVRow[],
         groups: [],
         rowCount: rows.length,
     } as IAVTable, getCellValueText, measureText);
-    return `32px ${columns.map((column) => widths[column.id] || "64px").join(" ")}`;
+    return `32px ${columns.map((column, index) => {
+        const width = widths[column.id] || "64px";
+        return getAVRelationColumnWidth(width, column.type, index === 0);
+    }).join(" ")}`;
 };
 
 const getRelationPrimaryCell = (row: IAVRow) => {
@@ -467,9 +464,7 @@ data-id="${escapeAttr(refElement?.getAttribute("data-id") || "")}">${escapeHtml(
 </button>`;
     }
     if (!hasCandidates && !hasMore) {
-        return `<button class="b3-menu__item av__relation-table-footer" data-relation-type="empty">
-    <span class="b3-menu__label">${window.siyuan.languages.noMoreItems}</span>
-</button>`;
+        return `<div class="b3-list--empty av__relation-table-footer" data-relation-type="empty">${window.siyuan.languages.noMoreItems}</div>`;
     }
     return "";
 };
@@ -525,6 +520,14 @@ export const bindRelationEvent = (options: {
         listElement.style.maxHeight = maxHeightValue;
         return true;
     };
+    const updateListNaturalMaxHeight = (allowInitialize = true) => {
+        const naturalHeight = listElement.scrollHeight;
+        if (naturalHeight <= listNaturalMaxHeight || (listNaturalMaxHeight < 1 && !allowInitialize)) {
+            return false;
+        }
+        listNaturalMaxHeight = naturalHeight;
+        return updateListMaxHeight();
+    };
     const positionMenu = (reset = false) => {
         if (reset) {
             resetPosition();
@@ -536,6 +539,13 @@ export const bindRelationEvent = (options: {
     const resize = () => {
         updateListMaxHeight();
         positionMenu(true);
+    };
+    const resizeList = () => {
+        const listHeightChanged = updateListNaturalMaxHeight();
+        if (listHeightChanged) {
+            resetPosition();
+        }
+        positionMenu();
     };
 
     const clearLoaderTimer = () => {
@@ -715,13 +725,7 @@ ${genRelationLoaderHTML(state.loading, state.loaderVisible)}`;
                 rows,
             }, reset);
             setLoading(false);
-            let listHeightChanged = false;
-            if (listNaturalMaxHeight < 1 && (keyword === "" || rows.length === RELATION_PAGE_SIZE)) {
-                listNaturalMaxHeight = listElement.scrollHeight;
-                if (listNaturalMaxHeight > 0) {
-                    listHeightChanged = updateListMaxHeight();
-                }
-            }
+            const listHeightChanged = updateListNaturalMaxHeight(keyword === "" || rows.length === RELATION_PAGE_SIZE);
             if (!positionInitialized || listHeightChanged) {
                 resetPosition();
             }
@@ -811,6 +815,7 @@ ${genRelationLoaderHTML(state.loading, state.loaderVisible)}`;
         loadPage(true);
     };
     options.menuElement.addEventListener("relationrefresh", refresh);
+    options.menuElement.addEventListener("relationresize", resizeList);
     options.menuElement.querySelector('[data-type="copyRelatedItems"]').addEventListener("click", () => {
         let copyText = "";
         const selectedElements = options.menuElement.querySelectorAll('.b3-menu__item[draggable="true"]');
@@ -836,6 +841,7 @@ ${genRelationLoaderHTML(state.loading, state.loaderVisible)}`;
         state.controller?.abort();
         window.removeEventListener("resize", resize);
         options.menuElement.removeEventListener("relationrefresh", refresh);
+        options.menuElement.removeEventListener("relationresize", resizeList);
         clearLoaderTimer();
         if (searchTimer) {
             clearTimeout(searchTimer);
@@ -970,4 +976,5 @@ export const setRelationCell = async (protyle: IProtyle, nodeElement: HTMLElemen
         }
     }
     updateCopyRelatedItems(menuElement);
+    menuElement.dispatchEvent(new CustomEvent("relationresize"));
 };

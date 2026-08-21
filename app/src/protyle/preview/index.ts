@@ -1,20 +1,21 @@
 import {isOnlyMeta, writeText} from "../util/compatibility";
 import {focusByRange} from "../util/selection";
-import {openByMobile} from "../../editor/openLink";
+import {openLink} from "../../editor/openLink";
 import {showMessage} from "../../dialog/message";
-import {isLocalPath, pathPosix} from "../../util/pathName";
-import {processSiYuanUri} from "../../util/uri";
 import {previewDocImage} from "./image";
 import {getDiagramBlock, previewDiagram} from "./diagram";
 import {needSubscribe} from "../../util/needSubscribe";
 import {Constants} from "../../constants";
-import {getSearch, isMobile} from "../../util/functions";
 /// #if !BROWSER
-import {shell} from "electron";
-import {enhanceRichClipboard, hasRichClipboardImages} from "../util/richClipboard";
+import {
+    enhanceRichClipboard,
+    hasRichClipboardImages,
+    hasRichClipboardMath,
+    hasRichClipboardTables,
+    prepareExternalClipboardHTML,
+} from "../util/richClipboard";
 /// #endif
 /// #if !MOBILE
-import {openAsset, openBy} from "../../editor/util";
 import {getAllModels} from "../../layout/getAll";
 /// #endif
 import {fetchPost} from "../../util/fetch";
@@ -25,6 +26,7 @@ import {avRender} from "../render/av/render";
 import {getPadding} from "../ui/initUI";
 import {hasTopClosestByAttribute} from "../util/hasClosest";
 import {addScriptSync} from "../util/addScript";
+import {prepareWechatCopy, prepareZhihuCopy} from "./platformCopy";
 
 export class Preview {
     public element: HTMLElement;
@@ -95,20 +97,27 @@ export class Preview {
             const copyElement = document.createElement("div");
             copyElement.appendChild(range.cloneContents());
             const copiedHTML = copyElement.innerHTML;
-            if (!hasRichClipboardImages(copiedHTML)) {
+            const hasImages = hasRichClipboardImages(copiedHTML);
+            const hasMath = hasRichClipboardMath(copiedHTML);
+            const hasTables = hasRichClipboardTables(copiedHTML);
+            if (!hasImages && !hasMath && !hasTables) {
                 return;
             }
+            const clipboardHTML = hasMath || hasTables ?
+                prepareExternalClipboardHTML(copiedHTML) : copiedHTML;
 
             const marker = `<!--siyuan-rich-clipboard='${Lute.NewNodeID()}'-->`;
             const text = selection.toString();
-            const html = marker + copiedHTML;
+            const html = marker + clipboardHTML;
             event.preventDefault();
             event.clipboardData.setData("text/plain", text);
             event.clipboardData.setData("text/html", html);
-            enhanceRichClipboard(text, html, protyle.notebookId, {
-                marker,
-                removeMarker: true,
-            });
+            if (hasImages) {
+                enhanceRichClipboard(text, html, protyle.notebookId, {
+                    marker,
+                    removeMarker: true,
+                });
+            }
         };
         document.addEventListener("copy", this.copyEventHandler);
         /// #endif
@@ -127,36 +136,9 @@ export class Preview {
                         break;
                     }
 
-                    if (isMobile()) {
-                        openByMobile(linkAddress);
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    }
                     event.stopPropagation();
                     event.preventDefault();
-                    if (isLocalPath(linkAddress)) {
-                        /// #if !MOBILE
-                        if (isOnlyMeta(event)) {
-                            openBy(linkAddress, "folder");
-                        } else if (event.shiftKey) {
-                            openBy(linkAddress, "app");
-                        } else if (Constants.SIYUAN_ASSETS_EXTS.includes(pathPosix().extname((linkAddress).split("?")[0]))) {
-                            openAsset(protyle.app, linkAddress.split("?page")[0], parseInt(getSearch("page", linkAddress)));
-                        }
-                        /// #endif
-                    } else {
-                        if (processSiYuanUri(protyle.app, linkAddress)) {
-                            break;
-                        }
-                        /// #if !BROWSER
-                        shell.openExternal(linkAddress).catch((e) => {
-                            showMessage(e);
-                        });
-                        /// #else
-                        window.open(linkAddress);
-                        /// #endif
-                    }
+                    openLink(protyle.app, linkAddress, event, isOnlyMeta(event));
                     break;
                 } else if (target.tagName === "IMG") {
                     previewDocImage((event.target as HTMLElement).getAttribute("src"), protyle.block.rootID);
@@ -299,31 +281,6 @@ export class Preview {
             copyElement.querySelectorAll("mjx-container > svg").forEach((item) => {
                 item.setAttribute("width", (parseInt(item.getAttribute("width")) * 8) + "px");
             });
-            // 列表嵌套 https://github.com/siyuan-note/siyuan/issues/11276
-            copyElement.querySelectorAll("ul, ol").forEach((listItem: HTMLOListElement) => {
-                if (typeof listItem.start === "number") {
-                    listItem.classList.add("list-paddingleft-" + Math.min(listItem.start.toString().length, 3));
-                    listItem.style.listStyleType = "decimal";
-                }
-                Array.from(listItem.children).forEach(liItem => {
-                    const nestedList = liItem.querySelector("ul, ol");
-                    if (nestedList) {
-                        liItem.parentNode.insertBefore(nestedList, liItem.nextSibling);
-                    }
-                });
-            });
-            // 处理任务列表（微信公众号不能显示input[type="checkbox"]）
-            copyElement.querySelectorAll("li.protyle-task").forEach((taskItem: HTMLElement) => {
-                const checkbox = taskItem.querySelector('input[type="checkbox"]') as HTMLInputElement;
-                if (checkbox) {
-                    checkbox.style.opacity = "0";
-                    if (checkbox.checked) {
-                        taskItem.style.setProperty("list-style-type", "'✅'", "important");
-                    } else {
-                        taskItem.style.setProperty("list-style-type", "'▢'", "important");
-                    }
-                }
-            });
             if (typeof window.MathJax === "undefined") {
                 window.MathJax = {
                     svg: {
@@ -338,21 +295,14 @@ export class Preview {
                 node.querySelector("mjx-assistive-mml").remove();
                 mathElement.innerHTML = node.outerHTML;
             });
+            prepareWechatCopy(copyElement, this.previewElement);
         } else if (type === "zhihu") {
             this.link2online(copyElement);
             copyElement.querySelectorAll('[data-subtype="math"]').forEach((item: HTMLElement) => {
                 // https://github.com/siyuan-note/siyuan/issues/10015
                 item.outerHTML = `<img class="Formula-image" data-eeimg="true" src="//www.zhihu.com/equation?tex=" alt="${item.getAttribute("data-content")}" style="${item.tagName === "DIV" ? "display: block; max-width: 100%;" : ""}margin: 0 auto;">`;
             });
-            copyElement.querySelectorAll("blockquote").forEach((item) => {
-                const elements: HTMLElement[] = [];
-                this.processZHBlockquote(item, elements);
-                elements.reverse().forEach(newItem => {
-                    item.insertAdjacentElement("afterend", newItem);
-                });
-                item.remove();
-            });
-            this.processZHTable(copyElement);
+            prepareZhihuCopy(copyElement);
         } else if (type === "yuque") {
             fetchPost("/api/lute/copyStdMarkdown", {
                 id: protyle.block.id || protyle.options.blockId || protyle.block.parentID,
@@ -411,35 +361,4 @@ export class Preview {
         }
     }
 
-    private processZHBlockquote(element: HTMLElement, elements: HTMLElement[]) {
-        Array.from(element.children).forEach((item: HTMLElement) => {
-            if (item.tagName === "BLOCKQUOTE") {
-                this.processZHBlockquote(item, elements);
-            } else if (item.tagName !== "P" || item.querySelector("img")) {
-                elements.push(item);
-            } else {
-                const lastElement = elements[elements.length - 1];
-                if (!lastElement || (lastElement && lastElement.tagName !== "BLOCKQUOTE")) {
-                    elements.push(document.createElement("blockquote"));
-                }
-                elements[elements.length - 1].append(item);
-            }
-        });
-    }
-
-    private processZHTable(element: HTMLElement) {
-        element.querySelectorAll("table").forEach(item => {
-            const headElement = item.querySelector("thead");
-            if (!headElement) {
-                return;
-            }
-            const tbodyElement = item.querySelector("tbody");
-            if (tbodyElement) {
-                tbodyElement.insertAdjacentElement("afterbegin", headElement.firstElementChild);
-            } else {
-                item.innerHTML = `<tbody>${headElement.innerHTML}</tbody>`;
-            }
-            headElement.remove();
-        });
-    }
 }

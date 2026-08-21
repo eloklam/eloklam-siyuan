@@ -8,7 +8,7 @@ import {fetchPost} from "../../util/fetch";
 import {lineNumberRender} from "../render/highlightRender";
 import {hideMessage, showMessage} from "../../dialog/message";
 import {genUUID} from "../../util/genID";
-import {getContenteditableElement, getEmbedChildOperationContext, getLastBlock} from "../wysiwyg/getBlock";
+import {getContenteditableElement, getEmbedGutterOperationContext, getLastBlock} from "../wysiwyg/getBlock";
 import {genEmptyElement, genHeadingElement} from "../../block/util";
 import {transaction} from "../wysiwyg/transaction";
 import {focusByRange} from "../util/selection";
@@ -152,6 +152,28 @@ export const initUI = (protyle: IProtyle) => {
             });
         }, Constants.TIMEOUT_LOAD);
     }, {passive: true});
+    protyle.contentElement.addEventListener("mousedown", (event: MouseEvent & { target: HTMLElement }) => {
+        if (event.button !== 0 || !event.shiftKey) {
+            return;
+        }
+        const eventProtyleElement = hasClosestByClassName(event.target, "protyle", true);
+        if (eventProtyleElement && eventProtyleElement !== protyle.element) {
+            return;
+        }
+        if (hasClosestByClassName(event.target, "sy__backlink--bottom", true)) {
+            return;
+        }
+        const lastElement = protyle.wysiwyg.element.lastElementChild;
+        if (!lastElement || event.clientY <= lastElement.getBoundingClientRect().bottom) {
+            return;
+        }
+        // 文档末尾空白位于 wysiwyg 外层，需在 click 聚焦末尾块之前完成 Shift 范围选择
+        // https://github.com/siyuan-note/siyuan/issues/11960
+        if (protyle.wysiwyg.selectByShiftClick(protyle, event, undefined, true)) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    });
     protyle.contentElement.addEventListener("click", (event: MouseEvent & { target: HTMLElement }) => {
         const eventProtyleElement = hasClosestByClassName(event.target, "protyle", true);
         if (eventProtyleElement && eventProtyleElement !== protyle.element) {
@@ -265,7 +287,7 @@ export const initUI = (protyle: IProtyle) => {
             const embedElement = isInEmbedBlock(nodeElement);
             if (embedElement) {
                 protyle.gutter.render(protyle,
-                    getEmbedChildOperationContext(nodeElement) ? nodeElement : embedElement, event.target);
+                    getEmbedGutterOperationContext(nodeElement) ? nodeElement : embedElement, event.target);
                 return;
             }
             protyle.gutter.render(protyle, nodeElement, event.target);
@@ -276,29 +298,51 @@ export const initUI = (protyle: IProtyle) => {
         const buttonElement = hasClosestByTag(event.target, "BUTTON");
         if (buttonElement && buttonElement.parentElement.classList.contains("protyle-gutters")) {
             const type = buttonElement.getAttribute("data-type");
-            if (type === "fold" || type === "NodeAttributeViewRow") {
+            if (buttonElement.classList.contains("protyle-gutters__line") ||
+                buttonElement.classList.contains("protyle-gutters__plus")) {
+                return;
+            }
+            const targetButtonElement = type === "fold" ?
+                buttonElement.previousElementSibling || buttonElement.nextElementSibling : buttonElement;
+            if (!targetButtonElement) {
+                hideElements(["gutter"], protyle);
+                return;
+            }
+            const gutterNodeElement = protyle.gutter.getNodeElement(protyle, targetButtonElement);
+            if (!gutterNodeElement) {
+                hideElements(["gutter"], protyle);
+                return;
+            }
+            if (type === "fold") {
                 Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(item => {
                     item.classList.remove("protyle-wysiwyg--hl", "av__row--hl");
                 });
                 return;
             }
-            const gutterNodeElement = protyle.gutter.getNodeElement(protyle, buttonElement);
-            if (gutterNodeElement) {
-                const bodyQueryClass = (buttonElement.dataset.groupId && buttonElement.dataset.groupId !== "undefined") ? `.av__body[data-group-id="${buttonElement.dataset.groupId}"] ` : "";
-                const rowItem = gutterNodeElement.querySelector(bodyQueryClass + `.av__row[data-id="${buttonElement.dataset.rowId}"]`);
-                Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(hlItem => {
-                    if (gutterNodeElement !== hlItem) {
-                        hlItem.classList.remove("protyle-wysiwyg--hl");
-                    }
-                    if (rowItem && rowItem !== hlItem) {
-                        rowItem.classList.remove("av__row--hl");
-                    }
+            const bodyQueryClass = (buttonElement.dataset.groupId && buttonElement.dataset.groupId !== "undefined") ? `.av__body[data-group-id="${buttonElement.dataset.groupId}"] ` : "";
+            const rowItem = gutterNodeElement.querySelector(bodyQueryClass + `.av__row[data-id="${buttonElement.dataset.rowId}"]`);
+            if ((type === "NodeAttributeViewRow" || type === "NodeAttributeViewRowMenu") && !rowItem) {
+                hideElements(["gutter"], protyle);
+                return;
+            }
+            if (type === "NodeAttributeViewRow") {
+                Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(item => {
+                    item.classList.remove("protyle-wysiwyg--hl", "av__row--hl");
                 });
-                if (type === "NodeAttributeViewRowMenu") {
-                    rowItem.classList.add("av__row--hl");
-                } else {
-                    gutterNodeElement.classList.add("protyle-wysiwyg--hl");
+                return;
+            }
+            Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(hlItem => {
+                if (gutterNodeElement !== hlItem) {
+                    hlItem.classList.remove("protyle-wysiwyg--hl");
                 }
+                if (rowItem && rowItem !== hlItem) {
+                    rowItem.classList.remove("av__row--hl");
+                }
+            });
+            if (type === "NodeAttributeViewRowMenu") {
+                rowItem.classList.add("av__row--hl");
+            } else {
+                gutterNodeElement.classList.add("protyle-wysiwyg--hl");
             }
             event.preventDefault();
             return;

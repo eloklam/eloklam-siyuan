@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -24,8 +24,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"reflect"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -170,7 +173,8 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	for k, v := range h.headers {
 		// 对每个 header 值里的 {{secrets.NAME}}、{{vars.NAME}} 占位符插值，
 		// 使 MCP 服务的 Authorization 等头部可引用密钥/变量而无需明文存储。
-		clone.Header.Set(k, conf.ResolveSecretsVars(model.Conf.Secrets, model.Conf.Variables, v))
+		// 密钥插值限定目标主机为该 MCP 服务的出站地址，防止密钥被转发到其他主机。
+		clone.Header.Set(k, conf.ResolveSecretsVarsForHost(model.Conf.Secrets, model.Conf.Variables, req.URL.Hostname(), v))
 	}
 	return h.base.RoundTrip(clone)
 }
@@ -298,7 +302,11 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 			Description:  desc,
 			InputSchema:  convertMCPSchema(tool.InputSchema),
 			OutputSchema: outputSchema,
+			CapabilityID: tools.BuildCapabilityID("mcp", "backend", server.ID, tool.Name),
 			Source:       "mcp",
+			OwnerID:      server.ID,
+			OwnerName:    server.Name,
+			Runtime:      "mcp",
 			ReadOnlyHint: readOnlyHint,
 			EffectScope:  tools.EffectScopeExternal,
 			Handler: func(args map[string]any) (tools.CallToolResult, error) {
@@ -374,12 +382,18 @@ func sanitizedServerNameCollision(server conf.MCPServer) bool {
 
 func mcpToolName(server conf.MCPServer, toolName string, collision bool) string {
 	name := "mcp_" + sanitize(server.Name) + "_" + sanitize(toolName)
-	if !collision {
+	if !collision && len(name) <= maxMCPToolNameLen {
 		return name
 	}
 	hash := sha256.Sum256([]byte(server.ID + "\x00" + toolName))
-	return fmt.Sprintf("%s_%x", name, hash[:6])
+	suffix := fmt.Sprintf("_%x", hash[:6])
+	if len(name) > maxMCPToolNameLen-len(suffix) {
+		name = name[:maxMCPToolNameLen-len(suffix)]
+	}
+	return name + suffix
 }
+
+const maxMCPToolNameLen = 64
 
 func registerMCPToolsForContext(ctx context.Context, registeredTools map[string]*tools.Tool) bool {
 	generation, ok := ctx.Value(mcpGenerationContextKey{}).(uint64)
@@ -437,6 +451,18 @@ func connectStdio(ctx context.Context, client *mcp.Client, server conf.MCPServer
 	}
 
 	cmd := exec.Command(server.Command, server.Args...)
+	// stdio 环境变量插值不受密钥 AllowedHosts 约束：目标是本地子进程而非网络主机，管理员在 Env 中
+	// 引用 {{secrets.NAME}} 本身就是对该服务器的显式授权，与直接写入明文属于同一信任级别。
+	cmdEnv, err := buildStdioEnvironment(server, os.LookupEnv, func(value string) string {
+		if model.Conf == nil {
+			return value
+		}
+		return conf.ResolveSecretsVars(model.Conf.Secrets, model.Conf.Variables, value)
+	}, runtime.GOOS)
+	if err != nil {
+		return nil, nil, fmt.Errorf("environment: %w", err)
+	}
+	cmd.Env = cmdEnv
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, fmt.Errorf("stdin pipe: %w", err)
@@ -462,6 +488,129 @@ func connectStdio(ctx context.Context, client *mcp.Client, server conf.MCPServer
 	}
 
 	return session, cmd, nil
+}
+
+type environmentEntry struct {
+	name  string
+	value string
+}
+
+// buildStdioEnvironment 仅传递用户允许继承的变量，并用显式配置覆盖同名项。
+func buildStdioEnvironment(server conf.MCPServer, lookup func(string) (string, bool), resolve func(string) string,
+	goos string) ([]string, error) {
+	if err := validateMCPServerEnvironment(server, goos); err != nil {
+		return nil, err
+	}
+
+	entries := map[string]environmentEntry{}
+	for _, name := range server.InheritEnv {
+		if value, ok := lookup(name); ok {
+			entries[environmentKey(name, goos)] = environmentEntry{name: name, value: value}
+		}
+	}
+	for name, value := range server.Env {
+		value = resolve(value)
+		entries[environmentKey(name, goos)] = environmentEntry{name: name, value: value}
+	}
+
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	ret := make([]string, 0, len(keys))
+	for _, key := range keys {
+		entry := entries[key]
+		ret = append(ret, entry.name+"="+entry.value)
+	}
+	return ret, nil
+}
+
+func environmentKey(name, goos string) string {
+	if goos == "windows" {
+		return strings.ToUpper(name)
+	}
+	return name
+}
+
+func validateEnvironmentName(name string) error {
+	if name == "" {
+		return errors.New("name is empty")
+	}
+	if strings.ContainsAny(name, "=\x00") {
+		return fmt.Errorf("invalid name %q", name)
+	}
+	return nil
+}
+
+func validateMCPServerEnvironment(server conf.MCPServer, goos string) error {
+	inherited := map[string]bool{}
+	for _, name := range server.InheritEnv {
+		if err := validateEnvironmentName(name); err != nil {
+			return err
+		}
+		key := environmentKey(name, goos)
+		if inherited[key] {
+			return fmt.Errorf("duplicate inherited variable %q", name)
+		}
+		inherited[key] = true
+	}
+	explicit := map[string]bool{}
+	for name, value := range server.Env {
+		if err := validateEnvironmentName(name); err != nil {
+			return err
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return fmt.Errorf("variable %q contains NUL", name)
+		}
+		key := environmentKey(name, goos)
+		if explicit[key] {
+			return fmt.Errorf("duplicate variable %q", name)
+		}
+		explicit[key] = true
+	}
+	return nil
+}
+
+// ValidateMCPServerEnvironment 校验当前平台上的 stdio 环境变量配置。
+func ValidateMCPServerEnvironment(server conf.MCPServer) error {
+	return validateMCPServerEnvironment(server, runtime.GOOS)
+}
+
+func defaultMCPEnvironmentNames(goos string) []string {
+	if goos == "windows" {
+		return []string{"APPDATA", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "PATH", "PATHEXT",
+			"PROCESSOR_ARCHITECTURE", "PROGRAMFILES", "SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "USERNAME", "USERPROFILE"}
+	}
+	return []string{"HOME", "LOGNAME", "PATH", "SHELL", "TERM"}
+}
+
+func environmentVariableNames(environ []string, goos string) []string {
+	names := map[string]string{}
+	for _, item := range environ {
+		name, _, ok := strings.Cut(item, "=")
+		if !ok || name == "" {
+			continue
+		}
+		names[environmentKey(name, goos)] = name
+	}
+	ret := make([]string, 0, len(names))
+	for _, name := range names {
+		ret = append(ret, name)
+	}
+	sort.Slice(ret, func(i, j int) bool {
+		left, right := strings.ToUpper(ret[i]), strings.ToUpper(ret[j])
+		if left == right {
+			return ret[i] < ret[j]
+		}
+		return left < right
+	})
+	return ret
+}
+
+// MCPEnvironmentVariables 返回当前内核环境变量名称和新服务默认允许继承的名称，不暴露变量值。
+func MCPEnvironmentVariables() (names, defaults []string) {
+	return environmentVariableNames(os.Environ(), runtime.GOOS), defaultMCPEnvironmentNames(runtime.GOOS)
 }
 
 func connectHTTP(ctx context.Context, client *mcp.Client, server conf.MCPServer, interactive bool) (*mcp.ClientSession, *exec.Cmd, *mcpOAuthHandler, error) {

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -52,6 +52,8 @@ type AttributeViewSearchTarget struct {
 	AvID            string   `json:"avID"`
 	DatabaseBlockID string   `json:"databaseBlockID"`
 	NotebookID      string   `json:"notebookID"`
+	ViewID          string   `json:"viewID,omitempty"`
+	GroupID         string   `json:"groupID,omitempty"`
 	ItemID          string   `json:"itemID"`
 	ValueID         string   `json:"valueID"`
 	MatchedValueID  string   `json:"matchedValueID"`
@@ -65,6 +67,11 @@ type AttributeViewSearchTarget struct {
 type attributeViewSearchMatch struct {
 	valueID string
 	keyID   string
+}
+
+type attributeViewSearchItem struct {
+	itemID  string
+	groupID string
 }
 
 func GetAttributeViewSearchTarget(blockID string, keywords []string) (ret *AttributeViewSearchTarget) {
@@ -96,38 +103,40 @@ func GetAttributeViewSearchTarget(blockID string, keywords []string) (ret *Attri
 		return
 	}
 
-	var orderedItemIDs []string
+	var orderedItems []attributeViewSearchItem
+	viewID := ""
 	blockValues := attrView.GetBlockKeyValues()
 	pageSize := len(matches) + 1
 	if nil != blockValues && len(blockValues.Values) >= pageSize {
 		pageSize = len(blockValues.Values) + 1
 	}
 	viewable, renderErr := renderAttributeView(attrView, blockID, "", "", "", 1, pageSize, nil, false, false, nil, "")
-	if nil == renderErr {
-		orderedItemIDs = appendAttributeViewSearchItemIDs(orderedItemIDs, viewable, false)
-		orderedItemIDs = appendAttributeViewSearchItemIDs(orderedItemIDs, viewable, true)
-	} else {
+	if nil == renderErr && nil != viewable {
+		viewID = viewable.GetID()
+		orderedItems = appendAttributeViewSearchItems(orderedItems, viewable, false)
+		orderedItems = appendAttributeViewSearchItems(orderedItems, viewable, true)
+	} else if nil != renderErr {
 		logging.LogWarnf("render attribute view [%s] for search target failed: %s", attrView.ID, renderErr)
 	}
 	if nil != blockValues {
 		for _, value := range blockValues.Values {
 			if nil != value {
-				orderedItemIDs = append(orderedItemIDs, value.BlockID)
+				orderedItems = append(orderedItems, attributeViewSearchItem{itemID: value.BlockID})
 			}
 		}
 	}
 
 	visited := map[string]bool{}
-	for _, itemID := range orderedItemIDs {
-		if visited[itemID] {
+	for _, item := range orderedItems {
+		if visited[item.itemID] {
 			continue
 		}
-		visited[itemID] = true
-		match := matches[itemID]
+		visited[item.itemID] = true
+		match := matches[item.itemID]
 		if nil == match {
 			continue
 		}
-		blockValue := attrView.GetBlockValue(itemID)
+		blockValue := attrView.GetBlockValue(item.itemID)
 		if nil == blockValue || nil == blockValue.Block {
 			continue
 		}
@@ -135,7 +144,9 @@ func GetAttributeViewSearchTarget(blockID string, keywords []string) (ret *Attri
 			AvID:            attrView.ID,
 			DatabaseBlockID: blockID,
 			NotebookID:      tree.Box,
-			ItemID:          itemID,
+			ViewID:          viewID,
+			GroupID:         item.groupID,
+			ItemID:          item.itemID,
 			ValueID:         blockValue.ID,
 			MatchedValueID:  match.valueID,
 			MatchedKeyID:    match.keyID,
@@ -184,9 +195,9 @@ func getAttributeViewSearchMatches(attrView *av.AttributeView, keywords []string
 	return
 }
 
-func appendAttributeViewSearchItemIDs(itemIDs []string, viewable av.Viewable, hiddenGroups bool) []string {
+func appendAttributeViewSearchItems(items []attributeViewSearchItem, viewable av.Viewable, hiddenGroups bool) []attributeViewSearchItem {
 	if nil == viewable {
-		return itemIDs
+		return items
 	}
 	baseInstance := getAttributeViewBaseInstance(viewable)
 	if nil != baseInstance && 0 < len(baseInstance.Groups) {
@@ -196,21 +207,59 @@ func appendAttributeViewSearchItemIDs(itemIDs []string, viewable av.Viewable, hi
 			}
 			if collection, ok := group.(av.Collection); ok {
 				for _, item := range collection.GetItems() {
-					itemIDs = append(itemIDs, item.GetID())
+					items = append(items, attributeViewSearchItem{itemID: item.GetID(), groupID: group.GetID()})
 				}
 			}
 		}
-		return itemIDs
+		return items
 	}
 	if hiddenGroups {
-		return itemIDs
+		return items
 	}
 	if collection, ok := viewable.(av.Collection); ok {
 		for _, item := range collection.GetItems() {
-			itemIDs = append(itemIDs, item.GetID())
+			items = append(items, attributeViewSearchItem{itemID: item.GetID()})
 		}
 	}
-	return itemIDs
+	return items
+}
+
+func GetAttributeViewItemStatuses(blockID, avID, viewID, query string, itemIDs []string) (ret map[string]string, err error) {
+	viewable, attrView, _, err := RenderAttributeViewWithTarget(blockID, avID, viewID, query, 1, math.MaxInt, nil, "", false, false, "", "")
+	if nil != err {
+		return nil, err
+	}
+	return getAttributeViewItemStatuses(attrView, viewable, itemIDs), nil
+}
+
+func getAttributeViewItemStatuses(attrView *av.AttributeView, viewable av.Viewable, itemIDs []string) (ret map[string]string) {
+	ret = map[string]string{}
+	requested := map[string]bool{}
+	for _, itemID := range itemIDs {
+		if "" == itemID || requested[itemID] {
+			continue
+		}
+		requested[itemID] = true
+		ret[itemID] = "itemNotFound"
+	}
+	if blockValues := attrView.GetBlockKeyValues(); nil != blockValues {
+		for _, value := range blockValues.Values {
+			if nil != value && requested[value.BlockID] {
+				ret[value.BlockID] = "filtered"
+			}
+		}
+	}
+	for _, item := range appendAttributeViewSearchItems(nil, viewable, true) {
+		if requested[item.itemID] && "filtered" == ret[item.itemID] {
+			ret[item.itemID] = "groupHidden"
+		}
+	}
+	for _, item := range appendAttributeViewSearchItems(nil, viewable, false) {
+		if requested[item.itemID] {
+			ret[item.itemID] = "visible"
+		}
+	}
+	return
 }
 
 func getAttributeViewBaseInstance(viewable av.Viewable) (ret *av.BaseInstance) {
@@ -473,6 +522,9 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 	// 做一些数据兼容和订正处理
 	changed := checkAttrView(attrView, view)
 	changed = upgradeAttributeViewSpec(attrView) || changed
+	if !ignoreRows {
+		changed = normalizeAttributeViewBlockRefSubtypes(attrView) || changed
+	}
 	if writable && changed {
 		if err = av.SaveAttributeView(attrView); nil != err {
 			logging.LogErrorf("save attribute view [%s] failed: %s", attrView.ID, err)
@@ -482,6 +534,11 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 
 	// 渲染视图
 	viewable = sql.RenderView(attrView, view, query, ignoreRows)
+	var groupRenderSource *sql.GroupViewRenderSource
+	if !ignoreRows && view.IsGroupView() {
+		// 在父视图分页前保存完整行索引，分组表格复用已经生成的字段值。
+		groupRenderSource = sql.NewGroupViewRenderSource(viewable, query)
+	}
 	renderTargetItemID := targetItemID(target)
 	if view.IsGroupView() || view.LayoutType == av.LayoutTypeKanban {
 		renderTargetItemID = ""
@@ -497,7 +554,8 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 
 	// 渲染分组视图。当 ignoreRows 时若有已生成的分组则渲染元数据供面板使用，无分组则跳过（生成分组需要行数据）
 	if !ignoreRows || len(view.Groups) > 0 {
-		err = renderAttributeViewGroups(viewable, attrView, view, query, page, pageSize, groupPaging, ignoreRows, writable, target, targetGroupID)
+		err = renderAttributeViewGroups(viewable, attrView, view, query, page, pageSize, groupPaging, groupRenderSource,
+			ignoreRows, writable, target, targetGroupID)
 	}
 	if writable && nil == err && attrView.HasCardCoverPositionChanges() {
 		if err = av.SaveAttributeView(attrView); nil != err {
@@ -508,7 +566,9 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 	return
 }
 
-func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView, view *av.View, query string, page, pageSize int, groupPaging map[string]any, ignoreRows, writable bool, target *AttributeViewRenderTarget, targetGroupID string) (err error) {
+func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView, view *av.View, query string, page,
+	pageSize int, groupPaging map[string]any, groupRenderSource *sql.GroupViewRenderSource, ignoreRows, writable bool,
+	target *AttributeViewRenderTarget, targetGroupID string) (err error) {
 	groupKey := view.GetGroupKey(attrView)
 	if nil == groupKey {
 		if view.LayoutType == av.LayoutTypeKanban {
@@ -600,7 +660,7 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 
 	var groups []av.Viewable
 	for _, groupView := range view.Groups {
-		groupViewable := sql.RenderGroupView(attrView, view, groupView, query)
+		groupViewable := sql.RenderGroupViewWithSource(attrView, view, groupView, query, groupRenderSource, ignoreRows)
 
 		groupPage, groupPageSize := page, pageSize
 		if nil != groupPaging {

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -105,6 +105,43 @@ func TestAttributeViewDataCompatibilityViewID(t *testing.T) {
 	var viewID string
 	if err = json.Unmarshal(fields["viewID"], &viewID); nil != err || viewID != firstView.ID {
 		t.Fatalf("unexpected compatibility viewID: %s, %v", viewID, err)
+	}
+}
+
+func TestAttributeViewExternalOutput(t *testing.T) {
+	selectKey := &av.Key{
+		ID:      "20260806000000-select1",
+		Name:    "State",
+		Type:    av.KeyTypeSelect,
+		Options: []*av.SelectOption{{Name: "Todo", Color: "1", Desc: "Pending work"}},
+	}
+	view := &av.View{
+		ID:         "20260806000000-view001",
+		Name:       "Table",
+		LayoutType: av.LayoutTypeTable,
+		PageSize:   25,
+	}
+	attrView := &av.AttributeView{
+		ID:        "20260806000000-avtest1",
+		Name:      "Tasks",
+		KeyValues: []*av.KeyValues{{Key: selectKey}},
+		Views:     []*av.View{view},
+	}
+
+	metadata := NewAttributeViewMetadata(attrView)
+	if metadata.ID != attrView.ID || len(metadata.Keys) != 1 || len(metadata.Keys[0].Options) != 1 ||
+		metadata.Keys[0].Options[0].Name != "Todo" {
+		t.Fatalf("unexpected attribute view metadata: %+v", metadata)
+	}
+	if len(metadata.Views) != 1 || metadata.Views[0].ID != view.ID || metadata.Views[0].PageSize != view.PageSize {
+		t.Fatalf("unexpected attribute view metadata views: %+v", metadata.Views)
+	}
+
+	table := &av.Table{BaseInstance: &av.BaseInstance{ID: view.ID, Name: view.Name}}
+	rendered := NewAttributeViewRenderData(attrView, table, "todo", 2, 10)
+	if rendered.ID != attrView.ID || rendered.ViewID != view.ID || rendered.ViewType != av.LayoutTypeTable ||
+		rendered.Query != "todo" || rendered.Page != 2 || rendered.PageSize != 10 || rendered.View != table {
+		t.Fatalf("unexpected attribute view render data: %+v", rendered)
 	}
 }
 

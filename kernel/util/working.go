@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -44,7 +44,7 @@ import (
 // var Mode = "dev"
 var Mode = "prod"
 
-const Ver = "3.7.4-alpha.6"
+const Ver = "3.8.2-alpha.2"
 
 // IsReleaseVer 判断是否为正式版（不含 alpha、beta、rc 等预发布标识）。
 func IsReleaseVer(ver string) bool {
@@ -83,8 +83,7 @@ var (
 // the commandline parameter itself.
 func coalesceToEnvVar(fromCLI *string, envVarName string) *string {
 	if fromCLI == nil || "" == *fromCLI {
-		ret := os.Getenv(envVarName)
-		return &ret
+		return new(os.Getenv(envVarName))
 	}
 	return fromCLI
 }
@@ -276,6 +275,18 @@ var (
 
 	UIProcessIDs = sync.Map{} // UI 进程 ID
 )
+
+// MaxUIProcessCount UI 进程注册表条目数上限。
+const MaxUIProcessCount = 64
+
+// UIProcessCount 获取 UI 进程注册表条目数。
+func UIProcessCount() (ret int) {
+	UIProcessIDs.Range(func(_, _ any) bool {
+		ret++
+		return true
+	})
+	return
+}
 
 func initWorkspaceDir(workspaceArg string) {
 	userHomeConfDir := filepath.Join(HomeDir, ".config", "siyuan")
@@ -570,6 +581,8 @@ func initMime() {
 	mime.AddExtensionType(".tiff", "image/tiff")
 	mime.AddExtensionType(".tif", "image/tiff")
 	mime.AddExtensionType(".webp", "image/webp")
+	mime.AddExtensionType(".heic", "image/heic")
+	mime.AddExtensionType(".heif", "image/heif")
 	mime.AddExtensionType(".ico", "image/x-icon")
 }
 

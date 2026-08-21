@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -46,6 +46,27 @@ func TestParseBlockRefStringArrayEmptyHandling(t *testing.T) {
 	values, ok := parseBlockRefStringArray(arg, "ids", optionalResult, false)
 	if !ok || optionalResult.Code != 0 || len(values) != 0 {
 		t.Fatalf("expected an empty optional array to be accepted, got code %d and values %v", optionalResult.Code, values)
+	}
+}
+
+func TestCheckBlockRefRejectsDeletedIDsOutsideIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.POST("/api/block/checkBlockRef", checkBlockRef)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/block/checkBlockRef", strings.NewReader(
+		`{"scope":"blocks","ids":["20260804000000-checked"],"deletedIDs":["20260804000001-deleted"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); nil != err {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if -1 != int(response["code"].(float64)) ||
+		"Field [deletedIDs] should be a subset of field [ids]" != response["msg"] {
+		t.Fatalf("unexpected response: %#v", response)
 	}
 }
 
@@ -115,6 +136,91 @@ func TestFilterBlockAndRefIDsByPublishAccess(t *testing.T) {
 	c.Set(model.RoleContextKey, model.RoleAdministrator)
 	if filtered := filterBlockIDsByPublishAccess(c, ids, ""); !slices.Equal(filtered, ids) {
 		t.Fatalf("administrator block IDs should remain unchanged: %v", filtered)
+	}
+}
+
+func TestGetBlockInfoPublishAccess(t *testing.T) {
+	const (
+		boxID             = "20260806000020-box0020"
+		protectedID       = "20260806000021-protect"
+		privateID         = "20260806000022-private"
+		privateChildID    = "20260806000023-child20"
+		disabledID        = "20260806000024-disable"
+		protectedPassword = "protected-password"
+		privatePassword   = "private-password"
+	)
+
+	previousBlockTreeDBPath := util.BlockTreeDBPath
+	previousDataDir := util.DataDir
+	util.DataDir = t.TempDir()
+	util.BlockTreeDBPath = filepath.Join(util.DataDir, "blocktree.db")
+	treenode.InitBlockTree(true)
+	previousPublishAccess := model.GetPublishAccess()
+	if err := model.SetPublishAccess(model.PublishAccess{
+		{ID: protectedID, Visible: true, Password: protectedPassword},
+		{ID: privateID, Visible: false, Password: privatePassword},
+		{ID: disabledID, Visible: true, Disable: true},
+	}); err != nil {
+		t.Fatalf("set publish access failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = model.SetPublishAccess(previousPublishAccess)
+		treenode.CloseDatabase()
+		util.BlockTreeDBPath = previousBlockTreeDBPath
+		util.DataDir = previousDataDir
+	})
+
+	for _, id := range []string{protectedID, disabledID} {
+		treenode.IndexBlockTree(&parse.Tree{
+			ID:   id,
+			Box:  boxID,
+			Path: "/" + id + ".sy",
+			Root: &ast.Node{ID: id, Type: ast.NodeDocument},
+		})
+	}
+	privateRoot := &ast.Node{ID: privateID, Type: ast.NodeDocument}
+	privateRoot.AppendChild(&ast.Node{ID: privateChildID, Type: ast.NodeParagraph})
+	treenode.IndexBlockTree(&parse.Tree{
+		ID:   privateID,
+		Box:  boxID,
+		Path: "/" + privateID + ".sy",
+		Root: privateRoot,
+	})
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Set(model.RoleContextKey, model.RoleReader)
+
+	_, passwordRequired, metadataVisible, accessible := getBlockInfoPublishAccess(c, protectedID, "")
+	if !passwordRequired || !metadataVisible || !accessible {
+		t.Fatalf("protected document gate = [%v, %v, %v], want password required with visible metadata",
+			passwordRequired, metadataVisible, accessible)
+	}
+
+	_, passwordRequired, metadataVisible, accessible = getBlockInfoPublishAccess(c, privateID, "")
+	if !passwordRequired || metadataVisible || !accessible {
+		t.Fatalf("private document gate = [%v, %v, %v], want password required without visible metadata",
+			passwordRequired, metadataVisible, accessible)
+	}
+
+	_, _, _, accessible = getBlockInfoPublishAccess(c, privateChildID, "")
+	if accessible {
+		t.Fatal("private child block should not open the password gate before authorization")
+	}
+
+	_, _, _, accessible = getBlockInfoPublishAccess(c, disabledID, "")
+	if accessible {
+		t.Fatal("publish-disabled document should not open the password gate")
+	}
+
+	c.Request.AddCookie(&http.Cookie{
+		Name:  "publish-auth-" + privateID,
+		Value: util.SHA256Hash([]byte(privateID + privatePassword)),
+	})
+	_, passwordRequired, metadataVisible, accessible = getBlockInfoPublishAccess(c, privateChildID, "")
+	if passwordRequired || !metadataVisible || !accessible {
+		t.Fatalf("authorized private child gate = [%v, %v, %v], want normal access",
+			passwordRequired, metadataVisible, accessible)
 	}
 }
 

@@ -17,9 +17,22 @@ import {previewImages} from "../preview/image";
 import {Menu} from "../../plugin/Menu";
 import {escapeHtml} from "../../util/escape";
 import {fetchCoverData, getCategoryLabel} from "./coverData";
+import {getAssetUploadSuccesses} from "../upload/uploadResult";
+import {hasDataTransferFiles} from "../upload/localDropFiles";
+import {showMessage} from "../../dialog/message";
 /// #if !MOBILE
 import {openDocTagMenu} from "./openDocTagMenu";
 /// #endif
+
+const bindPopoverDialog = (dialog: Dialog, ownerElement: HTMLElement) => {
+    const popoverElement = ownerElement.closest<HTMLElement>(".block__popover");
+    const popoverOID = popoverElement?.dataset.oid;
+    const popoverLevel = popoverElement?.dataset.level;
+    if (popoverOID && popoverLevel) {
+        dialog.element.dataset.popoverOid = popoverOID;
+        dialog.element.dataset.popoverLevel = popoverLevel;
+    }
+};
 
 const bgs = [
     "background:radial-gradient(black 3px, transparent 4px),radial-gradient(black 3px, transparent 4px),linear-gradient(#fff 4px, transparent 0),linear-gradient(45deg, transparent 74px, transparent 75px, #a4a4a4 75px, #a4a4a4 76px, transparent 77px, transparent 109px),linear-gradient(-45deg, transparent 75px, transparent 76px, #a4a4a4 76px, #a4a4a4 77px, transparent 78px, transparent 109px),#fff;background-size: 109px 109px, 109px 109px,100% 6px, 109px 109px, 109px 109px;background-position: 54px 55px, 0px 0px, 0px 0px, 0px 0px, 0px 0px;",
@@ -154,16 +167,24 @@ export class Background {
             event.preventDefault();
         });
         this.element.addEventListener("drop", async (event: DragEvent & { target: HTMLElement }) => {
-            if (event.dataTransfer.types[0] === "Files" && event.dataTransfer.files[0].type.indexOf("image") !== -1) {
+            if (hasDataTransferFiles(event.dataTransfer.types) && event.dataTransfer.files[0]?.type.indexOf("image") !== -1) {
                 uploadFiles(protyle, [event.dataTransfer.files[0]], undefined, (responseText) => {
                     const response = JSON.parse(responseText);
-                    const style = `background-image:url("${response.data.succMap[Object.keys(response.data.succMap)[0]]}")`;
+                    const assetPath = getAssetUploadSuccesses(response.data)[0]?.path;
+                    if (!assetPath) {
+                        return;
+                    }
+                    const style = `background-image:url("${assetPath}")`;
                     this.ial["title-img"] = style;
                     this.render(this.ial, protyle.block.rootID);
                     fetchPost("/api/attr/setBlockAttrs", {
                         id: protyle.block.rootID,
                         attrs: {"title-img": style}
                     });
+                }, undefined, {
+                    source: "drop",
+                    target: "background",
+                    position: {x: event.clientX, y: event.clientY},
                 });
             }
         });
@@ -200,14 +221,18 @@ export class Background {
             }
             uploadFiles(protyle, event.target.files, event.target, (responseText) => {
                 const response = JSON.parse(responseText);
-                const style = `background-image:url("${response.data.succMap[Object.keys(response.data.succMap)[0]]}")`;
+                const assetPath = getAssetUploadSuccesses(response.data)[0]?.path;
+                if (!assetPath) {
+                    return;
+                }
+                const style = `background-image:url("${assetPath}")`;
                 this.ial["title-img"] = style;
                 this.render(this.ial, protyle.block.rootID);
                 fetchPost("/api/attr/setBlockAttrs", {
                     id: protyle.block.rootID,
                     attrs: {"title-img": style}
                 });
-            });
+            }, undefined, {source: "file-picker", target: "background"});
         });
         this.element.addEventListener("click", (event) => {
             if (this.dragOccurred) {
@@ -280,6 +305,7 @@ export class Background {
                         height: isMobile() ? "80vh" : "70vh",
                     });
                     dialog.element.setAttribute("data-key", Constants.DIALOG_BACKGROUNDRANDOM);
+                    bindPopoverDialog(dialog, protyle.element);
 
                     const renderCSSPatterns = (d: Dialog) => {
                         let html = "";
@@ -350,19 +376,9 @@ export class Background {
                             } else if (target.closest(".b3-cover__card")) {
                                 const card = target.closest(".b3-cover__card") as HTMLElement;
                                 const name = card.getAttribute("data-name");
-                                fetchPost("/api/asset/insertCover", {
-                                    id: protyle.block.rootID,
-                                    name
-                                }, (response) => {
-                                    const succMap = response.data.succMap;
-                                    const url = succMap[Object.keys(succMap)[0]];
-                                    this.ial["title-img"] = `background-image:url("${url}")`;
-                                    this.render(this.ial, protyle.block.rootID);
-                                    fetchPost("/api/attr/setBlockAttrs", {
-                                        id: protyle.block.rootID,
-                                        attrs: {"title-img": this.ial["title-img"]}
-                                    });
-                                });
+                                if (name) {
+                                    this.uploadBuiltInCover(protyle, name);
+                                }
                                 dialog.destroy();
                             }
                         });
@@ -378,19 +394,7 @@ export class Background {
                     fetchCoverData().then((coverData) => {
                         if (coverData && coverData.allCovers.length > 0) {
                             const randomCover = coverData.allCovers[getRandom(0, coverData.allCovers.length - 1)];
-                            fetchPost("/api/asset/insertCover", {
-                                id: protyle.block.rootID,
-                                name: randomCover.file
-                            }, (response) => {
-                                const succMap = response.data.succMap;
-                                const url = succMap[Object.keys(succMap)[0]];
-                                this.ial["title-img"] = `background-image:url("${url}")`;
-                                this.render(this.ial, protyle.block.rootID);
-                                fetchPost("/api/attr/setBlockAttrs", {
-                                    id: protyle.block.rootID,
-                                    attrs: {"title-img": this.ial["title-img"]}
-                                });
-                            });
+                            this.uploadBuiltInCover(protyle, randomCover.file);
                         } else {
                             this.ial["title-img"] = bgs[getRandom(0, bgs.length - 1)];
                             this.render(this.ial, protyle.block.rootID);
@@ -475,6 +479,7 @@ export class Background {
 </div>`,
                     });
                     dialog.element.setAttribute("data-key", Constants.DIALOG_BACKGROUNDLINK);
+                    bindPopoverDialog(dialog, protyle.element);
                     const btnsElement = dialog.element.querySelectorAll(".b3-button");
                     btnsElement[0].addEventListener("click", () => {
                         dialog.destroy();
@@ -671,6 +676,34 @@ export class Background {
 
             document.onmousemove = (e) => onMouseMove(e as MouseEvent);
             document.onmouseup = (e) => onMouseUp(e as MouseEvent);
+        });
+    }
+
+    private uploadBuiltInCover(protyle: IProtyle, name: string) {
+        void fetch(`/appearance/covers/${encodeURIComponent(name)}`).then(async response => {
+            if (!response.ok) {
+                throw new Error(response.statusText);
+            }
+            const blob = await response.blob();
+            uploadFiles(protyle, [new File([blob], name, {type: blob.type})], undefined, responseText => {
+                const responseData = JSON.parse(responseText);
+                const url = getAssetUploadSuccesses(responseData.data)[0]?.path;
+                if (!url) {
+                    return;
+                }
+                this.ial["title-img"] = `background-image:url("${url}")`;
+                this.render(this.ial, protyle.block.rootID);
+                fetchPost("/api/attr/setBlockAttrs", {
+                    id: protyle.block.rootID,
+                    attrs: {"title-img": this.ial["title-img"]}
+                });
+            }, undefined, {
+                source: "programmatic",
+                target: "background",
+            });
+        }).catch(error => {
+            console.error(error);
+            showMessage(window.siyuan.languages.uploadError);
         });
     }
 
@@ -877,7 +910,7 @@ export class Background {
         const itemsElement = menu.element.querySelector(".b3-menu__items");
         itemsElement.setAttribute("style", "overflow: initial");
         /// #if MOBILE
-        menu.fullscreen();
+        menu.fullscreen("bottom");
         itemsElement.firstElementChild.setAttribute("style", "padding: 0 8px;height: 100%;");
         /// #else
         const rect = target.getBoundingClientRect();

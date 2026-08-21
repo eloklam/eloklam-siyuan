@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -38,6 +38,7 @@ import (
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/conf"
+	"github.com/siyuan-note/siyuan/kernel/heif"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/task"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -389,9 +390,7 @@ func InitConf() {
 	if "" == Conf.Appearance.CodeBlockThemeLight {
 		Conf.Appearance.CodeBlockThemeLight = "github"
 	}
-	if nil == Conf.Appearance.StatusBar {
-		Conf.Appearance.StatusBar = &util.StatusBar{}
-	}
+	Conf.Appearance.StatusBar = util.NormalizeStatusBar(Conf.Appearance.StatusBar, util.IsMobileContainer())
 	util.StatusBarCfg = Conf.Appearance.StatusBar
 	if nil == Conf.Appearance.Notifications {
 		Conf.Appearance.Notifications = util.NewNotifications()
@@ -429,7 +428,7 @@ func InitConf() {
 	}
 	util.LargeFileWarningSize = Conf.FileTree.LargeFileWarningSize
 	if nil == Conf.FileTree.CreateDocAtTop { // v3.4.0 之前的版本没有该字段，设置默认值为 true，即在顶部创建新文档，不改变用户习惯
-		Conf.FileTree.CreateDocAtTop = func() *bool { b := true; return &b }()
+		Conf.FileTree.CreateDocAtTop = new(true)
 	}
 	if nil == Conf.FileTree.BoxDocEnabled {
 		// 配置缺失时默认关闭顶层笔记本文档。
@@ -467,6 +466,8 @@ func InitConf() {
 	if nil == Conf.Editor.DatabaseAttrUseTabs {
 		Conf.Editor.DatabaseAttrUseTabs = defaultEditor.DatabaseAttrUseTabs
 	}
+	Conf.Editor.AssetOpen = conf.NormalizeAssetOpen(Conf.Editor.AssetOpen)
+	Conf.Editor.NormalizeFontFamilies()
 	Conf.Editor.Emoji = util.FilterRecentIconValues(Conf.Editor.Emoji)
 	if 9 > Conf.Editor.FontSize || 72 < Conf.Editor.FontSize {
 		Conf.Editor.FontSize = 16
@@ -490,8 +491,7 @@ func InitConf() {
 		Conf.Editor.HistoryRetentionDays = 3650
 	}
 	if nil == Conf.Editor.FloatWindowDelay {
-		v := 620
-		Conf.Editor.FloatWindowDelay = &v
+		Conf.Editor.FloatWindowDelay = new(620)
 	} else {
 		*Conf.Editor.FloatWindowDelay = max(0, min(2000, *Conf.Editor.FloatWindowDelay))
 	}
@@ -501,12 +501,8 @@ func InitConf() {
 	if 1 > len(Conf.Editor.SpellcheckLanguages) {
 		Conf.Editor.SpellcheckLanguages = []string{"en-US"}
 	}
-	if 0 > Conf.Editor.BacklinkExpandCount {
-		Conf.Editor.BacklinkExpandCount = 0
-	}
-	if -1 > Conf.Editor.BackmentionExpandCount {
-		Conf.Editor.BackmentionExpandCount = -1
-	}
+	Conf.Editor.BacklinkExpandCount = conf.NormalizeBacklinkExpandCount(Conf.Editor.BacklinkExpandCount)
+	Conf.Editor.BackmentionExpandCount = conf.NormalizeBacklinkExpandCount(Conf.Editor.BackmentionExpandCount)
 	if "" == Conf.Editor.HeadingNumberFormat {
 		Conf.Editor.HeadingNumberFormat = conf.DefaultHeadingNumberFormat
 	}
@@ -515,6 +511,9 @@ func InitConf() {
 	}
 	if nil == Conf.Editor.Markdown.CodeBlockMiddleDot {
 		Conf.Editor.Markdown.CodeBlockMiddleDot = defaultEditor.Markdown.CodeBlockMiddleDot
+	}
+	if nil == Conf.Editor.Markdown.BlockFullWidthTaskList {
+		Conf.Editor.Markdown.BlockFullWidthTaskList = defaultEditor.Markdown.BlockFullWidthTaskList
 	}
 	util.MarkdownSettings = Conf.Editor.Markdown
 
@@ -528,6 +527,8 @@ func InitConf() {
 	}
 	if nil == Conf.Graph || nil == Conf.Graph.Local || nil == Conf.Graph.Global {
 		Conf.Graph = conf.NewGraph()
+	} else {
+		Conf.Graph.NormalizeMaxBlocks()
 	}
 
 	isNewWorkspace := nil == Conf.System
@@ -640,6 +641,15 @@ func InitConf() {
 	Conf.Sync.Local.Endpoint = util.NormalizeLocalPath(Conf.Sync.Local.Endpoint)
 	Conf.Sync.Local.Timeout = util.NormalizeTimeout(Conf.Sync.Local.Timeout)
 	Conf.Sync.Local.ConcurrentReqs = util.NormalizeConcurrentReqs(Conf.Sync.Local.ConcurrentReqs, conf.ProviderLocal)
+	if nil == Conf.Sync.LAN {
+		Conf.Sync.LAN = &conf.LANSync{MaxConcurrentReqs: 16}
+	}
+	if 1 > Conf.Sync.LAN.MaxConcurrentReqs {
+		Conf.Sync.LAN.MaxConcurrentReqs = 16
+	}
+	if 128 < Conf.Sync.LAN.MaxConcurrentReqs {
+		Conf.Sync.LAN.MaxConcurrentReqs = 128
+	}
 
 	if util.ContainerDocker == util.Container {
 		Conf.Sync.Perception = false
@@ -871,7 +881,7 @@ func InitConf() {
 		logging.SetLogLevel(Conf.LogLevel)
 	}
 
-	util.SetNetworkProxy(Conf.System.NetworkProxy.String())
+	util.SetNetworkProxy(Conf.System.NetworkProxy.String(), Conf.System.NetworkProxy.IsSystem())
 
 	go util.InitPandoc(Conf.Export.PandocBin)
 	go util.InitTesseract()
@@ -995,6 +1005,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int, i
 	defer exitLock.Unlock()
 
 	logging.LogInfof("exiting kernel [force=%v, setCurrentWorkspace=%v, execInstallPkg=%d]", force, setCurrentWorkspace, execInstallPkg)
+	defer stopLANSyncManager()
 
 	util.PushMsg(Conf.Language(95), 10000*60)
 	FlushTxQueue()
@@ -1363,6 +1374,20 @@ func GetMaskedConf() (ret *AppConf, err error) {
 	return
 }
 
+// UpdateServerAddrs 更新当前可用的本地服务器地址，返回地址是否发生变化。
+func UpdateServerAddrs(serverAddrs []string) bool {
+	if nil == Conf {
+		return false
+	}
+	Conf.m.Lock()
+	defer Conf.m.Unlock()
+	if reflect.DeepEqual(Conf.ServerAddrs, serverAddrs) {
+		return false
+	}
+	Conf.ServerAddrs = append([]string(nil), serverAddrs...)
+	return true
+}
+
 // HideConfSecret 隐藏设置中的秘密信息
 // REF: https://github.com/siyuan-note/siyuan/issues/11364
 func HideConfSecret(c *AppConf) {
@@ -1463,10 +1488,13 @@ func clearCorruptedNotebooks() {
 }
 
 func clearWorkspaceTemp(preserveInstallPkgs bool) {
+	heif.ClearMemoryCache("")
+	os.RemoveAll(filepath.Join(util.TempDir, "assets-cache"))
 	os.RemoveAll(filepath.Join(util.TempDir, "bazaar"))
 	os.RemoveAll(filepath.Join(util.TempDir, "export"))
 	os.RemoveAll(filepath.Join(util.TempDir, "import"))
 	os.RemoveAll(filepath.Join(util.TempDir, "convert"))
+	os.RemoveAll(filepath.Join(util.TempDir, "pandoc"))
 	os.RemoveAll(filepath.Join(util.TempDir, "repo"))
 	ClearRichClipboard()
 	os.RemoveAll(filepath.Join(util.TempDir, "os"))

@@ -30,6 +30,8 @@ import {electronUndo} from "../undo";
 import {enableLuteMarkdownSyntax, restoreLuteMarkdownSyntax} from "../util/paste";
 import {addSpellcheckMenuItems, requestSpellcheckContext} from "../../menus/spellcheck";
 import {focusAVByArrow} from "../render/av/focus";
+import {getParentDocumentID} from "../util/parentDocument";
+import {getTextSiyuanFromClipboardData} from "../util/clipboardData";
 
 export class Title {
     public element: HTMLElement;
@@ -53,7 +55,7 @@ export class Title {
                 event.stopPropagation();
                 event.preventDefault();
                 // 不能使用 range.insertNode，否则无法撤销
-                let text = event.clipboardData.getData("text/siyuan");
+                let text = getTextSiyuanFromClipboardData(event.clipboardData);
                 if (text) {
                     try {
                         JSON.parse(text);
@@ -123,12 +125,17 @@ export class Title {
                     return;
                 }
                 if (matchHotKey(window.siyuan.config.keymap.general.enterBack.custom, event)) {
-                    const ids = protyle.path.split("/");
-                    if (ids.length > 2) {
+                    const parentDocumentID = getParentDocumentID({
+                        path: protyle.path,
+                        notebookID: protyle.notebookId,
+                        rootID: protyle.block.rootID,
+                        boxDocEnabled: window.siyuan.config.fileTree.boxDocEnabled,
+                    });
+                    if (parentDocumentID) {
                         /// #if !MOBILE
                         openFileById({
                             app: protyle.app,
-                            id: ids[ids.length - 2],
+                            id: parentDocumentID,
                             action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]
                         });
                         /// #endif

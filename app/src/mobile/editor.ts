@@ -15,6 +15,7 @@ import type {App} from "../index";
 import {initMirror} from "../protyle/undo/globalUndo";
 import {getDocByScroll, saveScroll} from "../protyle/scroll/saveScroll";
 import {isEncryptedBox} from "../util/pathName";
+import {bindMobileBarsScroll, pauseMobileBarsScroll} from "./util/mobileBars";
 
 export const getCurrentEditor = () => {
     return window.siyuan.mobile.popEditor || window.siyuan.mobile.editor;
@@ -66,6 +67,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
             return;
         }
         completed = true;
+        bindMobileBarsScroll(protyle.contentElement);
         afterOpen?.(protyle);
     };
     const fail = (invalid = false) => {
@@ -106,6 +108,10 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
             } else {
                 scrollCenter(protyle, blockElement, scrollPosition);
             }
+            if (!protyle.block.showAll) {
+                protyle.block.id = protyle.block.rootID;
+                protyle.wysiwyg.element.setAttribute("data-doc-type", "NodeDocument");
+            }
             closePanel();
             // 更新文档浏览时间
             const rootID = protyle.block.rootID;
@@ -113,6 +119,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
                 updateRecentDocSwitchTime(createRecentDocUpdate(rootID, rootID));
             }
             complete(protyle);
+            pauseMobileBarsScroll();
             return;
         }
     }
@@ -141,7 +148,10 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
         const isRootFocus = id === data.data.rootID &&
             action.includes(Constants.CB_GET_ALL) &&
             action.includes(Constants.CB_GET_FOCUS);
-        const actionList = isRootFocus ? action.filter((item) => item !== Constants.CB_GET_ALL) : action;
+        const actionList = isRootFocus ? action.filter((item) => item !== Constants.CB_GET_ALL) : [...action];
+        if (!actionList.includes(Constants.CB_GET_ALL) && !actionList.includes(Constants.CB_GET_SETID)) {
+            actionList.push(Constants.CB_GET_SETID);
+        }
         const previousRootID = window.siyuan.mobile.editor?.protyle.block.rootID;
         const protyleOptions: IProtyleOptions = {
             databaseAttr: true,
@@ -205,6 +215,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
             } else {
                 const getDocParam: IObject = {
                     id,
+                    includeDocInfo: true,
                     size: actionList.includes(Constants.CB_GET_ALL) ? Constants.SIZE_GET_MAX : window.siyuan.config.editor.dynamicLoadBlocks,
                     mode: actionList.includes(Constants.CB_GET_CONTEXT) ? 3 : 0,
                 };

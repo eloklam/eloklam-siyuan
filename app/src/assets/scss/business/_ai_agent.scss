@@ -104,6 +104,7 @@
   font-weight: 600;
   color: var(--b3-theme-on-surface);
   margin-bottom: 4px;
+  white-space: pre-line;
 }
 
 .agent-welcome__desc {
@@ -283,6 +284,19 @@
 .agent-chat__body.b3-typography,
 .agent-chat__thinking-chat.b3-typography {
   font-size: var(--b3-font-size);
+
+  span[data-type~="tag"] {
+    padding-left: 1px;
+    padding-right: 1px;
+    border-bottom: 1px solid;
+    color: var(--b3-protyle-inline-tag-color);
+    transition: var(--b3-transition);
+    cursor: pointer;
+
+    &:hover {
+      background-color: var(--b3-theme-surface-lighter);
+    }
+  }
 }
 
 // 消息正文复用全局 b3-typography 排版（与导出预览/编辑器预览一致），
@@ -339,8 +353,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--b3-theme-error);
-  background: var(--b3-theme-error-light);
+  color: var(--b3-card-error-color);
+  background: var(--b3-card-error-background);
   word-break: break-word;
   padding: 4px 0;
   border-radius: var(--b3-border-radius);
@@ -429,13 +443,22 @@
   align-items: center;
   gap: 6px;
   padding: 4px 0;
+  font-size: 13px;
   cursor: pointer;
   color: var(--b3-theme-on-surface-light);
   user-select: none;
 }
 
 .agent-chat__thinking-text {
+  flex-shrink: 0;
+}
+
+.agent-chat__thinking-latest {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--b3-theme-on-surface);
+  white-space: nowrap;
 }
 
 .agent-chat__thinking-arrow {
@@ -450,6 +473,7 @@
 }
 
 .agent-chat__thinking-body {
+  font-size: var(--b3-font-size);
   max-height: 0;
   overflow: hidden;
   contain: layout paint;
@@ -594,7 +618,7 @@
   margin: 0;
   padding: 8px 12px 8px 30px;
   border-top: 1px solid var(--b3-border-color);
-  background: color-mix(in srgb, var(--b3-theme-warning) 10%, transparent);
+  background: color-mix(in srgb, var(--b3-card-warning-color) 10%, transparent);
   color: var(--b3-theme-on-background);
   font-size: 12px;
   line-height: 1.6;
@@ -686,19 +710,46 @@
   align-items: center;
   gap: 5px;
   padding: 4px 8px;
+  background-image: none;
   white-space: nowrap;
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 30px;
+
+  &-icon {
+    height: 14px;
+    width: 14px;
+    color: var(--b3-theme-on-surface);
+    flex-shrink: 0;
+  }
 
   &-label {
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+  }
+}
+
+.agent-chat__permission {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background-image: none;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 30px;
+
+  &-icon {
+    height: 14px;
+    width: 14px;
+    color: var(--b3-theme-on-surface);
+    flex-shrink: 0;
   }
 
-  &-arrow {
-    width: 10px;
-    height: 10px;
-    color: var(--b3-theme-on-surface-light);
-    flex-shrink: 0;
+  &-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 }
 
@@ -708,24 +759,22 @@
   align-items: center;
   gap: 5px;
   padding: 4px 8px;
+  background-image: none;
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 30px;
 
   &-icon {
     height: 14px;
     width: 14px;
     color: var(--b3-theme-on-surface);
+    flex-shrink: 0;
   }
 
   &-label {
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  &-arrow {
-    width: 10px;
-    height: 10px;
-    color: var(--b3-theme-on-surface-light);
+    min-width: 0;
   }
 }
 
@@ -810,6 +859,33 @@
 
 .agent-session-popup__search {
   margin: 0 8px 4px;
+}
+
+@keyframes agent-session-status-pulse {
+  0%, 100% {
+    opacity: .35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+.agent-session-status {
+  width: 7px;
+  height: 7px;
+  margin: 0 7px 0 3px;
+  border-radius: 50%;
+  background-color: var(--b3-theme-primary);
+  flex-shrink: 0;
+
+  &--running {
+    animation: 1.2s ease-in-out infinite agent-session-status-pulse;
+  }
+
+  &--unread {
+    background-color: var(--b3-theme-secondary);
+  }
 }
 
 // 会话条目"更多"按钮的子菜单定位：使用 position: fixed（默认），位置由 JS 动态计算。
@@ -1093,6 +1169,10 @@
   overflow-y: auto;
 }
 
+.protyle-hint--agent-overlay {
+  font-size: var(--b3-font-size);
+}
+
 #model.model--agent {
   > .toolbar {
     display: none;
@@ -1115,6 +1195,8 @@
     padding-left: max(8px, env(safe-area-inset-left));
     padding-right: max(4px, env(safe-area-inset-right));
     border-bottom: .5px solid var(--b3-theme-background-light);
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .agent-chat__title {
@@ -1152,7 +1234,7 @@
   }
 
   .agent-chat__input-area {
-    margin: 0 max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    margin: 0 max(8px, env(safe-area-inset-right)) max(16px, calc(env(safe-area-inset-bottom) + 8px)) max(8px, env(safe-area-inset-left));
   }
 
   .agent-chat__composer-host {

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -104,13 +104,21 @@ func BroadcastByType(typ, cmd string, code int, msg string, data any) {
 }
 
 func SessionsByType(typ string) (ret []*melody.Session) {
+	return sessionsByType(typ, false)
+}
+
+func publishSessionsByType(typ string) (ret []*melody.Session) {
+	return sessionsByType(typ, true)
+}
+
+func sessionsByType(typ string, publish bool) (ret []*melody.Session) {
 	ret = []*melody.Session{}
 
 	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
 		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
-			if isPublishSession(session) {
+			if isPublishSession(session) != publish {
 				return true
 			}
 			if t, ok := session.Get("type"); ok && typ == t {
@@ -262,6 +270,15 @@ func ReloadUI() {
 	BroadcastByType("main", "reloadui", 0, "", nil)
 }
 
+// ReloadPublishServiceSessions 通知所有已打开的发布服务页面刷新，使发布插件设置立即生效。
+func ReloadPublishServiceSessions() {
+	for _, session := range publishSessionsByType("main") {
+		event := NewResult()
+		event.Cmd = "reloadpublishpage"
+		session.Write(event.Bytes())
+	}
+}
+
 func PushTxErr(msg string, code int, data any) {
 	BroadcastByType("main", "txerr", code, msg, data)
 }
@@ -305,6 +322,10 @@ func PushReloadFiletree() {
 	BroadcastByType("filetree", "reloadFiletree", 0, "", nil)
 }
 
+func PushBoxDocFeatureChanged() {
+	BroadcastByType("filetree", "boxDocFeatureChanged", 0, "", nil)
+}
+
 func PushReloadTag() {
 	BroadcastByType("main", "reloadTag", 0, "", nil)
 }
@@ -319,7 +340,11 @@ type BlockStatResult struct {
 }
 
 func ContextPushMsg(context map[string]any, msg string) {
-	switch context[eventbus.CtxPushMsg].(int) {
+	pushTarget, ok := context[eventbus.CtxPushMsg].(int)
+	if !ok {
+		return
+	}
+	switch pushTarget {
 	case eventbus.CtxPushMsgToNone:
 		break
 	case eventbus.CtxPushMsgToProgress:

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -52,6 +52,9 @@ func TestCustomFontLifecycle(t *testing.T) {
 	}
 	if font.DisplayName == "" || font.Weight < 1 {
 		t.Fatalf("unexpected custom font metadata: %+v", font)
+	}
+	if len(font.Aliases) == 0 {
+		t.Fatalf("custom font aliases are missing: %+v", font)
 	}
 
 	fonts := LoadCustomFonts()
@@ -192,6 +195,7 @@ func resetCustomFontCache() {
 	customFontsLock.Lock()
 	customFonts = nil
 	customFontsLoaded = false
+	customFontsLang = ""
 	customFontTemps = map[string]struct{}{}
 	customFontsLock.Unlock()
 }

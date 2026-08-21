@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -24,9 +24,11 @@ import (
 	"image"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -262,21 +264,7 @@ func addCustomEmoji(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
 
-	fileHeader, err := c.FormFile("file")
-	if err != nil {
-		ret.Code = http.StatusBadRequest
-		ret.Msg = "Field [file] must not be empty"
-		return
-	}
-	file, err := fileHeader.Open()
-	if err != nil {
-		ret.Code = http.StatusBadRequest
-		ret.Msg = err.Error()
-		return
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, maxCustomEmojiSize+1))
+	data, err := readCustomEmojiData(c)
 	if err != nil {
 		ret.Code = http.StatusBadRequest
 		ret.Msg = err.Error()
@@ -318,6 +306,49 @@ func addCustomEmoji(c *gin.Context) {
 	relativePath, _ = filepath.Rel(emojisDir, emojiPath)
 	relativePath = filepath.ToSlash(relativePath)
 	ret.Data = map[string]any{"path": relativePath}
+}
+
+func readCustomEmojiData(c *gin.Context) ([]byte, error) {
+	fileHeader, fileErr := c.FormFile("file")
+	if fileErr == nil {
+		file, err := fileHeader.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		return io.ReadAll(io.LimitReader(file, maxCustomEmojiSize+1))
+	}
+
+	rawURL := strings.TrimSpace(c.PostForm("url"))
+	if rawURL == "" {
+		return nil, fmt.Errorf("field [file] or [url] must not be empty")
+	}
+	return downloadCustomEmojiData(rawURL)
+}
+
+func downloadCustomEmojiData(rawURL string) ([]byte, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		return nil, fmt.Errorf("invalid custom emoji URL")
+	}
+
+	response, err := util.NewCustomReqClient().R().Get(parsedURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("download custom emoji failed: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download custom emoji failed with status %d", response.StatusCode)
+	}
+	if response.ContentLength > maxCustomEmojiSize {
+		return nil, fmt.Errorf("custom emoji file is too large")
+	}
+
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxCustomEmojiSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read custom emoji response failed: %w", err)
+	}
+	return data, nil
 }
 
 func normalizeCustomEmojiData(data []byte) (normalized []byte, ext string, err error) {
@@ -441,11 +472,17 @@ func exportConf(c *gin.Context) {
 	}
 	if nil != clonedConf.Editor {
 		clonedConf.Editor.Emoji = []string{}
-		if strings.HasPrefix(clonedConf.Editor.FontFamily, util.CustomFontFamilyPrefix) {
-			clonedConf.Editor.FontFamily = ""
-			clonedConf.Editor.FontWeight = 400
-			clonedConf.Editor.FontFamilyDisplay = ""
+		fonts := make([]*conf.EditorFont, 0, len(clonedConf.Editor.FontFamilies))
+		for _, font := range clonedConf.Editor.FontFamilies {
+			if nil != font && !strings.HasPrefix(font.Family, util.CustomFontFamilyPrefix) {
+				fonts = append(fonts, font)
+			}
 		}
+		clonedConf.Editor.FontFamilies = fonts
+		clonedConf.Editor.FontFamily = ""
+		clonedConf.Editor.FontWeight = 400
+		clonedConf.Editor.FontFamilyDisplay = ""
+		clonedConf.Editor.NormalizeFontFamilies()
 	}
 	if nil != clonedConf.Export {
 		clonedConf.Export.PandocBin = ""
@@ -880,7 +917,7 @@ func setAccessAuthCode(c *gin.Context) {
 	if aac == "" {
 		currentOIDC := model.Conf.GetOIDC()
 		var err error
-		if util.IsMobileContainer() {
+		if util.IsMobileContainer() && currentOIDC.Enabled {
 			err = model.ValidateOIDCMobileConfiguration(currentOIDC)
 		} else if !model.IsLocalRequest(c) {
 			err = model.ValidateOIDCConfigurationChange(c.Request.Context(), currentOIDC, true, false,
@@ -1069,10 +1106,18 @@ func removeCustomFont(c *gin.Context) {
 	}
 
 	var editor *conf.Editor
-	if model.Conf.Editor.FontFamily == font.Family {
+	fonts := make([]*conf.EditorFont, 0, len(model.Conf.Editor.FontFamilies))
+	for _, selectedFont := range model.Conf.Editor.FontFamilies {
+		if nil != selectedFont && selectedFont.Family != font.Family {
+			fonts = append(fonts, selectedFont)
+		}
+	}
+	if len(fonts) != len(model.Conf.Editor.FontFamilies) {
+		model.Conf.Editor.FontFamilies = fonts
 		model.Conf.Editor.FontFamily = ""
 		model.Conf.Editor.FontWeight = 400
 		model.Conf.Editor.FontFamilyDisplay = ""
+		model.Conf.Editor.NormalizeFontFamilies()
 		model.Conf.Save()
 		editor = model.Conf.Editor
 	}
@@ -1174,6 +1219,7 @@ func setAppearanceMode(c *gin.Context) {
 	mode := int(arg["mode"].(float64))
 	model.Conf.Appearance.Mode = mode
 	model.LoadThemes()
+	model.WatchThemes()
 	model.Conf.Save()
 
 	ret.Data = map[string]any{
@@ -1434,13 +1480,22 @@ func setNetworkProxy(c *gin.Context) {
 	model.Conf.Save()
 
 	proxyURL := model.Conf.System.NetworkProxy.String()
-	util.SetNetworkProxy(proxyURL)
+	util.SetNetworkProxy(proxyURL, model.Conf.System.NetworkProxy.IsSystem())
 	util.PushMsg(model.Conf.Language(102), 3000)
 }
 
 func addUIProcess(c *gin.Context) {
 	pid := c.Query("pid")
-	util.UIProcessIDs.Store(pid, true)
+	pidInt, err := strconv.Atoi(pid)
+	if err != nil || 0 >= pidInt {
+		return
+	}
+
+	// 限制注册表中的 UI 进程数，防止无界增长导致内存耗尽
+	if util.UIProcessCount() >= util.MaxUIProcessCount {
+		return
+	}
+	util.UIProcessIDs.Store(strconv.Itoa(pidInt), true)
 }
 
 func exit(c *gin.Context) {

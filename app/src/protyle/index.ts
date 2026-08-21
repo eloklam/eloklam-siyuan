@@ -51,6 +51,8 @@ import {isSupportCSSHL} from "./render/searchMarkRender";
 import {renderAVAttribute} from "./render/av/blockAttr";
 import {setFoldById, zoomOut} from "../menus/protyle";
 import {setEditMode} from "./util/setEditMode";
+import {waitForPendingTransactions} from "./util/transactionQueue";
+import {applyViewFoldStates, invalidateViewFoldRequests} from "./util/viewFold";
 
 export class Protyle {
 
@@ -360,21 +362,30 @@ export class Protyle {
         const hadContent = this.protyle.wysiwyg.element.childElementCount > 0;
         let needCreateAction = "";
         let hasDeleteOp = false;
+        let skippedBacklinkStructure = false;
+        const operations: IOperation[] = [];
         data.data[0].doOperations.find((item: IOperation) => {
             if (this.protyle.options.backlinkData && ["delete", "move"].includes(item.action)) {
                 // 反链上下文只展示源文档的一部分，结构操作等待索引提交后按内容版本增量同步。
+                skippedBacklinkStructure = true;
                 return true;
             } else {
                 if (item.action === "delete") {
                     hasDeleteOp = true;
                 }
-                onTransaction(this.protyle, [item], false);
+                operations.push(item);
                 // 反链面板移除元素后，文档为空
                 if (!(item.action === "delete" && typeof item.data?.createEmptyParagraph === "boolean" && !item.data.createEmptyParagraph)) {
                     needCreateAction = item.action;
                 }
             }
         });
+        if (operations.length > 0) {
+            onTransaction(this.protyle, operations, false);
+        } else if (skippedBacklinkStructure) {
+            invalidateViewFoldRequests(this.protyle);
+            void applyViewFoldStates(this.protyle);
+        }
         // 聚焦块被分屏另一侧的删除操作连带删除时（容器块删除会级联删除其所有子孙块，如列表/超级块/引述等），当前页签的聚焦块已成为孤儿但仍显示，需退出聚焦
         // Improve editor state synchronization when deleting blocks https://github.com/siyuan-note/siyuan/issues/17742
         if (this.protyle.block.showAll && hasDeleteOp) {
@@ -415,6 +426,7 @@ export class Protyle {
     private getDoc(mergedOptions: IProtyleOptions) {
         const getDocParam: Record<string, any> = {
             id: mergedOptions.blockId,
+            includeDocInfo: true,
             isBacklink: mergedOptions.action.includes(Constants.CB_GET_BACKLINK),
             originalRefBlockIDs: mergedOptions.originalRefBlockIDs,
             // 0: 仅当前 ID（默认值），1：向上 2：向下，3：上下都加载，4：加载最后
@@ -540,6 +552,11 @@ export class Protyle {
 
     public insert(html: string, isBlock = false, useProtyleRange = false) {
         insertHTML(html, this.protyle, isBlock, useProtyleRange);
+    }
+
+    public async flushPendingTransactions() {
+        await this.protyle.wysiwyg.flushPendingInput();
+        await waitForPendingTransactions(this.protyle);
     }
 
     public transaction(doOperations: IOperation[], undoOperations?: IOperation[]) {

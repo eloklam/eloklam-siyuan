@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -22,8 +22,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/88250/lute/ast"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-note/siyuan/kernel/av"
 	"github.com/siyuan-note/siyuan/kernel/conf"
@@ -63,6 +65,36 @@ func TestFilterLocalStorageByPublishAccess(t *testing.T) {
 	}
 }
 
+func TestAssetPathFromDataRelativePath(t *testing.T) {
+	const boxID = "20260806000000-box0001"
+	tests := []struct {
+		name          string
+		relativePath  string
+		wantAssetPath string
+		wantBoxID     string
+		wantOK        bool
+	}{
+		{name: "global asset", relativePath: "assets/image.png", wantAssetPath: "assets/image.png", wantOK: true},
+		{name: "global nested asset", relativePath: "assets/images/image.png", wantAssetPath: "assets/images/image.png", wantOK: true},
+		{name: "notebook asset", relativePath: boxID + "/assets/image.png", wantAssetPath: "assets/image.png", wantBoxID: boxID, wantOK: true},
+		{name: "document asset", relativePath: boxID + "/20260806000001-doc0001/assets/image.png", wantAssetPath: "assets/image.png", wantBoxID: boxID, wantOK: true},
+		{name: "nested document asset", relativePath: boxID + "/20260806000001-doc0001/20260806000002-doc0002/assets/images/image.png", wantAssetPath: "assets/images/image.png", wantBoxID: boxID, wantOK: true},
+		{name: "nested assets directory", relativePath: boxID + "/20260806000001-doc0001/assets/images/assets/image.png", wantAssetPath: "assets/images/assets/image.png", wantBoxID: boxID, wantOK: true},
+		{name: "notebook directory", relativePath: boxID + "/assets"},
+		{name: "document", relativePath: boxID + "/20260806000001-doc0001.sy"},
+		{name: "non-notebook asset", relativePath: "storage/assets/image.png"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assetPath, actualBoxID, ok := AssetPathFromDataRelativePath(test.relativePath)
+			if assetPath != test.wantAssetPath || actualBoxID != test.wantBoxID || ok != test.wantOK {
+				t.Fatalf("AssetPathFromDataRelativePath(%q) = [%q, %q, %v], want [%q, %q, %v]",
+					test.relativePath, assetPath, actualBoxID, ok, test.wantAssetPath, test.wantBoxID, test.wantOK)
+			}
+		})
+	}
+}
+
 func TestCheckBlockTreeAccessableByPublishAccess(t *testing.T) {
 	const (
 		boxID             = "20260721000000-boxid01"
@@ -77,11 +109,17 @@ func TestCheckBlockTreeAccessableByPublishAccess(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 
+	if status := GetBlockTreePublishAccessStatus(c, PublishAccess{{ID: docID, Disable: true}}, bt); status != PublishAccessDenied {
+		t.Fatalf("publish-disabled document status = %d, want denied", status)
+	}
 	if checkBlockTreeAccessableByPublishAccess(c, PublishAccess{{ID: docID, Disable: true}}, bt) {
 		t.Fatal("publish-disabled document should not be accessible")
 	}
 
 	protectedAccess := PublishAccess{{ID: docID, Visible: true, Password: protectedPassword}}
+	if status := GetBlockTreePublishAccessStatus(c, protectedAccess, bt); status != PublishAccessPasswordRequired {
+		t.Fatalf("password-protected document status = %d, want password required", status)
+	}
 	if checkBlockTreeAccessableByPublishAccess(c, protectedAccess, bt) {
 		t.Fatal("password-protected document should not be accessible without authorization")
 	}
@@ -90,12 +128,53 @@ func TestCheckBlockTreeAccessableByPublishAccess(t *testing.T) {
 		Name:  "publish-auth-" + docID,
 		Value: util.SHA256Hash([]byte(docID + protectedPassword)),
 	})
+	if status := GetBlockTreePublishAccessStatus(c, protectedAccess, bt); status != PublishAccessAllowed {
+		t.Fatalf("authorized document status = %d, want allowed", status)
+	}
 	if !checkBlockTreeAccessableByPublishAccess(c, protectedAccess, bt) {
 		t.Fatal("password-protected document should be accessible after authorization")
 	}
 
 	if !checkBlockTreeAccessableByPublishAccess(c, PublishAccess{{ID: docID, Visible: false}}, bt) {
 		t.Fatal("hidden document should remain directly accessible")
+	}
+}
+
+func TestFilterContentByPublishAccessWithStatus(t *testing.T) {
+	const (
+		boxID    = "20260806000010-box0010"
+		docID    = "20260806000011-doc0010"
+		password = "password"
+		content  = `<div data-node-id="20260806000012-block10">private content</div>`
+	)
+
+	oldConf := Conf
+	Conf = NewAppConf()
+	t.Cleanup(func() {
+		Conf = oldConf
+	})
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	protectedAccess := PublishAccess{{ID: docID, Visible: true, Password: password}}
+	filtered, status := FilterContentByPublishAccessWithStatus(c, protectedAccess, boxID, "/"+docID+".sy", content, false)
+	if status != PublishAccessPasswordRequired || filtered == content || strings.Contains(filtered, "private content") {
+		t.Fatalf("unexpected protected content filter result: status=%d, content=%q", status, filtered)
+	}
+
+	c.Request.AddCookie(&http.Cookie{
+		Name:  "publish-auth-" + docID,
+		Value: util.SHA256Hash([]byte(docID + password)),
+	})
+	filtered, status = FilterContentByPublishAccessWithStatus(c, protectedAccess, boxID, "/"+docID+".sy", content, false)
+	if status != PublishAccessAllowed || filtered != content {
+		t.Fatalf("unexpected authorized content filter result: status=%d, content=%q", status, filtered)
+	}
+
+	filtered, status = FilterContentByPublishAccessWithStatus(c, PublishAccess{{ID: docID, Disable: true}}, boxID,
+		"/"+docID+".sy", content, false)
+	if status != PublishAccessDenied || strings.Contains(filtered, "private content") {
+		t.Fatalf("unexpected disabled content filter result: status=%d, content=%q", status, filtered)
 	}
 }
 
@@ -247,9 +326,9 @@ func TestFilterAttributeViewBacklinksByPublishAccess(t *testing.T) {
 			expectedTotal: 0,
 		},
 		{
-			name:          "hidden target remains directly accessible",
+			name:          "hidden target filtered from backlink relations",
 			publishAccess: PublishAccess{{ID: targetDocID, Visible: false}},
-			expectedTotal: 1,
+			expectedTotal: 0,
 		},
 	}
 	for _, test := range tests {
@@ -259,6 +338,373 @@ func TestFilterAttributeViewBacklinksByPublishAccess(t *testing.T) {
 				t.Fatalf("unexpected attribute view backlinks: %+v", filtered)
 			}
 		})
+	}
+}
+
+func TestFilterBlockAttributeViewKeysByPublishAccess(t *testing.T) {
+	const (
+		boxID      = "20260730150000-box0002"
+		publicID   = "20260730150001-public2"
+		hiddenID   = "20260730150002-hidden2"
+		disabledID = "20260730150003-disable"
+	)
+
+	oldBlockTreeDBPath := util.BlockTreeDBPath
+	setupAttributeViewValidationTest(t)
+	util.DataDir = t.TempDir()
+	util.BlockTreeDBPath = filepath.Join(util.DataDir, "blocktree.db")
+	treenode.InitBlockTree(true)
+	invalidateEncryptedPublishAccessCache()
+	t.Cleanup(func() {
+		treenode.CloseDatabase()
+		util.BlockTreeDBPath = oldBlockTreeDBPath
+		invalidateEncryptedPublishAccessCache()
+		if "" != oldBlockTreeDBPath {
+			treenode.InitBlockTree(false)
+		}
+	})
+
+	for _, id := range []string{publicID, hiddenID, disabledID} {
+		tree := treenode.NewTree(boxID, "/"+id+".sy", "/"+id, id)
+		treenode.UpsertBlockTree(tree)
+	}
+
+	newKeys := func(avID, blockID string) *BlockAttributeViewKeys {
+		attrView := av.NewAttributeView(avID)
+		attrView.Name = avID
+		blockKey := attrView.GetBlockKey()
+		textKey := av.NewKey(ast.NewNodeID(), "Text", "", av.KeyTypeText)
+		rowID := ast.NewNodeID()
+		attrView.GetBlockKeyValues().Values = []*av.Value{{
+			ID: ast.NewNodeID(), KeyID: blockKey.ID, BlockID: rowID, Type: av.KeyTypeBlock,
+			Block: &av.ValueBlock{ID: blockID, Content: "row"},
+		}}
+		attrView.KeyValues = append(attrView.KeyValues, &av.KeyValues{
+			Key: textKey,
+			Values: []*av.Value{{
+				ID: ast.NewNodeID(), KeyID: textKey.ID, BlockID: rowID, Type: av.KeyTypeText,
+				Text: &av.ValueText{Content: "text-" + blockID},
+			}},
+		})
+		if err := av.SaveAttributeView(attrView); nil != err {
+			t.Fatal(err)
+		}
+		return newTestBlockAttributeViewKeys(attrView, []string{blockID}, rowID)
+	}
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+	tests := []struct {
+		name          string
+		publishAccess PublishAccess
+		expectedAvIDs []string
+	}{
+		{
+			name:          "public only",
+			expectedAvIDs: []string{"20260730150004-aav0002", "20260730150006-aav0003", "20260730150008-aav0004"},
+		},
+		{
+			name:          "hidden filtered",
+			publishAccess: PublishAccess{{ID: hiddenID, Visible: false}},
+			expectedAvIDs: []string{"20260730150004-aav0002", "20260730150008-aav0004"},
+		},
+		{
+			name:          "disabled filtered",
+			publishAccess: PublishAccess{{ID: disabledID, Visible: true, Disable: true}},
+			expectedAvIDs: []string{"20260730150004-aav0002", "20260730150006-aav0003"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := []*BlockAttributeViewKeys{
+				newKeys("20260730150004-aav0002", publicID),
+				newKeys("20260730150006-aav0003", hiddenID),
+				newKeys("20260730150008-aav0004", disabledID),
+			}
+			filtered := FilterBlockAttributeViewKeysByPublishAccess(c, test.publishAccess, input)
+			if len(filtered) != len(test.expectedAvIDs) {
+				t.Fatalf("unexpected block attribute view keys: %+v", filtered)
+			}
+			for i, blockAttributeViewKey := range filtered {
+				if blockAttributeViewKey.AvID != test.expectedAvIDs[i] {
+					t.Fatalf("unexpected block attribute view keys: %+v", filtered)
+				}
+				if 2 != len(blockAttributeViewKey.KeyValues) {
+					t.Fatalf("unexpected block attribute view key values: %+v", blockAttributeViewKey.KeyValues)
+				}
+				for _, keyValues := range blockAttributeViewKey.KeyValues {
+					if 1 != len(keyValues.Values) {
+						t.Fatalf("unexpected block attribute view key value count: %+v", keyValues)
+					}
+				}
+			}
+		})
+	}
+}
+
+func newTestBlockAttributeViewKeys(attrView *av.AttributeView, blockIDs []string, itemID string) *BlockAttributeViewKeys {
+	keyValues := []*av.KeyValues{}
+	for _, sourceKeyValues := range attrView.KeyValues {
+		itemKeyValues := &av.KeyValues{Key: sourceKeyValues.Key}
+		for _, value := range sourceKeyValues.Values {
+			if value.BlockID == itemID {
+				itemKeyValues.Values = append(itemKeyValues.Values, value)
+			}
+		}
+		if 0 < len(itemKeyValues.Values) {
+			keyValues = append(keyValues, itemKeyValues)
+		}
+	}
+	return &BlockAttributeViewKeys{
+		AvID:      attrView.ID,
+		AvName:    attrView.Name,
+		BlockIDs:  blockIDs,
+		KeyValues: keyValues,
+	}
+}
+
+func TestFilterBlockAttributeViewKeysByPublishAccessRemovesForbiddenRowValues(t *testing.T) {
+	const (
+		boxID                = "20260821000000-box0001"
+		avBlockID            = "20260821000001-avblock"
+		publicDocID          = "20260821000002-publicd"
+		forbiddenDocID       = "20260821000003-forbidd"
+		targetAvBlockID      = "20260821000004-tavbloc"
+		targetPublicDocID    = "20260821000005-tpubdoc"
+		targetForbiddenDocID = "20260821000006-tforbid"
+		sourceAvID           = "20260821000007-sourcea"
+		targetAvID           = "20260821000008-targeta"
+	)
+
+	oldBlockTreeDBPath := util.BlockTreeDBPath
+	setupAttributeViewValidationTest(t)
+	util.DataDir = t.TempDir()
+	util.BlockTreeDBPath = filepath.Join(util.DataDir, "blocktree.db")
+	treenode.InitBlockTree(true)
+	invalidateEncryptedPublishAccessCache()
+	t.Cleanup(func() {
+		treenode.CloseDatabase()
+		util.BlockTreeDBPath = oldBlockTreeDBPath
+		invalidateEncryptedPublishAccessCache()
+		if "" != oldBlockTreeDBPath {
+			treenode.InitBlockTree(false)
+		}
+	})
+
+	for _, id := range []string{avBlockID, publicDocID, forbiddenDocID, targetAvBlockID, targetPublicDocID, targetForbiddenDocID} {
+		tree := treenode.NewTree(boxID, "/"+id+".sy", "/"+id, id)
+		treenode.UpsertBlockTree(tree)
+	}
+
+	publicRowID := ast.NewNodeID()
+	forbiddenRowID := ast.NewNodeID()
+	detachedRowID := ast.NewNodeID()
+	targetPublicRowID := ast.NewNodeID()
+	targetForbiddenRowID := ast.NewNodeID()
+
+	// 目标数据库：包含公开行和禁止访问行
+	targetAttrView := av.NewAttributeView(targetAvID)
+	targetAttrView.Name = targetAvID
+	targetBlockKeyID := targetAttrView.GetBlockKey().ID
+	targetTextKeyID := ast.NewNodeID()
+	targetAttrView.GetBlockKeyValues().Values = []*av.Value{
+		{ID: ast.NewNodeID(), KeyID: targetBlockKeyID, BlockID: targetPublicRowID, Type: av.KeyTypeBlock,
+			Block: &av.ValueBlock{ID: targetPublicDocID, Content: "target public"}},
+		{ID: ast.NewNodeID(), KeyID: targetBlockKeyID, BlockID: targetForbiddenRowID, Type: av.KeyTypeBlock,
+			Block: &av.ValueBlock{ID: targetForbiddenDocID, Content: "target forbidden"}},
+	}
+	targetAttrView.KeyValues = append(targetAttrView.KeyValues, &av.KeyValues{
+		Key: av.NewKey(targetTextKeyID, "Target Text", "", av.KeyTypeText),
+		Values: []*av.Value{
+			{ID: ast.NewNodeID(), KeyID: targetTextKeyID, BlockID: targetPublicRowID, Type: av.KeyTypeText,
+				Text: &av.ValueText{Content: "target public text"}},
+			{ID: ast.NewNodeID(), KeyID: targetTextKeyID, BlockID: targetForbiddenRowID, Type: av.KeyTypeText,
+				Text: &av.ValueText{Content: "PRIVATE_TARGET_TEXT_CANARY"}},
+		},
+	})
+	if err := av.SaveAttributeView(targetAttrView); nil != err {
+		t.Fatal(err)
+	}
+	av.UpsertBlockRel(targetAvID, targetAvBlockID)
+
+	// 源数据库：公开行、禁止访问行和游离行，覆盖文本、数字、日期、URL、资源、关联和汇总等单元格类型
+	attrView := av.NewAttributeView(sourceAvID)
+	attrView.Name = sourceAvID
+	blockKeyID := attrView.GetBlockKey().ID
+	textKeyID := ast.NewNodeID()
+	numberKeyID := ast.NewNodeID()
+	dateKeyID := ast.NewNodeID()
+	urlKeyID := ast.NewNodeID()
+	assetKeyID := ast.NewNodeID()
+	relationKeyID := ast.NewNodeID()
+	rollupKeyID := ast.NewNodeID()
+	attrView.GetBlockKeyValues().Values = []*av.Value{
+		{ID: ast.NewNodeID(), KeyID: blockKeyID, BlockID: publicRowID, Type: av.KeyTypeBlock,
+			Block: &av.ValueBlock{ID: publicDocID, Content: "public row"}},
+		{ID: ast.NewNodeID(), KeyID: blockKeyID, BlockID: forbiddenRowID, Type: av.KeyTypeBlock,
+			Block: &av.ValueBlock{ID: forbiddenDocID, Content: "forbidden row"}},
+		{ID: ast.NewNodeID(), KeyID: blockKeyID, BlockID: detachedRowID, Type: av.KeyTypeBlock, IsDetached: true,
+			Block: &av.ValueBlock{Content: "detached row"}},
+	}
+	attrView.KeyValues = append(attrView.KeyValues,
+		&av.KeyValues{
+			Key: av.NewKey(textKeyID, "Text", "", av.KeyTypeText),
+			Values: []*av.Value{
+				{ID: ast.NewNodeID(), KeyID: textKeyID, BlockID: publicRowID, Type: av.KeyTypeText,
+					Text: &av.ValueText{Content: "PUBLIC_TEXT_CANARY"}},
+				{ID: ast.NewNodeID(), KeyID: textKeyID, BlockID: forbiddenRowID, Type: av.KeyTypeText,
+					Text: &av.ValueText{Content: "PRIVATE_TEXT_CANARY"}},
+				{ID: ast.NewNodeID(), KeyID: textKeyID, BlockID: detachedRowID, Type: av.KeyTypeText,
+					Text: &av.ValueText{Content: "DETACHED_TEXT_CANARY"}},
+			},
+		},
+		&av.KeyValues{
+			Key: av.NewKey(numberKeyID, "Number", "", av.KeyTypeNumber),
+			Values: []*av.Value{
+				{ID: ast.NewNodeID(), KeyID: numberKeyID, BlockID: publicRowID, Type: av.KeyTypeNumber,
+					Number: &av.ValueNumber{Content: 1}},
+				{ID: ast.NewNodeID(), KeyID: numberKeyID, BlockID: forbiddenRowID, Type: av.KeyTypeNumber,
+					Number: &av.ValueNumber{Content: 2}},
+				{ID: ast.NewNodeID(), KeyID: numberKeyID, BlockID: detachedRowID, Type: av.KeyTypeNumber,
+					Number: &av.ValueNumber{Content: 3}},
+			},
+		},
+		&av.KeyValues{
+			Key: av.NewKey(dateKeyID, "Date", "", av.KeyTypeDate),
+			Values: []*av.Value{
+				{ID: ast.NewNodeID(), KeyID: dateKeyID, BlockID: publicRowID, Type: av.KeyTypeDate,
+					Date: &av.ValueDate{Content: 1700000000000}},
+				{ID: ast.NewNodeID(), KeyID: dateKeyID, BlockID: forbiddenRowID, Type: av.KeyTypeDate,
+					Date: &av.ValueDate{Content: 1800000000000}},
+				{ID: ast.NewNodeID(), KeyID: dateKeyID, BlockID: detachedRowID, Type: av.KeyTypeDate,
+					Date: &av.ValueDate{Content: 1900000000000}},
+			},
+		},
+		&av.KeyValues{
+			Key: av.NewKey(urlKeyID, "URL", "", av.KeyTypeURL),
+			Values: []*av.Value{
+				{ID: ast.NewNodeID(), KeyID: urlKeyID, BlockID: publicRowID, Type: av.KeyTypeURL,
+					URL: &av.ValueURL{Content: "https://example.com/public"}},
+				{ID: ast.NewNodeID(), KeyID: urlKeyID, BlockID: forbiddenRowID, Type: av.KeyTypeURL,
+					URL: &av.ValueURL{Content: "https://example.com/PRIVATE_URL_CANARY"}},
+				{ID: ast.NewNodeID(), KeyID: urlKeyID, BlockID: detachedRowID, Type: av.KeyTypeURL,
+					URL: &av.ValueURL{Content: "https://example.com/detached"}},
+			},
+		},
+		&av.KeyValues{
+			Key: av.NewKey(assetKeyID, "Asset", "", av.KeyTypeMAsset),
+			Values: []*av.Value{
+				{ID: ast.NewNodeID(), KeyID: assetKeyID, BlockID: publicRowID, Type: av.KeyTypeMAsset,
+					MAsset: []*av.ValueAsset{{Type: av.AssetTypeImage, Name: "public.png", Content: "assets/public.png"}}},
+				{ID: ast.NewNodeID(), KeyID: assetKeyID, BlockID: forbiddenRowID, Type: av.KeyTypeMAsset,
+					MAsset: []*av.ValueAsset{{Type: av.AssetTypeImage, Name: "private.png", Content: "assets/PRIVATE_ASSET_CANARY.png"}}},
+				{ID: ast.NewNodeID(), KeyID: assetKeyID, BlockID: detachedRowID, Type: av.KeyTypeMAsset,
+					MAsset: []*av.ValueAsset{{Type: av.AssetTypeImage, Name: "detached.png", Content: "assets/detached.png"}}},
+			},
+		},
+		&av.KeyValues{
+			Key: &av.Key{ID: relationKeyID, Name: "Relation", Type: av.KeyTypeRelation, Relation: &av.Relation{AvID: targetAvID}},
+			Values: []*av.Value{
+				{ID: ast.NewNodeID(), KeyID: relationKeyID, BlockID: publicRowID, Type: av.KeyTypeRelation,
+					Relation: &av.ValueRelation{
+						BlockIDs: []string{targetPublicRowID, targetForbiddenRowID},
+						Contents: []*av.Value{
+							{KeyID: targetBlockKeyID, BlockID: targetPublicRowID, Type: av.KeyTypeBlock,
+								Block: &av.ValueBlock{ID: targetPublicDocID, Content: "target public"}},
+							{KeyID: targetBlockKeyID, BlockID: targetForbiddenRowID, Type: av.KeyTypeBlock,
+								Block: &av.ValueBlock{ID: targetForbiddenDocID, Content: "target forbidden"}},
+						},
+					}},
+				{ID: ast.NewNodeID(), KeyID: relationKeyID, BlockID: forbiddenRowID, Type: av.KeyTypeRelation,
+					Relation: &av.ValueRelation{
+						BlockIDs: []string{targetForbiddenRowID},
+						Contents: []*av.Value{
+							{KeyID: targetBlockKeyID, BlockID: targetForbiddenRowID, Type: av.KeyTypeBlock,
+								Block: &av.ValueBlock{ID: targetForbiddenDocID, Content: "target forbidden"}},
+						},
+					}},
+			},
+		},
+		&av.KeyValues{
+			Key: &av.Key{ID: rollupKeyID, Name: "Rollup", Type: av.KeyTypeRollup, Rollup: &av.Rollup{
+				RelationKeyID: relationKeyID, KeyID: targetTextKeyID,
+			}},
+			Values: []*av.Value{
+				{ID: ast.NewNodeID(), KeyID: rollupKeyID, BlockID: publicRowID, Type: av.KeyTypeRollup,
+					Rollup: &av.ValueRollup{Contents: []*av.Value{
+						{KeyID: targetTextKeyID, BlockID: targetPublicRowID, Type: av.KeyTypeText,
+							Text: &av.ValueText{Content: "target public text"}},
+						{KeyID: targetTextKeyID, BlockID: targetForbiddenRowID, Type: av.KeyTypeText,
+							Text: &av.ValueText{Content: "PRIVATE_TARGET_TEXT_CANARY"}},
+					}}},
+			},
+		},
+	)
+	if err := av.SaveAttributeView(attrView); nil != err {
+		t.Fatal(err)
+	}
+
+	publicKeys := newTestBlockAttributeViewKeys(attrView, []string{avBlockID}, publicRowID)
+	forbiddenKeys := newTestBlockAttributeViewKeys(attrView, []string{avBlockID}, forbiddenRowID)
+	detachedKeys := newTestBlockAttributeViewKeys(attrView, []string{avBlockID}, detachedRowID)
+	input := []*BlockAttributeViewKeys{forbiddenKeys, publicKeys, detachedKeys}
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	publishAccess := PublishAccess{
+		{ID: forbiddenDocID, Visible: true, Disable: true},
+		{ID: targetForbiddenDocID, Visible: true, Disable: true},
+	}
+
+	filtered := FilterBlockAttributeViewKeysByPublishAccess(c, publishAccess, input)
+	if 2 != len(filtered) {
+		t.Fatalf("unexpected block attribute view keys: %+v", filtered)
+	}
+	data, err := json.Marshal(filtered)
+	if nil != err {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "PRIVATE_") {
+		t.Fatalf("forbidden row values leaked to publish reader: %s", data)
+	}
+	if !strings.Contains(string(data), "PUBLIC_TEXT_CANARY") || !strings.Contains(string(data), "DETACHED_TEXT_CANARY") {
+		t.Fatalf("accessible row values should be kept: %s", data)
+	}
+
+	publicFiltered := filtered[0]
+	var relationValue, rollupValue *av.Value
+	for _, keyValues := range publicFiltered.KeyValues {
+		if av.KeyTypeRelation == keyValues.Key.Type {
+			relationValue = keyValues.Values[0]
+		}
+		if av.KeyTypeRollup == keyValues.Key.Type {
+			rollupValue = keyValues.Values[0]
+		}
+	}
+	if nil == relationValue || 1 != len(relationValue.Relation.BlockIDs) ||
+		targetPublicRowID != relationValue.Relation.BlockIDs[0] ||
+		1 != len(relationValue.Relation.Contents) {
+		t.Fatalf("unexpected filtered relation value: %+v", relationValue)
+	}
+	if nil == rollupValue || 0 != len(rollupValue.Rollup.Contents) {
+		t.Fatalf("rollup containing forbidden target rows should be cleared: %+v", rollupValue)
+	}
+	if 1 != len(filtered[1].KeyValues[0].Values) || !filtered[1].KeyValues[0].Values[0].IsDetached {
+		t.Fatalf("detached row should be kept: %+v", filtered[1])
+	}
+
+	// 过滤不修改输入，且禁止访问行的值不因过滤而丢失
+	if 3 != len(input) {
+		t.Fatalf("filter should not mutate the input: %+v", input)
+	}
+	originData, err := json.Marshal(input)
+	if nil != err {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(originData), "PRIVATE_TEXT_CANARY") ||
+		!strings.Contains(string(originData), "PRIVATE_TARGET_TEXT_CANARY") {
+		t.Fatalf("filter should not mutate the input: %s", originData)
 	}
 }
 
@@ -1027,15 +1473,18 @@ func TestFilterEmbedBlocksByPublishAccessRemovesInternalFields(t *testing.T) {
 func TestFilterEmbedBlocksByPublishAccessDropsInaccessibleResults(t *testing.T) {
 	const (
 		boxID             = "20260720000000-boxid01"
+		unlistedDocID     = "20260720000001-unliste"
 		hiddenDocID       = "20260720000002-hiddend"
 		protectedDocID    = "20260720000003-protect"
 		protectedPassword = "password"
 	)
 	publishAccess := PublishAccess{
+		{ID: unlistedDocID, Visible: false},
 		{ID: hiddenDocID, Disable: true},
 		{ID: protectedDocID, Visible: true, Password: protectedPassword},
 	}
 	embedBlocks := []*EmbedBlock{
+		{Block: &Block{ID: "20260720000004-unliste", Box: boxID, Path: "/" + unlistedDocID + ".sy", Content: "unlisted"}},
 		{Block: &Block{ID: "20260720000004-hidden1", Box: boxID, Path: "/" + hiddenDocID + ".sy", Content: "hidden"}},
 		{Block: &Block{ID: "20260720000005-protect", Box: boxID, Path: "/" + protectedDocID + ".sy", Content: "protected"}},
 	}
@@ -1089,8 +1538,8 @@ func TestFilterPathsByPublishAccess(t *testing.T) {
 
 	newPaths := func() []*Path {
 		return []*Path{
-			{ID: publicID, Name: "/" + publicID + ".sy", HPath: "/public", Type: "path", NodeType: "NodeDocument"},
 			{ID: protectedID, Name: "/" + protectedID + ".sy", HPath: "/protected", Type: "path", NodeType: "NodeDocument"},
+			{ID: publicID, Name: "/" + publicID + ".sy", HPath: "/public", Type: "path", NodeType: "NodeDocument"},
 			{ID: hiddenID, Name: "/" + hiddenID + ".sy", HPath: "/hidden", Type: "path", NodeType: "NodeDocument"},
 			{ID: disabledID, Name: "/" + disabledID + ".sy", HPath: "/disabled", Type: "path", NodeType: "NodeDocument"},
 		}
@@ -1113,7 +1562,7 @@ func TestFilterPathsByPublishAccess(t *testing.T) {
 		Value: util.SHA256Hash([]byte(protectedID + protectedPassword)),
 	})
 	filtered = FilterPathsByPublishAccess(c, publishAccess, newPaths())
-	if len(filtered) != 2 || filtered[0].ID != publicID || filtered[1].ID != protectedID {
+	if len(filtered) != 2 || filtered[0].ID != protectedID || filtered[1].ID != publicID {
 		t.Fatalf("unexpected authenticated backlink paths: %+v", filtered)
 	}
 }
@@ -1316,5 +1765,59 @@ func TestFilterAssetContentByPublishAccess(t *testing.T) {
 	filtered = FilterAssetContentByPublishAccess(c, publishAccess, newAssetContents())
 	if len(filtered) != 2 || filtered[0].Path != publicAsset || filtered[1].Path != protectedAsset {
 		t.Fatalf("unexpected authenticated asset contents: %+v", filtered)
+	}
+}
+
+// TestCheckAbsPathAccessableByPublishAccessKeepsHiddenNotebookAccessible 验证原始文件通道
+// 保持「仅隐藏」语义：显式隐藏（Visible:false）的笔记本不构成机密边界，
+// 普通文件与 .sy 文档仍可直接访问，禁用与密码保护照常生效。
+func TestCheckAbsPathAccessableByPublishAccessKeepsHiddenNotebookAccessible(t *testing.T) {
+	const (
+		boxID    = "20260821000005-visboxa"
+		docID    = "20260821000006-visdoca"
+		password = "password"
+	)
+	oldDataDir := util.DataDir
+	util.DataDir = t.TempDir()
+	invalidateEncryptedPublishAccessCache()
+	t.Cleanup(func() {
+		util.DataDir = oldDataDir
+		invalidateEncryptedPublishAccessCache()
+	})
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	fileAbs := filepath.Join(util.DataDir, boxID, "private.txt")
+	docAbs := filepath.Join(util.DataDir, boxID, docID+".sy")
+
+	// 显式隐藏的笔记本保持可直接访问语义（与文档内容 API 一致）
+	if !CheckAbsPathAccessableByPublishAccess(c, fileAbs, PublishAccess{{ID: boxID, Visible: false}}) {
+		t.Fatal("hidden notebook file should remain directly accessible")
+	}
+	if !CheckAbsPathAccessableByPublishAccess(c, docAbs, PublishAccess{{ID: boxID, Visible: false}}) {
+		t.Fatal("hidden notebook doc should remain directly accessible")
+	}
+
+	// 可见与未配置场景不受影响
+	if !CheckAbsPathAccessableByPublishAccess(c, fileAbs, PublishAccess{{ID: boxID, Visible: true}}) {
+		t.Fatal("visible notebook file should be accessible")
+	}
+	if !CheckAbsPathAccessableByPublishAccess(c, fileAbs, PublishAccess{}) {
+		t.Fatal("unconfigured notebook file should be accessible")
+	}
+
+	// 禁用与密码保护仍构成访问控制
+	if CheckAbsPathAccessableByPublishAccess(c, fileAbs, PublishAccess{{ID: boxID, Visible: true, Disable: true}}) {
+		t.Fatal("disabled notebook should be denied")
+	}
+	if CheckAbsPathAccessableByPublishAccess(c, fileAbs, PublishAccess{{ID: boxID, Visible: true, Password: password}}) {
+		t.Fatal("password protected notebook should be denied without auth cookie")
+	}
+	c.Request.AddCookie(&http.Cookie{
+		Name:  "publish-auth-" + boxID,
+		Value: util.SHA256Hash([]byte(boxID + password)),
+	})
+	if !CheckAbsPathAccessableByPublishAccess(c, fileAbs, PublishAccess{{ID: boxID, Visible: true, Password: password}}) {
+		t.Fatal("password protected notebook should be accessible after authorization")
 	}
 }

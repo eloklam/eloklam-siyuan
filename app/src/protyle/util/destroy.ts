@@ -1,11 +1,18 @@
 import {hideElements} from "../ui/hideElements";
 import {isSupportCSSHL} from "../render/searchMarkRender";
+import {destroyAIEditor} from "../../ai/editor";
+import {cancelAssetUploads} from "../upload/pluginEvent";
+import {unmountBreadcrumbButtons} from "../../plugin/breadcrumbButton";
 
 export const destroy = (protyle: IProtyle) => {
     if (!protyle) {
         return;
     }
-    hideElements(["util"], protyle);
+    cancelAssetUploads(protyle);
+    unmountBreadcrumbButtons(protyle);
+    hideElements(["util"], protyle, true);
+    destroyAIEditor(protyle);
+    protyle.hint?.destroy();
     protyle.preview?.destroy();
     if (isSupportCSSHL()) {
         protyle.highlight.markHL.clear();
@@ -18,6 +25,7 @@ export const destroy = (protyle: IProtyle) => {
     protyle.element.classList.remove("protyle");
     protyle.element.removeAttribute("style");
     if (protyle.wysiwyg) {
+        protyle.wysiwyg.destroy();
         protyle.wysiwyg.tableControl?.destroy();
         protyle.wysiwyg.lastHTMLs = {};
     }

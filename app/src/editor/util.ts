@@ -34,6 +34,7 @@ import {preventScroll} from "../protyle/scroll/preventScroll";
 import {clearOBG} from "../layout/dock/util";
 import {Model} from "../layout/Model";
 import {hideElements} from "../protyle/ui/hideElements";
+import {isBrowserRenderableImagePath} from "../util/imageURL";
 
 const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => {
     if (!options.custom || (options.custom.id && options.custom.id !== type)) {
@@ -48,6 +49,7 @@ const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => 
 export const openFileById = async (options: {
     app: App,
     id: string,
+    notebookId?: string,
     position?: string,
     mode?: TEditorMode,
     action?: TProtyleAction[]
@@ -59,7 +61,7 @@ export const openFileById = async (options: {
     afterOpen?: (model: Model) => void,
     scrollPosition?: ScrollLogicalPosition
 }) => {
-    const response = await fetchSyncPost("/api/block/getBlockInfo", {id: options.id});
+    const response = await fetchSyncPost("/api/block/getBlockInfo", {id: options.id, notebook: options.notebookId});
     if (response.code === -1) {
         return;
     }
@@ -76,6 +78,7 @@ export const openFileById = async (options: {
         rootIcon: response.data.rootIcon,
         rootID: response.data.rootID,
         id: options.id,
+        notebookId: options.notebookId,
         position: options.position,
         mode: options.mode,
         action: options.action,
@@ -89,18 +92,35 @@ export const openFileById = async (options: {
     });
 };
 
-export const openAsset = (app: App, assetPath: string, page: number | string, position?: string) => {
-    const suffix = getAssetExtension(assetPath);
-    if (!Constants.SIYUAN_ASSETS_EXTS.includes(suffix)) {
+const openAssetWithOptions = (
+    app: App,
+    assetPath: string,
+    page: number | string,
+    options: {
+        position?: string,
+        keepCursor?: boolean,
+    } = {},
+) => {
+    const suffix = getAssetExtension(assetPath).toLowerCase();
+    if (!Constants.SIYUAN_ASSETS_EXTS.includes(suffix) || !isBrowserRenderableImagePath(assetPath)) {
         return;
     }
     openFile({
         app,
         assetPath,
         page,
-        position,
+        position: options.position,
+        keepCursor: options.keepCursor,
         removeCurrentTab: true
     });
+};
+
+export const openAsset = (app: App, assetPath: string, page: number | string, position?: string) => {
+    openAssetWithOptions(app, assetPath, page, {position});
+};
+
+export const openAssetInBackground = (app: App, assetPath: string, page: number | string) => {
+    openAssetWithOptions(app, assetPath, page, {keepCursor: true});
 };
 
 export const openFile = async (options: IOpenFileOptions) => {
@@ -124,8 +144,10 @@ export const openFile = async (options: IOpenFileOptions) => {
         const asset = allModels.asset.find((item) => {
             if (item.path == options.assetPath) {
                 if (!pdfIsLoading(item.parent.parent.element)) {
-                    item.parent.parent.switchTab(item.parent.headElement);
-                    item.parent.parent.showHeading();
+                    if (!options.keepCursor) {
+                        item.parent.parent.switchTab(item.parent.headElement);
+                        item.parent.parent.showHeading();
+                    }
                     item.goToPage(options.page);
                 }
                 return true;
@@ -224,11 +246,15 @@ export const openFile = async (options: IOpenFileOptions) => {
                 optionsClone[key] = JSON.parse(JSON.stringify(options[key]));
             }
         });
-        hasMatch = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
-            cmd: Constants.SIYUAN_OPEN_FILE,
-            options: JSON.stringify(optionsClone),
-            port: location.port,
-        });
+        try {
+            hasMatch = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
+                cmd: Constants.SIYUAN_OPEN_FILE,
+                options: JSON.stringify(optionsClone),
+                port: location.port,
+            });
+        } catch (e) {
+            console.warn("Check opened file window error:", e);
+        }
         if (hasMatch) {
             if (options.afterOpen) {
                 options.afterOpen();
@@ -309,7 +335,9 @@ export const openFile = async (options: IOpenFileOptions) => {
         }
         if (options.keepCursor && wnd.children[0].headElement) {
             createdTab = newTab(options);
-            createdTab.headElement.setAttribute("keep-cursor", options.id);
+            if (options.id) {
+                createdTab.headElement.setAttribute("keep-cursor", options.id);
+            }
             wnd.addTab(createdTab, options.keepCursor);
         } else if (window.siyuan.config.fileTree.openFilesUseCurrentTab) {
             let unUpdateTab: Tab;
@@ -349,6 +377,7 @@ const getUnInitTab = (options: IOpenFileOptions) => {
             if (initObj.instance === "Editor" &&
                 (initObj.rootId === options.rootID || initObj.blockId === options.rootID)) {
                 initObj.blockId = options.id;
+                initObj.notebookId = options.notebookId;
                 initObj.mode = options.mode;
                 if (options.zoomIn) {
                     initObj.action = [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS];
@@ -491,8 +520,9 @@ const switchEditor = (editor: Editor, options: IOpenFileOptions, allModels: IMod
 const newTab = (options: IOpenFileOptions) => {
     let tab: Tab;
     if (options.assetPath) {
-        const suffix = getAssetExtension(options.assetPath);
-        if (Constants.SIYUAN_ASSETS_EXTS.includes(suffix)) {
+        const suffix = getAssetExtension(options.assetPath).toLowerCase();
+        if (Constants.SIYUAN_ASSETS_EXTS.includes(suffix) &&
+            isBrowserRenderableImagePath(options.assetPath)) {
             let icon = "iconPDF";
             if (Constants.SIYUAN_ASSETS_IMAGE.includes(suffix)) {
                 icon = "iconImage";
@@ -511,7 +541,9 @@ const newTab = (options: IOpenFileOptions) => {
                         path: options.assetPath,
                         page: options.page,
                     }));
-                    setPanelFocus(tab.panelElement.parentElement.parentElement);
+                    if (!options.keepCursor) {
+                        setPanelFocus(tab.panelElement.parentElement.parentElement);
+                    }
                 }
             });
         }
@@ -565,6 +597,7 @@ const newTab = (options: IOpenFileOptions) => {
                         tab,
                         blockId: options.id,
                         rootId: options.rootID,
+                        notebookId: options.notebookId,
                         action: [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS],
                         scrollPosition: options.scrollPosition,
                     });
@@ -574,6 +607,7 @@ const newTab = (options: IOpenFileOptions) => {
                         tab,
                         blockId: options.id,
                         rootId: options.rootID,
+                        notebookId: options.notebookId,
                         mode: options.mode,
                         action: options.action,
                         scrollPosition: options.scrollPosition,

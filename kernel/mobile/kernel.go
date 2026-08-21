@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -60,6 +60,48 @@ func AcquireExportFile(exportPath string) string {
 // ReleaseExportFile 释放 AcquireExportFile 返回的租约。
 func ReleaseExportFile(leaseID string) {
 	model.ReleaseMobileExportLease(leaseID)
+}
+
+// LANSyncDiscoveryInfo 返回原生 Bonjour 发现需要发布的服务信息。
+func LANSyncDiscoveryInfo() string {
+	info := model.GetLANSyncDiscoveryInfo()
+	if nil == info {
+		return ""
+	}
+	data, err := json.Marshal(info)
+	if nil != err {
+		return ""
+	}
+	return string(data)
+}
+
+// AddLANSyncPeer 将原生 Bonjour 发现的设备交给内核验证。
+func AddLANSyncPeer(instance, address string, port int, txtJSON string) bool {
+	txt := map[string]string{}
+	if err := json.Unmarshal([]byte(txtJSON), &txt); nil != err {
+		return false
+	}
+	return model.AddLANSyncPeer(instance, address, port, txt)
+}
+
+// RemoveLANSyncPeer 将原生 Bonjour 移除的设备从内核中删除。
+func RemoveLANSyncPeer(instance string) bool {
+	return model.RemoveLANSyncPeer(instance)
+}
+
+// LANSyncActive 返回局域网同步服务是否正在运行。
+func LANSyncActive() bool {
+	return model.LANSyncActive()
+}
+
+// UpdateLocalIPs 更新原生容器提供的局域网地址并刷新局域网同步服务。
+func UpdateLocalIPs(localIPs string) {
+	util.SetLocalIPs(strings.Split(localIPs, ","))
+	serverAddrs := util.GetServerAddrs()
+	if model.UpdateServerAddrs(serverAddrs) {
+		util.BroadcastByType("main", "setServerAddrs", 0, "", serverAddrs)
+	}
+	model.RefreshLANSyncNetwork()
 }
 
 // GetExportFileName 返回普通导出的资源名称；加密导出应读取 AcquireExportFile 返回的 Name。
@@ -225,14 +267,16 @@ func VerifyAppStoreTransaction(accountToken, transactionID string) (retCode int)
 }
 
 func StartKernelFast(container, appDir, workspaceBaseDir, localIPs string) {
+	model.InitJwtKey()
 	go server.Serve(true, model.Conf.CookieKey)
 }
 
 func StartKernel(container, appDir, workspaceBaseDir, timezoneID, localIPs, lang, osVer string) {
+	model.InitJwtKey()
 	SetTimezone(container, appDir, timezoneID)
 	util.Mode = "prod"
 	util.MobileOSVer = osVer
-	util.LocalIPs = strings.Split(localIPs, ",")
+	util.SetLocalIPs(strings.Split(localIPs, ","))
 	util.BootMobile(container, appDir, workspaceBaseDir, lang)
 
 	model.InitConf()

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -44,6 +44,25 @@ func TestReplaceReplayOperationID(t *testing.T) {
 				t.Fatalf("expected operation ID %q, got %q", test.want, operation.ID)
 			}
 		})
+	}
+}
+
+func TestCloneOperationsCopiesMoveMetadata(t *testing.T) {
+	original := &Operation{
+		Action:   "move",
+		ID:       "heading",
+		BlockIDs: []string{"child"},
+		Context:  map[string]any{moveGroupIDContextKey: "group"},
+	}
+	cloned := cloneOperations([]*Operation{original})[0]
+	cloned.BlockIDs[0] = "changed"
+	cloned.Context[moveGroupIDContextKey] = "changed"
+
+	if "child" != original.BlockIDs[0] {
+		t.Fatal("cloning operations should isolate move block IDs")
+	}
+	if "group" != original.Context[moveGroupIDContextKey] {
+		t.Fatal("cloning operations should isolate move context")
 	}
 }
 

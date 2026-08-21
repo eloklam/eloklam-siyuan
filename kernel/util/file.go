@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -163,7 +163,7 @@ func RemoveID(name string) string {
 }
 
 var commonSuffixes = []string{
-	".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tif", ".tiff",
+	".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tif", ".tiff", ".heic", ".heif",
 	".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".md", ".rtf",
 	".zip", ".rar", ".7z", ".tar", ".gz", ".bz2",
 	".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a",
@@ -491,60 +491,4 @@ func CeilSize(size int64) int64 {
 
 func IsReservedFilename(baseName string) bool {
 	return "assets" == baseName || "templates" == baseName || "widgets" == baseName || "emojis" == baseName || ".siyuan" == baseName || strings.HasPrefix(baseName, ".")
-}
-
-func WalkWithSymlinks(root string, fn fs.WalkDirFunc) error {
-	// 感谢 https://github.com/edwardrf/symwalk/blob/main/symwalk.go
-
-	rr, err := filepath.EvalSymlinks(root) // Find real base if there is any symlinks in the path
-	if err != nil {
-		return err
-	}
-
-	visitedDirs := make(map[string]struct{})
-	return filelock.Walk(rr, getWalkFn(visitedDirs, fn))
-}
-
-func getWalkFn(visitedDirs map[string]struct{}, fn fs.WalkDirFunc) fs.WalkDirFunc {
-	return func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return fn(path, d, err)
-		}
-
-		if d.IsDir() {
-			if _, ok := visitedDirs[path]; ok {
-				return filepath.SkipDir
-			}
-			visitedDirs[path] = struct{}{}
-		}
-
-		if err := fn(path, d, err); err != nil {
-			return err
-		}
-
-		info, err := d.Info()
-		if nil != err {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink == 0 {
-			return nil
-		}
-
-		// path is a symlink
-		rp, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			return err
-		}
-
-		ri, err := os.Stat(rp)
-		if err != nil {
-			return err
-		}
-
-		if ri.IsDir() {
-			return filelock.Walk(rp, getWalkFn(visitedDirs, fn))
-		}
-
-		return nil
-	}
 }

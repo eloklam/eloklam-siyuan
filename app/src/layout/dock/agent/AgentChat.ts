@@ -5,9 +5,9 @@ import {genUUID} from "../../../util/genID";
 import {mountComposer, type AgentComposerData} from "./AgentComposer";
 import {disabledWYSIWYG} from "../../../protyle/util/disabledWYSIWYG";
 import {getAllEditor} from "../../getAll";
-import "./frontendActions";
-import {listActions, lookupAction} from "./frontendActions";
-import {AgentSession, SessionStore} from "./SessionStore";
+import {isCapabilityEnabled, listCapabilityManifests, lookupCapability} from "./frontendCapabilities";
+import {AgentPermissionMode, AgentSession, SessionStore} from "./SessionStore";
+import {genAgentConfirmActionButtons} from "./agentConfirmActions";
 import {AgentSessionPanel} from "./AgentSessionPanel";
 import {updateHotkeyAfterTip} from "../../../protyle/util/compatibility";
 import {getAgentLute} from "../../../protyle/render/setLute";
@@ -20,13 +20,18 @@ import * as dayjs from "dayjs";
 import {sendNotification} from "../../../plugin/platformUtils";
 import {
     applyAgentUserEdit,
+    buildAgentPresentationEntries,
     findAgentUserEntryIndex,
+    getAgentThinkingDisplaySeconds,
+    getAgentThinkingToolGroups,
     hasAgentExecutedToolsAfter,
     hasAgentModelSpecificContext,
+    hasAgentThinkingStepDetails,
+    isAgentAssistantContentFinalInTurn,
     isAgentRegenerateStateCurrent
 } from "./AgentHistory";
 import {
-    bindThinkingCardToggle,
+    copyAgentText,
     createThinkingCardElement,
     postRender,
     renderQuestionCardHTML,
@@ -35,10 +40,15 @@ import {
     renderToolsLineHTML,
     renderWelcomeHTML
 } from "./AgentMessageRenderer";
+import {bindThinkingCardToggle} from "../../../ai/thinkingCard";
 import {getAgentReasoningEffortOptions} from "./AgentReasoning";
 import {mountGroupedModelPicker, type IGroupedModelPicker} from "../../../config/tabs/ai/aiProviderUi";
+import {AI_CONFIG_CHANGED_EVENT} from "../../../config/tabs/ai/aiRuntime";
 import {isEncryptedBox} from "../../../util/pathName";
 import {Menu} from "../../../plugin/Menu";
+import {getAgentDefaultModelID, getUsableAgentModels} from "./agentModel";
+import {AgentScrollStateMode, resolveAgentScrollState} from "./AgentScrollState";
+import {AgentSessionRun, AgentSessionRuns} from "./AgentSessionRuns";
 
 // 限制注入用户轮次上下文的可见块 ID 数量，以控制 token 开销。
 // 与 kernel/agent/agent.go 中的 maxVisibleBlockIDs 保持一致。
@@ -60,6 +70,7 @@ export interface AgentChatHost {
 
 type EntryBase = { id?: string };
 type AgentReference = { id: string; title: string };
+type PendingAgentInteraction = Extract<ISSEResult, {type: "confirm" | "question"}>;
 type UserEntry = EntryBase & {
     type: "user";
     content: string;
@@ -76,7 +87,9 @@ type SessionEntry =
     steps: Array<{
         reasoning: string;
         reasoningContent: string;
+        roundID?: string;
         toolNames?: string[];
+        toolCallIDs?: string[];
         content?: string
     }>;
     duration?: number
@@ -85,20 +98,83 @@ type SessionEntry =
     type: "assistant";
     content?: string;
     reasoningContent?: string;
+    responseOutput?: Array<Record<string, unknown>>;
+    responseOutputTokens?: number;
+    roundID?: string;
     toolCalls?: Array<{
         id?: string;
         name: string;
         arguments: Record<string, unknown>;
         argumentsJSON?: string;
         result?: string;
-        state?: string
+        state?: string;
+        providerData?: {
+            google?: {
+                thoughtSignature?: string
+            }
+        }
     }>;
     timestamp?: number
 })
     | (EntryBase & { type: "confirm"; name: string; args: Record<string, unknown>; confirmID: string; effects?: IToolEffects; status?: string })
-    | (EntryBase & { type: "question"; questionID: string; questions: Array<Record<string, unknown>>; status?: string; answers?: string[] })
-    | (EntryBase & { type: "snapshot"; snapshotID: string })
+    | (EntryBase & {
+    type: "question";
+    questionID: string;
+    questions: Array<Record<string, unknown>>;
+    roundID?: string;
+    status?: string;
+    answers?: string[]
+})
+    | (EntryBase & { type: "todo"; result: string; callID?: string; roundID?: string })
+    | (EntryBase & { type: "snapshot"; snapshotID: string; roundID?: string })
     | (EntryBase & { type: "rollback"; snapshotID: string });
+
+type AgentToolCall = {
+    id?: string;
+    name: string;
+    roundID?: string;
+    arguments: Record<string, unknown>;
+    result?: string;
+};
+
+type AgentThinkingStep = {
+    reasoning: string;
+    reasoningContent: string;
+    roundID?: string;
+    toolNames?: string[];
+    toolCallIDs?: string[];
+};
+
+type AgentSessionRunViewState = {
+    view?: DocumentFragment;
+    entries: SessionEntry[];
+    hasTitled: boolean;
+    currentAIElement: HTMLElement | null;
+    currentAssistantEntryId: string;
+    currentThinkingEntryId: string;
+    currentRoundID: string;
+    currentContent: string;
+    fullContent: string;
+    contextTokens: number;
+    contextTokenBreakdown: Record<string, number>;
+    contextCachedTokens: number;
+    contextLimit: number;
+    requestStartTime: number;
+    currentToolCalls: AgentToolCall[];
+    toolCallStartedAt: Map<string, number>;
+    currentThinkingText: string;
+    currentThinkingReasoning: string;
+    currentThinkingReasoningContent: string;
+    currentThinkingSteps: AgentThinkingStep[];
+    currentThinkingDuration: number;
+    pendingConfirms: SessionEntry[];
+    renderedToolNames: Record<string, boolean>;
+    hasInterveningCard: boolean;
+    lastStepToolCount: number;
+    permissionMode: AgentPermissionMode;
+};
+
+type ManagedAgentSessionRun = AgentSessionRun<PendingAgentInteraction, ISSEResult, AgentSessionRunViewState>;
 
 export class AgentChat extends Model {
     private host: AgentChatHost;
@@ -115,6 +191,8 @@ export class AgentChat extends Model {
     private sessionId = "";
     private sessionTitle = "";
     private pendingSessionTitle: string | null = null;
+    private pendingSessionTitles = new Map<string, string>();
+    private sessionTitleSaveInFlight = new Set<string>();
     private entries: SessionEntry[] = [];
     private hasTitled = false;
     private isStreaming = false;
@@ -122,6 +200,7 @@ export class AgentChat extends Model {
     private currentAssistantEntryId = "";
     private currentThinkingEntryId = "";
     private currentTurnID = "";
+    private currentRoundID = "";
     private recoveryCommitTurnIDs = new Map<string, string>();
     private pendingRecoverySessionIDs = new Set<string>();
     private recoveryInFlightSessionIDs = new Set<string>();
@@ -141,38 +220,38 @@ export class AgentChat extends Model {
     private requestStartTime = 0;
     private tokenDisplayEl: HTMLElement;
     private defaultTitle = "";
-    private currentToolCalls: Array<{ name: string; arguments: Record<string, unknown>; result?: string }> = [];
+    private currentToolCalls: AgentToolCall[] = [];
     private toolCallStartedAt = new Map<string, number>();
     private abortController: AbortController | null = null;
+    private sessionRuns = new AgentSessionRuns<PendingAgentInteraction, ISSEResult, AgentSessionRunViewState>();
+    private sessionViewChange = Promise.resolve();
     private currentThinkingText = "";
     private currentThinkingReasoning = "";
     private currentThinkingReasoningContent = "";
     private editingUserEntryID = "";
     private editingComposer: ReturnType<typeof mountComposer> | null = null;
     private pendingEditDraft: { entryID: string; data: AgentComposerData } | null = null;
-    // thinking step 只保留工具名列表（去重：arguments/result 仅在 assistant entry 存一份），
+    // thinking step 只保留工具名与调用 ID（去重：arguments/result 仅在 assistant entry 存一份），
     // 不再保存 text（"已思考：Xs" 由 i18n 在渲染时从 duration 生成）。
-    private currentThinkingSteps: Array<{
-        reasoning: string;
-        reasoningContent: string;
-        toolNames?: string[];
-        content?: string
-    }> = [];
+    private currentThinkingSteps: AgentThinkingStep[] = [];
     // 当前请求的思考耗时（秒）。持久化为 entry.duration，"已思考"文本不落盘。
     private currentThinkingDuration = 0;
-    private currentThinkingStepContent = "";
     private pendingConfirms: SessionEntry[] = [];
     private renderedToolNames: Record<string, boolean> = {};
     private hasInterveningCard = false;
     private modelSelect: HTMLButtonElement;
     private groupedModelPicker?: IGroupedModelPicker;
     private selectedModel: string;
+    private defaultModelID = "";
     private modelOptions: Array<{ id: string; name: string }> = [];
     // 推理努力度（iconBrain + 菜单），仅实例记忆，刷新后回到默认。
     private reasoningEffortButton: HTMLButtonElement;
     private selectedReasoningEffort = "";
+    private permissionButton: HTMLButtonElement;
+    private permissionMode: AgentPermissionMode = "confirm";
     private userScrolledUp = false;
     private programmaticScroll = false;
+    private programmaticScrollGeneration = 0;
     private stickResizeObserver: ResizeObserver | null = null;
     // 按会话保存的距底部距离（scrollHeight - scrollTop），用于切换会话与开关 dock 面板后恢复滚动位置。
     // 用距底距离而非绝对 scrollTop：dock 展开/折叠有宽高过渡，期间 scrollHeight 变化，
@@ -214,8 +293,8 @@ export class AgentChat extends Model {
             type: "agentChat",
             msgCallback: (data) => this.onWsMessage(data),
         });
-        // AI 配置保存走本地 patch（aiRuntime.ts 写 window.siyuan.config.ai）不广播 ws，
-        // 故用两种方式兜底：window focus（跨窗口）+ MutationObserver 监听设置对话框关闭（同窗口即时）。
+        // AI 配置保存后主动刷新模型列表；window focus 和设置对话框关闭监听用于兜底其他配置更新入口。
+        window.addEventListener(AI_CONFIG_CHANGED_EVENT, this.checkConfigChangedHandler);
         window.addEventListener("focus", this.checkConfigChangedHandler);
         // 设置对话框是 SiYuan 内部模态，关闭时 window 不失焦，focus 事件不触发。
         // 监听 body 子节点变化，当含 .config__panel 的设置 dialog 被移除时即时刷新。
@@ -231,34 +310,22 @@ export class AgentChat extends Model {
         this.checkConfigChanged();
     };
 
-    // 比较 window.siyuan.config.ai 实际可用模型数与缓存 modelOptions，不一致则刷新。
+    // 比较 window.siyuan.config.ai 的实际可用模型及默认模型与缓存，不一致则刷新。
     // 仅当处于欢迎页（无会话内容）时重渲染，以便从无模型提示块切回示例或反之；
     // 有会话内容时不重绘（避免破坏对话），refreshModelOptions 内已刷新 trigger 显示。
     private checkConfigChanged() {
-        const actualCount = AgentChat.countUsableModels(window.siyuan.config.ai);
-        if (actualCount === this.modelOptions.length) {
+        const actualOptions = getUsableAgentModels(window.siyuan.config.ai);
+        const actualDefaultModelID = getAgentDefaultModelID(window.siyuan.config.ai, actualOptions);
+        const optionsChanged = actualOptions.length !== this.modelOptions.length || actualOptions.some((option, index) =>
+            option.id !== this.modelOptions[index].id || option.name !== this.modelOptions[index].name);
+        const defaultChanged = actualDefaultModelID !== this.defaultModelID;
+        if (!optionsChanged && !defaultChanged) {
             return;
         }
-        this.refreshModelOptions();
+        this.refreshModelOptions(defaultChanged && this.entries.length === 0);
         if (this.entries.length === 0 && this.messagesContainer.querySelector(".agent-welcome")) {
             this.showWelcome();
         }
-    }
-
-    // 与 refreshModelOptions / 后端 HasAnyProvider() 一致的"可用模型"计数。
-    private static countUsableModels(aiConfig: Config.IAI): number {
-        let count = 0;
-        for (const prov of aiConfig.providers || []) {
-            if (!prov.enabled) {
-                continue;
-            }
-            for (const m of prov.models) {
-                if (m.enabled && (m.displayName || m.name)) {
-                    count++;
-                }
-            }
-        }
-        return count;
     }
 
     private initUI() {
@@ -295,6 +362,9 @@ export class AgentChat extends Model {
             '<div class="agent-chat__composer-host"></div>' +
             '<div class="agent-chat__buttons">' +
             '<div class="agent-chat__button-options">' +
+            '<button class="b3-select b3-select--noborder agent-chat__permission ariaLabel" data-menu="true" data-position="n" type="button">' +
+            '<svg class="agent-chat__permission-icon"><use xlink:href="#iconShieldCheck"></use></svg>' +
+            '<span class="agent-chat__permission-label"></span></button>' +
             '<span class="fn__flex-1"></span>' +
             '<span class="agent-chat__tokens fn__none b3-button b3-button--icon b3-button--cancel" aria-label="' + (L.tokenUsage || "Context Usage") + '">' +
             '<svg viewBox="0 0 24 24">' +
@@ -303,15 +373,17 @@ export class AgentChat extends Model {
             "</svg>" +
             "</span>" +
             '<button class="b3-select b3-select--noborder agent-chat__model-picker" data-type="groupedModelPicker" data-group="agent" data-model-id="" data-menu="true" type="button">' +
-            '<span class="agent-chat__model-picker-label" data-type="groupedModelPickerLabel"></span>' +
-            '<svg class="agent-chat__model-picker-arrow"><use xlink:href="#iconDown"></use></svg></button>' +
+            '<svg class="agent-chat__model-picker-icon"><use xlink:href="#iconAtom"></use></svg>' +
+            '<span class="agent-chat__model-picker-label" data-type="groupedModelPickerLabel"></span></button>' +
             '<button class="b3-select b3-select--noborder agent-chat__reasoning-effort ariaLabel" data-menu="true" aria-label="' +
             (L.reasoningEffortTooltip || "Reasoning effort") + '" type="button">' +
             '<svg class="agent-chat__reasoning-effort-icon"><use xlink:href="#iconBrain"></use></svg>' +
-            '<span class="agent-chat__reasoning-effort-label"></span>' +
-            '<svg class="agent-chat__reasoning-effort-arrow"><use xlink:href="#iconDown"></use></svg></button>' +
+            '<span class="agent-chat__reasoning-effort-label"></span></button>' +
             "</div>" +
-            '<button class="agent-chat__send b3-button b3-button--icon b3-button--text ariaLabel" aria-label="' + (L.agentSend || "Send") + '"><svg><use xlink:href="#iconSend"></use></svg></button>' +
+            '<button class="agent-chat__send b3-button b3-button--icon b3-button--text ariaLabel" aria-label="' +
+            escapeAriaLabel((L.agentSend || "Send") +
+                updateHotkeyAfterTip(window.siyuan.config.keymap.general.agentSend.custom)) +
+            '"><svg><use xlink:href="#iconSend"></use></svg></button>' +
             '<button class="agent-chat__stop b3-button b3-button--icon b3-button--cancel fn__none ariaLabel" aria-label="' + (L.agentStop || "Stop") + '"><svg><use xlink:href="#iconSquareStop"></use></svg></button>' +
             "</div>" +
             "</div>" +
@@ -327,6 +399,8 @@ export class AgentChat extends Model {
         this.tokenDisplayEl = panel.querySelector(".agent-chat__tokens") as HTMLElement;
         this.modelSelect = panel.querySelector('[data-type="groupedModelPicker"]') as HTMLButtonElement;
         this.reasoningEffortButton = panel.querySelector(".agent-chat__reasoning-effort") as HTMLButtonElement;
+        this.permissionButton = panel.querySelector(".agent-chat__permission") as HTMLButtonElement;
+        this.initPermissionMenu();
         this.initReasoningEffortMenu();
         this.scrollBottomBtn = panel.querySelector(".agent-chat__scroll-bottom") as HTMLElement;
         this.messagesContainer.addEventListener("scroll", () => {
@@ -341,17 +415,7 @@ export class AgentChat extends Model {
             if (this.programmaticScroll) {
                 return;
             }
-            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-            // Hysteresis: only mark as scrolled-up when clearly above bottom (>=60),
-            // and only return to sticky when really at the bottom (<=10).
-            // This prevents the follow state from rapidly toggling while streaming
-            // causes scrollHeight to grow asynchronously.
-            if (!this.userScrolledUp) {
-                this.userScrolledUp = distanceFromBottom >= 60;
-            } else if (distanceFromBottom <= 10) {
-                this.userScrolledUp = false;
-            }
-            this.scrollBottomBtn.classList.toggle("agent-chat__scroll-bottom--visible", this.userScrolledUp);
+            this.syncScrollState("user");
             this.updateActiveMarker();
         }, {passive: true});
 
@@ -366,7 +430,6 @@ export class AgentChat extends Model {
             // 内容变化时刷新发送按钮可用性（含用户输入、IME、程序化 clear 等所有 doc 变更）。
             this.updateSendButtonState();
         }, {
-            submitMode: this.host.mobile ? "mod-enter" : "enter",
             placeholder: this.host.mobile ? this.mobileComposerPlaceholder() : undefined,
         });
         // 块拖拽由 protyle 统一处理（复制块/引用/嵌入块→引用），无需自定义 drop handler。
@@ -379,26 +442,34 @@ export class AgentChat extends Model {
                 onSwitch: (id) => this.switchSession(id),
                 onDelete: (id) => this.deleteSession(id),
                 onRename: async (id, title) => {
+                    const sessionRunning = !!this.sessionRuns.get(id);
                     if (id === this.sessionId) {
                         this.sessionTitle = title;
                         this.titleElement.textContent = title;
                         // 当前轮次开始前后都依赖同一个内容修订号。流式中只更新本地标题，
                         // 由终止提交一并落盘，避免元数据保存抢先递增修订号。
-                        if (this.isStreaming || this.currentTurnID) {
+                        if (sessionRunning || this.isStreaming || this.currentTurnID) {
                             this.pendingSessionTitle = title;
+                            this.pendingSessionTitles.set(id, title);
                             return;
                         }
+                    } else if (sessionRunning) {
+                        this.pendingSessionTitles.set(id, title);
+                        return;
                     }
+                    this.pendingSessionTitles.delete(id);
                     await SessionStore.rename(id, title);
                 },
+                getStatus: (id) => this.sessionRuns.resolveStatus(id),
+                getTitle: (id) => this.pendingSessionTitles.get(id),
                 onClose: this.host.mobile ? this.host.close : undefined,
             },
             !!this.host.mobile,
         );
         // 监听滚动容器尺寸：dock 面板折叠时容器尺寸归零、浏览器把 scrollTop 钳制到 0；
-        // 这里在面板重新展开后恢复当前会话的滚动位置。dock 展开/折叠有 CSS 宽高过渡（约 0.2s），
-        // 过渡期间 scrollHeight 随尺寸变化，故在折叠→展开转换后用 rAF 循环持续校正约 320ms，
-        // 覆盖过渡动画直到布局稳定。
+        // 面板重新展开后恢复当前会话的滚动位置，普通尺寸变化则重新校验按钮状态。
+        // dock 展开/折叠有 CSS 宽高过渡（约 0.2s），过渡期间 scrollHeight 随尺寸变化，
+        // 故在折叠→展开转换后用 rAF 循环持续校正约 320ms，覆盖过渡动画直到布局稳定。
         this.layoutResizeObserver = new ResizeObserver(() => {
             const collapsed = this.messagesContainer.clientWidth === 0 || this.messagesContainer.clientHeight === 0;
             if (collapsed) {
@@ -410,6 +481,10 @@ export class AgentChat extends Model {
                 this.layoutVisible = true;
                 const saved = this.scrollBottomBySession.get(this.sessionId) ?? 0;
                 this.restoreScrollToBottom(saved);
+                return;
+            }
+            if (!this.programmaticScroll) {
+                this.syncScrollState("reconcile");
             }
         });
         this.layoutResizeObserver.observe(this.messagesContainer);
@@ -493,30 +568,15 @@ export class AgentChat extends Model {
 
     // 从 window.siyuan.config.ai 重新计算可用模型列表，幂等可重复调用。
     // 与后端 HasAnyProvider()/GetModel() 判定一致：provider 和 model 均需 enabled。
-    // 零模型时显式置空 selectedModel（避免 undefined 透传到后端），失效选择自动重置。
-    refreshModelOptions() {
-        const aiConfig = window.siyuan.config.ai;
-        const newOptions: Array<{ id: string; name: string }> = [];
-        for (const prov of aiConfig.providers || []) {
-            if (!prov.enabled) {
-                continue;
-            }
-            for (const m of prov.models) {
-                if (!m.enabled) {
-                    continue;
-                }
-                const displayName = m.displayName || m.name;
-                if (!displayName) {
-                    continue;
-                }
-                newOptions.push({id: m.id || m.name, name: displayName});
-            }
-        }
+    // 零模型时显式置空 selectedModel（避免 undefined 透传到后端），新会话及失效选择使用有效默认模型。
+    refreshModelOptions(resetToDefault = false) {
+        const newOptions = getUsableAgentModels(window.siyuan.config.ai);
+        this.defaultModelID = getAgentDefaultModelID(window.siyuan.config.ai, newOptions);
         this.modelOptions = newOptions;
-        // 若当前选择已失效（不在新列表中），则重置：有模型取第一个，无模型显式置空。
+        // 新会话使用默认模型；当前选择失效时也回退到有效默认模型。
         const stillValid = this.selectedModel && newOptions.some(o => o.id === this.selectedModel);
-        if (!stillValid) {
-            this.selectedModel = newOptions.length > 0 ? newOptions[0].id : "";
+        if (resetToDefault || !stillValid) {
+            this.selectedModel = this.defaultModelID;
         }
         this.updateModelLabel();
         this.updateSendButtonState();
@@ -528,6 +588,74 @@ export class AgentChat extends Model {
 
     private getSelectedModel(): string {
         return this.selectedModel;
+    }
+
+    // 会话权限菜单显示后端当前状态，并允许在当前轮次中即时切换后续操作的确认策略。
+    private permissionLabel(mode = this.permissionMode) {
+        const L = window.siyuan.languages;
+        return mode === "allowSession" ?
+            (L.agentPermissionAllowSession || "Auto approve for this session") :
+            (L.agentPermissionFollowApprovalSettings || "Follow approval settings");
+    }
+
+    private applyPermissionMode(mode: AgentPermissionMode) {
+        this.permissionMode = mode;
+        const label = this.permissionLabel();
+        const labelElement = this.permissionButton.querySelector(".agent-chat__permission-label");
+        if (labelElement) {
+            labelElement.textContent = label;
+        }
+        const L = window.siyuan.languages;
+        this.permissionButton.setAttribute("aria-label", L.agentPermission || "Permission");
+    }
+
+    private async changePermissionMode(mode: AgentPermissionMode) {
+        if (mode === this.permissionMode) {
+            return;
+        }
+        const sessionID = this.sessionId;
+        if (this.entries.length === 0) {
+            this.applyPermissionMode(mode);
+            return;
+        }
+        this.permissionButton.disabled = true;
+        try {
+            const persistedMode = await SessionStore.setPermission(sessionID, mode);
+            if (this.sessionId === sessionID) {
+                this.applyPermissionMode(persistedMode);
+            }
+        } catch (e) {
+            console.error("update agent session permission failed:", e);
+            showMessage(window.siyuan.languages._kernel[28], 3000, "error");
+        } finally {
+            if (this.sessionId === sessionID) {
+                this.permissionButton.disabled = false;
+            }
+        }
+    }
+
+    private initPermissionMenu() {
+        this.applyPermissionMode(this.permissionMode);
+        this.permissionButton.addEventListener("click", (event: MouseEvent) => {
+            event.stopPropagation();
+            const menu = new Menu("agent-chat-permission");
+            if (menu.isOpen) {
+                return;
+            }
+            (["confirm", "allowSession"] as AgentPermissionMode[]).forEach(mode => {
+                menu.addItem({
+                    iconHTML: "",
+                    label: escapeHtml(this.permissionLabel(mode)),
+                    current: mode === this.permissionMode,
+                    click: () => {
+                        void this.changePermissionMode(mode);
+                    },
+                });
+            });
+            const rect = this.permissionButton.getBoundingClientRect();
+            menu.element.style.minWidth = `${rect.width}px`;
+            menu.open({x: rect.left, y: rect.bottom, h: rect.height, w: rect.width, target: this.permissionButton});
+        });
     }
 
     // 初始化思考强度菜单：提供各供应商使用的标准档位，选择结果仅在当前实例中生效。
@@ -557,7 +685,7 @@ export class AgentChat extends Model {
             });
             const rect = this.reasoningEffortButton.getBoundingClientRect();
             menu.element.style.minWidth = `${Math.max(rect.width, 120)}px`;
-            menu.open({x: rect.left, y: rect.bottom, h: rect.height, w: rect.width});
+            menu.open({x: rect.left, y: rect.bottom, h: rect.height, w: rect.width, target: this.reasoningEffortButton});
         });
     }
 
@@ -597,44 +725,40 @@ export class AgentChat extends Model {
                     this.rebuildNavMarkers();
                     this.tryGenerateTitle();
                     this.setStreaming(true);
-                    try {
-                        await this.saveSession();
-                    } catch (e) {
-                        this.rollbackUserEntry(userEntryId);
-                        this.setStreaming(false);
-                        await this.reloadFromDisk();
-                        return;
-                    }
-                    this.abortController = new AbortController();
-                    const requestSessionId = this.sessionId;
                     this.requestStartTime = Date.now();
                     this.currentThinkingDuration = 0;
                     this.currentTurnID = "";
-                    await fetchAgentSSE(text, window.siyuan.config.appearance.lang, [],
-                        (event: ISSEResult) => {
-                            if (this.sessionId !== requestSessionId) {
-                                return;
-                            }
-                            return this.handleSSEEvent(event);
-                        },
-                        (err: Error) => {
-                            if (this.sessionId !== requestSessionId) {
-                                return;
-                            }
-                            if (err instanceof AgentHttpError && err.status === 409) {
-                                return this.handleConflictReject();
-                            }
-                            return this.handleConfigError(err, userEntryId);
-                        },
-                        this.abortController.signal,
-                        this.sessionId,
-                        this.getSelectedModel(),
-                        this.selectedReasoningEffort,
-                        undefined,
-                        undefined,
-                        undefined,
-                        userEntryId,
-                        SessionStore.getRevision(this.sessionId));
+                    this.currentRoundID = "";
+                    const selectedModel = this.getSelectedModel();
+                    const reasoningEffort = this.selectedReasoningEffort;
+                    const run = this.beginSessionRun();
+                    try {
+                        await this.saveSession();
+                    } catch (e) {
+                        this.discardSessionRun(run);
+                        if (this.sessionId === run.sessionID) {
+                            this.rollbackUserEntry(userEntryId);
+                            await this.reloadFromDisk();
+                        }
+                        return;
+                    }
+                    void this.sessionPanel?.refresh();
+                    try {
+                        await fetchAgentSSE(text, window.siyuan.config.appearance.lang, [],
+                            (event: ISSEResult) => this.handleSessionRunEvent(run, event),
+                            (err: Error) => this.handleSessionRunError(run, err, userEntryId),
+                            run.controller.signal,
+                            run.sessionID,
+                            selectedModel,
+                            reasoningEffort,
+                            undefined,
+                            undefined,
+                            undefined,
+                            userEntryId,
+                            SessionStore.getRevision(run.sessionID));
+                    } finally {
+                        await this.finishSessionRun(run);
+                    }
                 }
             });
         });
@@ -814,9 +938,6 @@ export class AgentChat extends Model {
             }
         });
         this.scrollBottomBtn.addEventListener("click", () => {
-            // 程序化滚动期间会忽略 scroll 事件，点击时需主动退出“用户已向上滚动”状态并隐藏按钮。
-            this.userScrolledUp = false;
-            this.scrollBottomBtn.classList.remove("agent-chat__scroll-bottom--visible");
             this.scrollToBottom(true, true);
         });
     }
@@ -830,6 +951,8 @@ export class AgentChat extends Model {
         this.sessionTitle = this.defaultTitle;
         this.pendingSessionTitle = null;
         this.entries = [];
+        this.refreshModelOptions(true);
+        this.applyPermissionMode("confirm");
         this.showWelcome();
         this.scrollToBottom(true);
     }
@@ -855,11 +978,15 @@ export class AgentChat extends Model {
             updatedAt: Date.now(),
             messageHistory: this.composer?.getHistory() || [],
             model: this.getSelectedModel(),
+            permissionMode: this.permissionMode,
         };
         if (turnID) {
             session.commitTurnID = turnID;
         }
         const result = await SessionStore.save(session);
+        if (this.pendingSessionTitles.get(sessionID) === session.title) {
+            this.pendingSessionTitles.delete(sessionID);
+        }
         if (turnID && this.recoveryCommitTurnIDs.get(sessionID) === turnID) {
             this.recoveryCommitTurnIDs.delete(sessionID);
         }
@@ -881,6 +1008,420 @@ export class AgentChat extends Model {
         return result.session ?? null;
     }
 
+    private beginSessionRun(): ManagedAgentSessionRun {
+        const run = this.sessionRuns.begin(this.sessionId);
+        this.abortController = run.controller;
+        this.sessionRuns.markRead(this.sessionId);
+        this.updateHostRunStatus();
+        this.updateSendButtonState();
+        void this.sessionPanel?.refresh();
+        return run;
+    }
+
+    private detachSessionRun(sessionID: string): boolean {
+        const run = this.sessionRuns.get(sessionID);
+        if (!run) {
+            return false;
+        }
+        this.sessionRuns.detach(sessionID);
+        this.pendingRecoverySessionIDs.add(sessionID);
+        if (this.abortController === run.controller) {
+            this.abortController = null;
+        }
+        this.updateHostRunStatus();
+        this.updateSendButtonState();
+        void this.sessionPanel?.refresh();
+        return true;
+    }
+
+    private snapshotSessionRunState(run: ManagedAgentSessionRun) {
+        this.flushTokenUpdate();
+        this.flushReasoningUpdate();
+        run.viewState = {
+            entries: this.entries,
+            hasTitled: this.hasTitled,
+            currentAIElement: this.currentAIElement,
+            currentAssistantEntryId: this.currentAssistantEntryId,
+            currentThinkingEntryId: this.currentThinkingEntryId,
+            currentRoundID: this.currentRoundID,
+            currentContent: this.currentContent,
+            fullContent: this.fullContent,
+            contextTokens: this.contextTokens,
+            contextTokenBreakdown: this.contextTokenBreakdown,
+            contextCachedTokens: this.contextCachedTokens,
+            contextLimit: this.contextLimit,
+            requestStartTime: this.requestStartTime,
+            currentToolCalls: this.currentToolCalls,
+            toolCallStartedAt: this.toolCallStartedAt,
+            currentThinkingText: this.currentThinkingText,
+            currentThinkingReasoning: this.currentThinkingReasoning,
+            currentThinkingReasoningContent: this.currentThinkingReasoningContent,
+            currentThinkingSteps: this.currentThinkingSteps,
+            currentThinkingDuration: this.currentThinkingDuration,
+            pendingConfirms: this.pendingConfirms,
+            renderedToolNames: this.renderedToolNames,
+            hasInterveningCard: this.hasInterveningCard,
+            lastStepToolCount: this.lastStepToolCount,
+            permissionMode: this.permissionMode,
+        };
+    }
+
+    private prepareSessionRunForDetach(run: ManagedAgentSessionRun) {
+        this.flushTokenUpdate();
+        this.flushReasoningUpdate();
+        if (this.currentContent.trim()) {
+            this.finishActiveThinking();
+            this.flushThinkingStep();
+        } else {
+            this.stopThinkingTimer();
+        }
+        this.snapshotSessionRunState(run);
+    }
+
+    private captureSessionRunView(run: ManagedAgentSessionRun) {
+        if (!run.viewState) {
+            return;
+        }
+        const view = document.createDocumentFragment();
+        this.observeStickTarget(null);
+        while (this.messagesContainer.firstChild) {
+            view.appendChild(this.messagesContainer.firstChild);
+        }
+        run.viewState.view = view;
+    }
+
+    private restoreSessionRunState(run: ManagedAgentSessionRun): boolean {
+        const state = run.viewState;
+        if (!state) {
+            return false;
+        }
+        this.observeStickTarget(null);
+        if (state.view?.hasChildNodes()) {
+            this.messagesContainer.innerHTML = "";
+            this.messagesContainer.appendChild(state.view);
+        }
+        this.entries = state.entries;
+        this.hasTitled = state.hasTitled;
+        this.currentAIElement = state.currentAIElement;
+        this.currentAssistantEntryId = state.currentAssistantEntryId;
+        this.currentThinkingEntryId = state.currentThinkingEntryId;
+        this.currentRoundID = state.currentRoundID;
+        this.currentContent = state.currentContent;
+        this.fullContent = state.fullContent;
+        this.contextTokens = state.contextTokens;
+        this.contextTokenBreakdown = state.contextTokenBreakdown;
+        this.contextCachedTokens = state.contextCachedTokens;
+        this.contextLimit = state.contextLimit;
+        this.requestStartTime = state.requestStartTime;
+        this.currentToolCalls = state.currentToolCalls;
+        this.toolCallStartedAt = state.toolCallStartedAt;
+        this.currentThinkingText = state.currentThinkingText;
+        this.currentThinkingReasoning = state.currentThinkingReasoning;
+        this.currentThinkingReasoningContent = state.currentThinkingReasoningContent;
+        this.currentThinkingSteps = state.currentThinkingSteps;
+        this.currentThinkingDuration = state.currentThinkingDuration;
+        this.pendingConfirms = state.pendingConfirms;
+        this.renderedToolNames = state.renderedToolNames;
+        this.hasInterveningCard = state.hasInterveningCard;
+        this.lastStepToolCount = state.lastStepToolCount;
+        this.applyPermissionMode(state.permissionMode);
+        run.viewState = undefined;
+        this.updateTokenDisplay();
+        this.rebuildNavMarkers();
+        return true;
+    }
+
+    private persistPendingSessionTitle(sessionID: string) {
+        const title = this.pendingSessionTitles.get(sessionID);
+        if (!title || this.sessionTitleSaveInFlight.has(sessionID)) {
+            return;
+        }
+        this.sessionTitleSaveInFlight.add(sessionID);
+        void SessionStore.rename(sessionID, title).then(() => {
+            if (this.pendingSessionTitles.get(sessionID) === title) {
+                this.pendingSessionTitles.delete(sessionID);
+            }
+            return this.sessionPanel?.refresh();
+        }).catch((e) => {
+            console.error("save background agent title failed:", e);
+        }).finally(() => {
+            this.sessionTitleSaveInFlight.delete(sessionID);
+            const nextTitle = this.pendingSessionTitles.get(sessionID);
+            if (nextTitle && nextTitle !== title) {
+                this.persistPendingSessionTitle(sessionID);
+            }
+        });
+    }
+
+    private interactionKey(event: PendingAgentInteraction): string {
+        return event.type === "confirm" ? `confirm:${event.confirmID}` : `question:${event.questionID}`;
+    }
+
+    private queueRunInteraction(run: ManagedAgentSessionRun, event: PendingAgentInteraction,
+                                notify = true) {
+        const key = this.interactionKey(event);
+        if (!run.pendingInteractions.some(item => this.interactionKey(item) === key)) {
+            run.pendingInteractions.push(event);
+            if (notify) {
+                if (this.host.notify) {
+                    this.host.notify("confirm");
+                } else if (!document.hasFocus() || document.hidden) {
+                    const L = window.siyuan.languages;
+                    sendNotification({title: L.agentNotifyConfirm, body: "", timeoutType: "default"});
+                }
+            }
+        }
+    }
+
+    private removeRunInteraction(sessionID: string, type: PendingAgentInteraction["type"], id: string) {
+        const run = this.sessionRuns.get(sessionID);
+        if (!run) {
+            return;
+        }
+        const key = `${type}:${id}`;
+        run.pendingInteractions = run.pendingInteractions.filter(item => this.interactionKey(item) !== key);
+        run.renderedInteractionKeys.delete(key);
+    }
+
+    private async renderRunInteraction(run: ManagedAgentSessionRun, event: PendingAgentInteraction) {
+        if (this.sessionId !== run.sessionID || !run.interactionViewReady) {
+            return;
+        }
+        const key = this.interactionKey(event);
+        if (run.renderedInteractionKeys.has(key)) {
+            return;
+        }
+        run.renderedInteractionKeys.add(key);
+        this.removeMirrorPlaceholder();
+        if (event.type === "confirm") {
+            await this.appendConfirm(event.name, event.arguments, event.confirmID, event.effects, event.forced, false);
+        } else {
+            this.appendQuestion(event.questionID, event.arguments, event.roundID);
+        }
+    }
+
+    private async renderPendingRunInteractions(run: ManagedAgentSessionRun) {
+        for (const event of run.pendingInteractions) {
+            await this.renderRunInteraction(run, event);
+        }
+    }
+
+    private async processSessionRunView(run: ManagedAgentSessionRun, task: () => Promise<void>) {
+        const processingPromise = task();
+        run.processingPromise = processingPromise;
+        try {
+            await processingPromise;
+        } finally {
+            if (run.processingPromise === processingPromise) {
+                run.processingPromise = undefined;
+            }
+        }
+    }
+
+    private async waitForSessionRunView(run: ManagedAgentSessionRun) {
+        const pending = [run.processingPromise, run.replayPromise].filter(Boolean) as Promise<void>[];
+        await Promise.all(pending.map(promise => promise.catch(() => undefined)));
+    }
+
+    private async handleSessionRunError(run: ManagedAgentSessionRun, err: Error, userEntryId?: string,
+                                        restoreSession = false) {
+        if (run.detached || this.sessionId !== run.sessionID) {
+            return;
+        }
+        await this.processSessionRunView(run, async () => {
+            if (err instanceof AgentHttpError && err.status === 409) {
+                await this.handleConflictReject();
+                return;
+            }
+            await this.handleConfigError(err, userEntryId, restoreSession);
+        });
+    }
+
+    private enqueueSessionRunEvent(run: ManagedAgentSessionRun, event: ISSEResult) {
+        if (this.sessionRuns.get(run.sessionID) !== run) {
+            return;
+        }
+        const lastIndex = run.pendingEvents.length - 1;
+        const lastEvent = run.pendingEvents[lastIndex];
+        if (event.type === "content" && lastEvent?.type === "content") {
+            run.pendingEvents[lastIndex] = {...lastEvent, token: lastEvent.token + event.token};
+            return;
+        }
+        if (event.type === "reasoning" && lastEvent?.type === "reasoning") {
+            run.pendingEvents[lastIndex] = {...lastEvent, token: lastEvent.token + event.token};
+            return;
+        }
+        this.sessionRuns.enqueue(run, event);
+    }
+
+    private async handleSessionRunEvent(run: ManagedAgentSessionRun, event: ISSEResult) {
+        if (event.type === "turn") {
+            run.turnID = event.turnID;
+        }
+        if (!run.detached && !run.replaying && this.sessionId === run.sessionID) {
+            if (event.type === "confirm" || event.type === "question") {
+                this.queueRunInteraction(run, event, false);
+                run.renderedInteractionKeys.add(this.interactionKey(event));
+            }
+            await this.processSessionRunView(run, () => this.handleSSEEvent(event));
+            return;
+        }
+        if (event.type === "browser_capability_call") {
+            await this.handleBrowserCapabilityCall(event.callID, event.capabilityID, event.generation, event.arguments);
+            return;
+        }
+        if (event.type === "confirm" || event.type === "question") {
+            this.queueRunInteraction(run, event, this.sessionId !== run.sessionID);
+            return;
+        }
+        this.enqueueSessionRunEvent(run, event);
+    }
+
+    private async finishSessionRun(run: ManagedAgentSessionRun) {
+        const replayPromise = run.replayPromise;
+        if (replayPromise) {
+            await replayPromise;
+        }
+        const current = this.sessionId === run.sessionID;
+        const detached = run.detached;
+        const attached = current && run.interactionViewReady;
+        if (!this.sessionRuns.complete(run, detached && !attached)) {
+            return;
+        }
+        if (this.abortController === run.controller) {
+            this.abortController = null;
+        }
+        this.updateHostRunStatus();
+        this.updateSendButtonState();
+        void this.sessionPanel?.refresh();
+        if (!detached) {
+            return;
+        }
+        this.pendingRecoverySessionIDs.add(run.sessionID);
+        if (attached) {
+            const pendingTitle = this.pendingSessionTitles.get(run.sessionID);
+            if (pendingTitle) {
+                this.sessionTitle = pendingTitle;
+                this.pendingSessionTitle = pendingTitle;
+                this.titleElement.textContent = pendingTitle;
+            }
+            this.currentTurnID = run.turnID;
+            this.setStreaming(false);
+            this.removeMirrorPlaceholder();
+            void this.recoverInterruptedTurn(run.sessionID, run.turnID).then(() => {
+                if (!this.pendingSessionTitles.has(run.sessionID)) {
+                    return;
+                }
+                if (this.sessionId === run.sessionID && !this.isCurrentSessionRunning() &&
+                    !this.pendingRecoverySessionIDs.has(run.sessionID) && !this.currentTurnID) {
+                    void this.saveSession();
+                } else if (this.sessionId !== run.sessionID) {
+                    this.persistPendingSessionTitle(run.sessionID);
+                }
+            });
+        } else {
+            this.persistPendingSessionTitle(run.sessionID);
+            if (this.host.notify) {
+                this.host.notify("done");
+            } else if (!document.hasFocus() || document.hidden) {
+                const L = window.siyuan.languages;
+                sendNotification({title: L.agentNotifyDone, timeoutType: "default"});
+            }
+        }
+    }
+
+    private discardSessionRun(run: ManagedAgentSessionRun) {
+        this.sessionRuns.complete(run, false);
+        if (this.abortController === run.controller) {
+            this.abortController = null;
+        }
+        if (this.sessionId === run.sessionID) {
+            this.setStreaming(false);
+        }
+        this.updateHostRunStatus();
+        this.updateSendButtonState();
+        void this.sessionPanel?.refresh();
+    }
+
+    private hasUnrenderedRunInteraction(run: ManagedAgentSessionRun): boolean {
+        return run.pendingInteractions.some(event => !run.renderedInteractionKeys.has(this.interactionKey(event)));
+    }
+
+    private async replaySessionRun(run: ManagedAgentSessionRun) {
+        run.replaying = true;
+        this.restoreSessionRunState(run);
+        run.interactionViewReady = true;
+        this.abortController = run.controller;
+        this.currentTurnID = run.turnID;
+        this.removeMirrorPlaceholder();
+        this.setStreaming(true);
+        try {
+            while (this.sessionId === run.sessionID && run.interactionViewReady &&
+                this.sessionRuns.get(run.sessionID) === run) {
+                const events = this.sessionRuns.drain(run);
+                for (const event of events) {
+                    if (event.type === "content" && !this.currentContent.trim() &&
+                        this.messagesContainer.querySelector(
+                            ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)")) {
+                        this.finishActiveThinking();
+                        this.flushThinkingStep();
+                    }
+                    await this.handleSSEEvent(event);
+                    if (this.sessionId !== run.sessionID || !run.interactionViewReady ||
+                        this.sessionRuns.get(run.sessionID) !== run) {
+                        return;
+                    }
+                }
+                await this.renderPendingRunInteractions(run);
+                if (run.pendingEvents.length === 0 && !this.hasUnrenderedRunInteraction(run)) {
+                    run.detached = false;
+                    const activeThinking = this.messagesContainer.querySelector(
+                        ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)"
+                    );
+                    if (this.isStreaming && activeThinking) {
+                        this.startThinkingTimer();
+                    }
+                    return;
+                }
+            }
+        } finally {
+            run.replaying = false;
+            if (this.sessionId !== run.sessionID || !run.interactionViewReady) {
+                run.detached = true;
+                run.interactionViewReady = false;
+            }
+        }
+    }
+
+    private attachSessionRun(run: ManagedAgentSessionRun) {
+        if (this.sessionRuns.get(run.sessionID) !== run) {
+            if (this.sessionId === run.sessionID && this.pendingRecoverySessionIDs.has(run.sessionID)) {
+                void this.recoverInterruptedTurn(run.sessionID, run.turnID);
+            }
+            return;
+        }
+        if (run.replayPromise) {
+            return;
+        }
+        const replayPromise = this.replaySessionRun(run).catch((e) => {
+            console.error("replay background agent events failed:", e);
+        });
+        run.replayPromise = replayPromise;
+        void replayPromise.finally(() => {
+            if (run.replayPromise === replayPromise) {
+                run.replayPromise = undefined;
+            }
+        });
+    }
+
+    private updateHostRunStatus() {
+        this.host.onStatusChange?.(this.isStreaming || this.sessionRuns.hasRunning() ? "running" : "idle");
+    }
+
+    private isCurrentSessionRunning(): boolean {
+        return this.isStreaming || this.mirrorLocked || !!this.sessionRuns.get(this.sessionId);
+    }
+
     // 处理 ws 推送的跨实例会话变更通知。核心时序控制：
     // - streamStart：其他实例开始流式。立即从磁盘拉取一次（发起者发消息时已把 user 消息落盘），
     //   让本轮用户新消息尽快可见，然后进入占位锁定显示"AI 回复生成中"。
@@ -888,6 +1429,7 @@ export class AgentChat extends Model {
     //   只包含已完成历史和交互卡片，不会把半截 assistant 文本当成最终结果。
     // - streamEnd：后端 eventCh 关闭（流结束），只解除占位锁定；已提交内容由 saveSession 的 update
     //   同步，未提交内容由后端紧随其后的恢复 update 同步。
+    // - permission：只刷新当前会话权限，不重绘正在流式生成的消息。
     // - delete：当前会话被删除则清空视图。
     private onWsMessage(data: IWebSocketData) {
         if (!data || data.cmd !== "agentSessionChanged") {
@@ -903,6 +1445,14 @@ export class AgentChat extends Model {
         if (payload.sessionID !== this.sessionId) {
             return;
         }
+        if (payload.action === "permission") {
+            void SessionStore.load(payload.sessionID).then(session => {
+                if (session && this.sessionId === payload.sessionID) {
+                    this.applyPermissionMode(session.permissionMode || "confirm");
+                }
+            });
+            return;
+        }
         // 发起者自身流式中忽略（它走 SSE 自渲染）。
         if (this.isStreaming) {
             return;
@@ -911,12 +1461,16 @@ export class AgentChat extends Model {
             case "streamStart":
                 // 标记处于其他实例流式中，reloadFromDisk 重绘后会据此保留占位条。
                 this.mirrorLocked = true;
+                this.updateRegenerateButtons();
+                this.updateSendButtonState();
                 // 立即拉取一次：发起者发消息时已 saveSession 写入 user 消息，让本轮新消息尽快可见。
                 void this.reloadFromDisk();
                 break;
             case "streamEnd":
                 // 流结束，解除占位锁定并移除占位条。不重绘——完整内容由随后的 update 广播驱动。
                 this.mirrorLocked = false;
+                this.updateRegenerateButtons();
+                this.updateSendButtonState();
                 this.removeMirrorPlaceholder();
                 this.restorePendingEditDraft();
                 break;
@@ -932,23 +1486,26 @@ export class AgentChat extends Model {
                 break;
             case "delete":
                 this.mirrorLocked = false;
+                this.updateSendButtonState();
                 this.handleCurrentSessionDeleted();
                 break;
         }
     }
 
     // 显示"其他实例正在对话中…"只读占位条。不进入 setStreaming 态（不切换 stop 按钮、不置灰 composer）。
-    private showMirrorPlaceholder() {
+    private showMirrorPlaceholder(localRun = false) {
         if (this.mirrorPlaceholderEl) {
             return;
         }
         this.removeMirrorPlaceholder();
         const L = window.siyuan.languages;
+        const message = localRun ? (L.agentThinking || "Thinking") :
+            (L.agentMirrorStreaming || "Another instance is chatting...");
         const el = document.createElement("div");
         el.className = "agent-chat__msg agent-chat__msg--mirror";
         el.innerHTML = '<div class="agent-chat__body agent-chat__body--mirror">' +
             '<span class="agent-chat__mirror-spinner"></span>' +
-            "<span>" + escapeHtml(L.agentMirrorStreaming || "Another instance is chatting...") + "</span>" +
+            "<span>" + escapeHtml(message) + "</span>" +
             "</div>";
         this.messagesContainer.appendChild(el);
         this.mirrorPlaceholderEl = el;
@@ -959,6 +1516,7 @@ export class AgentChat extends Model {
         if (this.mirrorPlaceholderEl) {
             this.mirrorPlaceholderEl.remove();
             this.mirrorPlaceholderEl = null;
+            this.syncScrollState("reconcile");
         }
     }
 
@@ -988,10 +1546,10 @@ export class AgentChat extends Model {
             this.currentContent = "";
             this.fullContent = "";
             this.currentToolCalls = [];
+            this.currentRoundID = "";
             this.pendingConfirms = [];
             this.currentThinkingSteps = [];
             this.currentThinkingEntryId = "";
-            this.currentThinkingStepContent = "";
             this.currentThinkingText = "";
             this.currentThinkingReasoning = "";
             this.currentThinkingReasoningContent = "";
@@ -1008,7 +1566,7 @@ export class AgentChat extends Model {
         if (atBottom) {
             this.scrollToBottom(true);
         } else {
-            this.messagesContainer.scrollTop = savedScroll;
+            this.restoreScrollTop(savedScroll);
         }
         // 重绘会清空 DOM（含占位条）；若仍处于其他实例的流式中，重新显示占位条。
         if (this.mirrorLocked) {
@@ -1109,6 +1667,7 @@ export class AgentChat extends Model {
         if (session.model) {
             this.applySessionModelIfValid(session.model);
         }
+        this.applyPermissionMode(session.permissionMode || "confirm");
         this.titleElement.textContent = this.sessionTitle;
         this.updateTokenDisplay();
     }
@@ -1136,13 +1695,17 @@ export class AgentChat extends Model {
         const deletedSessionID = this.sessionId;
         this.removeMirrorPlaceholder();
         this.entries = [];
+        this.refreshModelOptions(true);
         this.sessionId = SessionStore.newSessionId();
         this.currentTurnID = "";
+        this.currentRoundID = "";
         this.sessionCreatedAt = Date.now();
         this.sessionTitle = this.defaultTitle;
         this.pendingSessionTitle = null;
+        this.applyPermissionMode("confirm");
         this.pendingRecoverySessionIDs.delete(deletedSessionID);
         this.recoveryCommitTurnIDs.delete(deletedSessionID);
+        this.pendingSessionTitles.delete(deletedSessionID);
         this.hasTitled = false;
         this.currentAIElement = null;
         this.currentContent = "";
@@ -1156,32 +1719,68 @@ export class AgentChat extends Model {
         this.scrollToBottom(true);
     }
 
-    private async switchSession(id: string) {
+    private enqueueSessionViewChange(task: () => Promise<void>): Promise<void> {
+        const change = this.sessionViewChange.then(task);
+        this.sessionViewChange = change.catch((e) => {
+            console.error("change agent session view failed:", e);
+        });
+        return change;
+    }
+
+    private switchSession(id: string): Promise<void> {
+        return this.enqueueSessionViewChange(() => this.performSwitchSession(id));
+    }
+
+    private async performSwitchSession(id: string) {
+        if (id === this.sessionId) {
+            return;
+        }
         this.destroyEditingComposer();
         this.pendingEditDraft = null;
         const previousSessionID = this.sessionId;
-        const hadActiveTurn = this.isStreaming || !!this.currentTurnID;
+        const previousRun = this.sessionRuns.get(previousSessionID);
+        const hadActiveTurn = !!previousRun || this.isStreaming || !!this.currentTurnID;
         if (hadActiveTurn) {
             this.pendingRecoverySessionIDs.add(previousSessionID);
-            if (this.abortController) {
-                this.abortController.abort();
-                this.abortController = null;
-            }
         }
+        if (previousRun) {
+            this.detachSessionRun(previousSessionID);
+            await this.waitForSessionRunView(previousRun);
+        }
+        this.abortController = null;
         this.setStreaming(false);
         this.mirrorLocked = false;
         this.removeMirrorPlaceholder();
-        this.finishActiveThinking();
-        this.flushThinkingStep();
+        if (previousRun) {
+            this.prepareSessionRunForDetach(previousRun);
+        } else {
+            this.finishActiveThinking();
+            this.flushThinkingStep();
+        }
         if (!hadActiveTurn && !this.pendingRecoverySessionIDs.has(this.sessionId)) {
             await this.saveSession();
         }
         const session = await SessionStore.load(id);
         if (!session) {
+            if (previousRun) {
+                this.sessionRuns.markRead(previousSessionID);
+                this.attachSessionRun(previousRun);
+                void this.sessionPanel?.refresh();
+            }
             return;
         }
         this.sessionId = session.id;
-        this.currentTurnID = "";
+        this.sessionRuns.markRead(session.id);
+        void this.sessionPanel?.refresh();
+        const sessionRun = this.sessionRuns.get(session.id);
+        const pendingTitle = this.pendingSessionTitles.get(session.id);
+        if (pendingTitle) {
+            session.title = pendingTitle;
+            session.titled = true;
+        }
+        this.currentTurnID = sessionRun?.turnID || "";
+        this.currentRoundID = "";
+        this.mirrorLocked = !!session.agentRunning && !sessionRun;
         if (session.recoveryTurnID) {
             this.recoveryCommitTurnIDs.set(session.id, session.recoveryTurnID);
         } else {
@@ -1193,13 +1792,27 @@ export class AgentChat extends Model {
         }
         this.sessionCreatedAt = session.createdAt || Date.now();
         this.sessionTitle = session.title;
-        this.pendingSessionTitle = null;
+        this.pendingSessionTitle = pendingTitle || null;
         this.titleElement.textContent = session.title || this.defaultTitle;
         this.entries = this.buildEntriesFromSession(session);
         this.hasTitled = session.titled !== false;
         this.currentAIElement = null;
+        this.currentAssistantEntryId = "";
+        this.currentThinkingEntryId = "";
         this.currentContent = "";
         this.fullContent = "";
+        this.currentToolCalls = [];
+        this.pendingConfirms = [];
+        this.currentThinkingSteps = [];
+        this.currentThinkingText = "";
+        this.currentThinkingReasoning = "";
+        this.currentThinkingReasoningContent = "";
+        this.currentThinkingDuration = 0;
+        this.requestStartTime = 0;
+        this.toolCallStartedAt = new Map<string, number>();
+        this.lastStepToolCount = 0;
+        this.renderedToolNames = {};
+        this.hasInterveningCard = false;
         this.contextTokens = session.contextTokens ?? 0;
         this.contextTokenBreakdown = session.contextTokenBreakdown ?? {};
         this.contextCachedTokens = session.contextCachedTokens ?? 0;
@@ -1207,29 +1820,70 @@ export class AgentChat extends Model {
         if (session.model) {
             this.applySessionModelIfValid(session.model);
         }
+        this.applyPermissionMode(session.permissionMode || "confirm");
         if (this.tokenDisplayEl) {
             this.updateTokenDisplay();
         }
-        this.messagesContainer.classList.add("agent-chat__messages--switching");
-        this.messagesContainer.addEventListener("transitionend", () => {
-            this.messagesContainer.innerHTML = "";
-            this.titleElement.textContent = session.title;
-            this.renderLoadedSession(session);
-            this.rebuildNavMarkers();
-            // 恢复该会话上次的滚动位置；新会话（无记录）默认贴底。
-            if (this.scrollBottomBySession.has(session.id)) {
-                this.restoreScrollToBottom(this.scrollBottomBySession.get(session.id) ?? 0);
-            } else {
-                this.scrollToBottom(true);
-            }
-            this.messagesContainer.classList.remove("agent-chat__messages--switching");
-            if (this.pendingRecoverySessionIDs.has(session.id)) {
-                void this.recoverInterruptedTurn(session.id);
-            }
-        }, {once: true});
+        await new Promise<void>((resolve, reject) => {
+            let finished = false;
+            let fallbackTimer = 0;
+            const finish = () => {
+                if (finished) {
+                    return;
+                }
+                finished = true;
+                window.clearTimeout(fallbackTimer);
+                this.messagesContainer.removeEventListener("transitionend", onTransitionEnd);
+                try {
+                    if (this.sessionId !== session.id) {
+                        resolve();
+                        return;
+                    }
+                    if (previousRun) {
+                        this.captureSessionRunView(previousRun);
+                    }
+                    this.messagesContainer.innerHTML = "";
+                    this.titleElement.textContent = session.title;
+                    this.renderLoadedSession(session);
+                    this.rebuildNavMarkers();
+                    // 恢复该会话上次的滚动位置；新会话（无记录）默认贴底。
+                    if (this.scrollBottomBySession.has(session.id)) {
+                        this.restoreScrollToBottom(this.scrollBottomBySession.get(session.id) ?? 0);
+                    } else {
+                        this.scrollToBottom(true);
+                    }
+                    const activeRun = this.sessionRuns.get(session.id);
+                    if (activeRun) {
+                        this.attachSessionRun(activeRun);
+                    } else if (this.mirrorLocked) {
+                        this.showMirrorPlaceholder();
+                    } else {
+                        this.setStreaming(false);
+                    }
+                    if (!activeRun && this.pendingRecoverySessionIDs.has(session.id)) {
+                        void this.recoverInterruptedTurn(session.id);
+                    } else if (!activeRun && session.agentRunning && !this.mirrorLocked) {
+                        void this.reloadFromDisk(true);
+                    }
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                } finally {
+                    this.messagesContainer.classList.remove("agent-chat__messages--switching");
+                }
+            };
+            const onTransitionEnd = (event: TransitionEvent) => {
+                if (event.target === this.messagesContainer && event.propertyName === "opacity") {
+                    finish();
+                }
+            };
+            this.messagesContainer.addEventListener("transitionend", onTransitionEnd);
+            this.messagesContainer.classList.add("agent-chat__messages--switching");
+            fallbackTimer = window.setTimeout(finish, 250);
+        });
     }
 
-    private appendPersistedAssistant(content: string, timestamp?: number, entryId?: string) {
+    private appendPersistedAssistant(content: string, timestamp?: number, entryId?: string, showActions = true) {
         if (!content || !content.trim()) {
             return;
         }
@@ -1241,29 +1895,45 @@ export class AgentChat extends Model {
         el.innerHTML = '<div class="agent-chat__body b3-typography">' + (this.lute.ProtylePreviewStr("", content) || escapeHtml(content)) + "</div>";
         this.messagesContainer.appendChild(el);
         postRender(el, this.app, this.host.onNavigate);
-        this.addCopyButton(el, content, timestamp);
+        if (showActions) {
+            this.addCopyButton(el, content, timestamp);
+        }
+    }
+
+    private createTodoElement(result: string, entryId?: string) {
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--tool";
+        if (entryId) {
+            el.setAttribute("data-message-id", entryId);
+        }
+        el.innerHTML = renderTodoList(result);
+        return el;
+    }
+
+    private appendPersistedTodo(result: string, entryId?: string) {
+        if (!result) {
+            return;
+        }
+        this.messagesContainer.appendChild(this.createTodoElement(result, entryId));
     }
 
     private appendPersistedToolCalls(content: string, toolCalls: Array<{
         name: string;
         arguments: Record<string, unknown>;
         result?: string
-    }>, timestamp?: number, entryId?: string) {
+    }>, timestamp?: number, entryId?: string, showActions = true) {
         let hasRendered = false;
         for (let i = 0; i < toolCalls.length; i++) {
             const tc = toolCalls[i];
             if (tc.result && tc.name === "todo_write") {
-                const rel = document.createElement("div");
-                rel.className = "agent-chat__msg agent-chat__msg--tool";
                 // todo 卡片是 assistant entry 的附属展示，不单独持有 entryId
                 // （entryId 属于后续的 AI 消息元素），避免多个 todo 共享同一 id。
-                rel.innerHTML = renderTodoList(tc.result);
-                this.messagesContainer.appendChild(rel);
+                this.appendPersistedTodo(tc.result);
                 hasRendered = true;
             }
         }
         if (content && content.trim()) {
-            this.appendPersistedAssistant(content, timestamp, entryId);
+            this.appendPersistedAssistant(content, timestamp, entryId, showActions);
             hasRendered = true;
         }
         if (!hasRendered) {
@@ -1311,19 +1981,29 @@ export class AgentChat extends Model {
     // 持久化前精简 toolCalls：question 工具的完整 questions 参数已由独立的 question entry 存储，
     // assistant entry 的 toolCalls 里只需保留工具名和结果（供 LLM 上下文恢复），避免重复存储。
     private slimToolCallsForPersistence(toolCalls: Array<{
+        id?: string;
+        name: string;
+        roundID?: string;
+        arguments: Record<string, unknown>;
+        result?: string
+    }>): Array<{
+        id?: string;
         name: string;
         arguments: Record<string, unknown>;
         result?: string
-    }>): Array<{ name: string; arguments: Record<string, unknown>; result?: string }> {
+    }> {
         return toolCalls.map(tc => {
+            let args = tc.arguments;
             if (tc.name === "question" && tc.arguments && tc.arguments.questions) {
-                const slim = {...tc};
-                const slimArgs = {...tc.arguments};
-                delete slimArgs.questions;
-                slim.arguments = slimArgs;
-                return slim;
+                args = {...tc.arguments};
+                delete args.questions;
             }
-            return tc;
+            return {
+                id: tc.id,
+                name: tc.name,
+                arguments: args,
+                result: tc.result,
+            };
         });
     }
 
@@ -1372,8 +2052,9 @@ export class AgentChat extends Model {
 
     private renderLoadedSession(session: AgentSession) {
         this.destroyEditingComposer();
-        for (let i = 0; i < session.entries.length; i++) {
-            const entry = session.entries[i];
+        const displayEntries = buildAgentPresentationEntries(session.entries || []) as SessionEntry[];
+        for (let i = 0; i < displayEntries.length; i++) {
+            const entry = displayEntries[i];
             const entryId = (entry as { id?: string }).id;
             switch (entry.type) {
                 case "user":
@@ -1388,6 +2069,7 @@ export class AgentChat extends Model {
                             steps: Array<{
                                 reasoning: string;
                                 reasoningContent?: string;
+                                roundID?: string;
                                 toolNames?: string[];
                                 toolCalls?: Array<{ name: string; result?: string }>;
                                 text?: string;
@@ -1398,6 +2080,7 @@ export class AgentChat extends Model {
                         const normSteps = rawEntry.steps.map(s => ({
                             reasoning: s.reasoning || "",
                             reasoningContent: s.reasoningContent || "",
+                            roundID: s.roundID,
                             toolNames: (s.toolNames && s.toolNames.length > 0)
                                 ? s.toolNames
                                 : (s.toolCalls ? s.toolCalls.map(t => t.name) : undefined),
@@ -1423,13 +2106,17 @@ export class AgentChat extends Model {
                         toolCalls?: Array<{ name: string; arguments: Record<string, unknown>; result?: string }>;
                         timestamp?: number
                     };
+                    const showActions = isAgentAssistantContentFinalInTurn(displayEntries, i);
                     if (a.toolCalls && a.toolCalls.length > 0) {
-                        this.appendPersistedToolCalls(a.content, a.toolCalls, a.timestamp, entryId);
+                        this.appendPersistedToolCalls(a.content, a.toolCalls, a.timestamp, entryId, showActions);
                     } else {
-                        this.appendPersistedAssistant(a.content, a.timestamp, entryId);
+                        this.appendPersistedAssistant(a.content, a.timestamp, entryId, showActions);
                     }
                     break;
                 }
+                case "todo":
+                    this.appendPersistedTodo((entry as { result: string }).result, entryId);
+                    break;
                 case "confirm":
                     this.appendPersistedConfirm(entry as unknown as {
                         id?: string;
@@ -1489,28 +2176,40 @@ export class AgentChat extends Model {
         return [];
     }
 
-    private async createSession() {
+    private createSession(): Promise<void> {
+        return this.enqueueSessionViewChange(() => this.performCreateSession());
+    }
+
+    private async performCreateSession() {
         this.destroyEditingComposer();
         this.pendingEditDraft = null;
         const previousSessionID = this.sessionId;
-        const hadActiveTurn = this.isStreaming || !!this.currentTurnID;
+        const previousRun = this.sessionRuns.get(previousSessionID);
+        const hadActiveTurn = !!previousRun || this.isStreaming || !!this.currentTurnID;
         if (hadActiveTurn) {
             this.pendingRecoverySessionIDs.add(previousSessionID);
         }
-        if (this.abortController) {
-            this.abortController.abort();
-            this.abortController = null;
+        if (previousRun) {
+            this.detachSessionRun(previousSessionID);
+            await this.waitForSessionRunView(previousRun);
         }
+        this.abortController = null;
         this.setStreaming(false);
         this.mirrorLocked = false;
         this.removeMirrorPlaceholder();
-        this.finishActiveThinking();
-        this.flushThinkingStep();
+        if (previousRun) {
+            this.prepareSessionRunForDetach(previousRun);
+        } else {
+            this.finishActiveThinking();
+            this.flushThinkingStep();
+        }
         if (!hadActiveTurn && !this.pendingRecoverySessionIDs.has(this.sessionId)) {
             await this.saveSession();
         }
         this.sessionId = SessionStore.newSessionId();
+        this.sessionRuns.markRead(this.sessionId);
         this.currentTurnID = "";
+        this.currentRoundID = "";
         this.sessionCreatedAt = Date.now();
         if (this.composer) {
             this.composer.clearHistory();
@@ -1518,8 +2217,12 @@ export class AgentChat extends Model {
         this.sessionTitle = this.defaultTitle;
         this.pendingSessionTitle = null;
         this.entries = [];
+        this.refreshModelOptions(true);
+        this.applyPermissionMode("confirm");
         this.hasTitled = false;
         this.currentAIElement = null;
+        this.currentAssistantEntryId = "";
+        this.currentThinkingEntryId = "";
         this.currentContent = "";
         this.fullContent = "";
         this.contextTokens = 0;
@@ -1527,15 +2230,23 @@ export class AgentChat extends Model {
         this.contextCachedTokens = 0;
         this.contextLimit = 0;
         this.currentToolCalls = [];
+        this.toolCallStartedAt = new Map<string, number>();
+        this.currentThinkingText = "";
+        this.currentThinkingReasoning = "";
+        this.currentThinkingReasoningContent = "";
+        this.currentThinkingDuration = 0;
+        this.requestStartTime = 0;
         this.lastStepToolCount = 0;
         this.renderedToolNames = {};
         this.hasInterveningCard = false;
         if (this.tokenDisplayEl) {
             this.tokenDisplayEl.classList.add("fn__none");
         }
+        if (previousRun) {
+            this.captureSessionRunView(previousRun);
+        }
         this.messagesContainer.innerHTML = "";
         this.currentThinkingSteps = [];
-        this.currentThinkingStepContent = "";
         this.pendingConfirms = [];
         this.rebuildNavMarkers();
         this.titleElement.textContent = this.defaultTitle;
@@ -1552,8 +2263,8 @@ export class AgentChat extends Model {
     }
 
     private async deleteSession(id: string) {
-        if (id === this.sessionId && (this.isStreaming || !!this.currentTurnID ||
-            this.pendingRecoverySessionIDs.has(id))) {
+        if (this.sessionRuns.get(id) || (id === this.sessionId && (this.isStreaming || !!this.currentTurnID ||
+            this.pendingRecoverySessionIDs.has(id)))) {
             const L = window.siyuan.languages;
             showMessage(L.agentChatBusy || "This session is busy in another instance", 3000);
             return;
@@ -1577,6 +2288,7 @@ export class AgentChat extends Model {
         }
         this.pendingRecoverySessionIDs.delete(id);
         this.recoveryCommitTurnIDs.delete(id);
+        this.pendingSessionTitles.delete(id);
     }
 
     private async sendMessage() {
@@ -1588,8 +2300,8 @@ export class AgentChat extends Model {
         const blockHTML = sendData.blockHTML;
         const refs = sendData.references;
         const editorContext = this.captureEditorContext();
-        const pluginActions = this.getPluginActions();
-        if (!text || this.isStreaming || this.modelOptions.length === 0) {
+        const frontendCapabilities = listCapabilityManifests();
+        if (!text || this.isCurrentSessionRunning() || this.modelOptions.length === 0) {
             return;
         }
         if (!await this.prepareForNewTurn()) {
@@ -1599,7 +2311,10 @@ export class AgentChat extends Model {
         this.setStreaming(true);
         this.clearThinking();
         this.hasInterveningCard = false;
+        this.currentRoundID = "";
         this.composer.clear();
+        const selectedModel = this.getSelectedModel();
+        const reasoningEffort = this.selectedReasoningEffort;
 
         const userEntryId = SessionStore.newSessionId();
         this.entries.push({
@@ -1620,53 +2335,43 @@ export class AgentChat extends Model {
         if (this.composer) {
             this.composer.pushHistory(text);
         }
-        try {
-            await this.saveSession();
-        } catch (e) {
-            this.rollbackUserEntry(userEntryId);
-            this.setStreaming(false);
-            await this.reloadFromDisk();
-            return;
-        }
-
         this.requestStartTime = Date.now();
         this.currentThinkingDuration = 0;
         this.currentTurnID = "";
+        this.currentRoundID = "";
+        const run = this.beginSessionRun();
+        try {
+            await this.saveSession();
+        } catch (e) {
+            this.discardSessionRun(run);
+            if (this.sessionId === run.sessionID) {
+                this.rollbackUserEntry(userEntryId);
+                await this.reloadFromDisk();
+            }
+            return;
+        }
+        void this.sessionPanel?.refresh();
 
-        this.abortController = new AbortController();
-        const requestSessionId = this.sessionId;
-
-        await fetchAgentSSE(
-            text,
-            window.siyuan.config.appearance.lang,
-            refs,
-            (event: ISSEResult) => {
-                if (this.sessionId !== requestSessionId) {
-                    return;
-                }
-                return this.handleSSEEvent(event);
-            },
-            (err: Error) => {
-                if (this.sessionId !== requestSessionId) {
-                    return;
-                }
-                // 409：该会话正在其他实例对话中（实例级互斥）。重载磁盘权威状态，不进入流式。
-                if (err instanceof AgentHttpError && err.status === 409) {
-                    this.handleConflictReject();
-                    return;
-                }
-                return this.handleConfigError(err, userEntryId);
-            },
-            this.abortController.signal,
-            this.sessionId,
-            this.getSelectedModel(),
-            this.selectedReasoningEffort,
-            undefined,
-            editorContext,
-            pluginActions,
-            userEntryId,
-            SessionStore.getRevision(this.sessionId),
-        );
+        try {
+            await fetchAgentSSE(
+                text,
+                window.siyuan.config.appearance.lang,
+                refs,
+                (event: ISSEResult) => this.handleSessionRunEvent(run, event),
+                (err: Error) => this.handleSessionRunError(run, err, userEntryId),
+                run.controller.signal,
+                run.sessionID,
+                selectedModel,
+                reasoningEffort,
+                undefined,
+                editorContext,
+                frontendCapabilities,
+                userEntryId,
+                SessionStore.getRevision(run.sessionID),
+            );
+        } finally {
+            await this.finishSessionRun(run);
+        }
     }
 
     // 实例级互斥被拒（409）说明另一实例已在本轮保存之后抢先启动。此时磁盘可能已有对方的新消息，
@@ -1800,12 +2505,6 @@ export class AgentChat extends Model {
         /// #endif
     }
 
-    private getPluginActions() {
-        return listActions()
-            .filter(action => action.name.startsWith("plugin__") && action.description)
-            .map(action => ({name: action.name, description: action.description as string}));
-    }
-
     private readEditorContext(editor: {
         protyle: {
             block?: { id?: string; rootID?: string };
@@ -1896,19 +2595,28 @@ export class AgentChat extends Model {
                     this.appendToken(event.token);
                     break;
                 case "thinking":
-                    this.appendThinking(event.reasoning);
+                    this.appendThinking(event.reasoning, event.roundID || "");
                     break;
                 case "tool_call":
-                    this.currentToolCalls.push({name: event.name, arguments: event.arguments});
+                    this.currentToolCalls.push({
+                        id: event.callID,
+                        name: event.name,
+                        roundID: event.roundID || this.currentRoundID || undefined,
+                        arguments: event.arguments,
+                    });
                     this.appendToolCall(event.name);
                     break;
                 case "confirm":
                     this.setToolCallRunning(event.name, false);
-                    this.appendConfirm(event.name, event.arguments, event.confirmID, event.effects);
+                    this.appendConfirm(event.name, event.arguments, event.confirmID, event.effects, event.forced);
+                    break;
+                case "permission":
+                    this.applyPermissionMode(event.permissionMode);
                     break;
                 case "tool_result":
                     {
-                        const toolCall = this.currentToolCalls.find((item) => item.name === event.name && item.result === undefined);
+                        const toolCall = this.currentToolCalls.find((item) =>
+                            item.result === undefined && (event.callID ? item.id === event.callID : item.name === event.name));
                         if (toolCall) {
                             toolCall.result = event.result;
                         }
@@ -1944,19 +2652,24 @@ export class AgentChat extends Model {
                     this.appendRetry(event.attempt, event.maxRetries);
                     break;
                 case "question":
-                    this.appendQuestion(event.questionID, event.arguments);
+                    this.appendQuestion(event.questionID, event.arguments, event.roundID);
                     break;
                 case "reasoning":
                     this.appendReasoning(event.token);
                     break;
                 case "snapshot": {
                     const snapshotEntryId = SessionStore.newSessionId();
-                    this.entries.push({id: snapshotEntryId, type: "snapshot", snapshotID: event.snapshotID});
+                    this.entries.push({
+                        id: snapshotEntryId,
+                        type: "snapshot",
+                        snapshotID: event.snapshotID,
+                        roundID: event.roundID,
+                    });
                     this.appendSnapshotInfo(event.snapshotID, snapshotEntryId);
                 }
                     break;
-                case "frontend_tool_call":
-                    this.handleFrontendToolCall(event.callID, event.arguments);
+                case "browser_capability_call":
+                    this.handleBrowserCapabilityCall(event.callID, event.capabilityID, event.generation, event.arguments);
                     break;
             }
         } catch (e) {
@@ -2100,16 +2813,12 @@ export class AgentChat extends Model {
         el.insertAdjacentHTML("beforeend", actionsHTML);
         el.querySelector(".agent-chat__user-copy")?.addEventListener("click", (e) => {
             e.stopPropagation();
-            navigator.clipboard.writeText(text).then(() => {
-                showMessage(window.siyuan.languages.copied, 2000);
-            }).catch(() => {
-                showMessage(window.siyuan.languages.copied, 2000);
-            });
+            void copyAgentText(text);
         });
         const edit = (force = false) => {
             const selection = window.getSelection();
             const selectingMessageText = selection && !selection.isCollapsed && el.contains(selection.anchorNode);
-            if (!entryId || this.isStreaming || this.mirrorLocked || (!force && selectingMessageText)) {
+            if (!entryId || this.isCurrentSessionRunning() || (!force && selectingMessageText)) {
                 return;
             }
             this.beginEditUserMessage(entryId, el);
@@ -2145,7 +2854,7 @@ export class AgentChat extends Model {
     }
 
     private beginEditUserMessage(entryID: string, el: HTMLElement, initialData?: AgentComposerData) {
-        if (this.editingUserEntryID || this.isStreaming || this.mirrorLocked) {
+        if (this.editingUserEntryID || this.isCurrentSessionRunning()) {
             return;
         }
         const entry = this.entries.find((item): item is UserEntry => item.type === "user" && item.id === entryID);
@@ -2200,7 +2909,6 @@ export class AgentChat extends Model {
         }, undefined, {
             initialContent: initialData?.text ?? entry.content,
             initialBlockHTML: initialData?.blockHTML ?? entry.blockHTML,
-            submitMode: "mod-enter",
             onCancel: restore,
             enableHistory: false,
         });
@@ -2224,39 +2932,15 @@ export class AgentChat extends Model {
     private pendingTokenUpdate = false;
     private pendingReasoningUpdate = false;
     private rafId = 0;
+    private reasoningRafId = 0;
+    private pendingReasoningElement: Element | null = null;
 
     private appendToken(token: string) {
-        this.currentContent += token;
-        this.fullContent += token;
-
-        const thinkBody = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-body");
-        if (thinkBody) {
-            let chatEl = thinkBody.querySelector(".agent-chat__thinking-chat--streaming") as HTMLElement;
-            if (!chatEl) {
-                chatEl = document.createElement("div");
-                chatEl.className = "agent-chat__thinking-chat b3-typography agent-chat__thinking-chat--streaming";
-                thinkBody.appendChild(chatEl);
-            }
-            if (!this.pendingTokenUpdate) {
-                this.pendingTokenUpdate = true;
-                // 用 RAF 合并更新（与普通 AI 消息一致），减少重建频率。
-                // 流式期间用 textContent 写纯文本，富渲染推迟到完成时，避免每帧重解析整段 markdown。
-                this.rafId = requestAnimationFrame(() => {
-                    this.pendingTokenUpdate = false;
-                    chatEl.textContent = this.currentContent;
-                    const body = chatEl.closest(".agent-chat__thinking-body") as HTMLElement | null;
-                    if (body) {
-                        body.scrollTop = body.scrollHeight;
-                    }
-                    this.scrollToBottom();
-                });
-            }
-            return;
-        }
-
         if (!this.currentAIElement) {
             this.currentAIElement = this.createAIMessagePlaceholder();
         }
+        this.currentContent += token;
+        this.fullContent += token;
 
         if (!this.pendingTokenUpdate) {
             this.pendingTokenUpdate = true;
@@ -2277,17 +2961,6 @@ export class AgentChat extends Model {
         if (this.pendingTokenUpdate) {
             this.pendingTokenUpdate = false;
             cancelAnimationFrame(this.rafId);
-            // 思考卡片流式：更新 chatEl 并滚到底部（与 appendToken 思考分支一致）。
-            // 与 appendToken 一致用 textContent，富渲染由 finishResponse 完成时统一处理。
-            const thinkChat = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-chat--streaming") as HTMLElement;
-            if (thinkChat) {
-                thinkChat.textContent = this.currentContent;
-                const thinkBody = thinkChat.parentElement;
-                if (thinkBody) {
-                    thinkBody.scrollTop = thinkBody.scrollHeight;
-                }
-                return;
-            }
             const bodyEl = this.currentAIElement?.querySelector(".agent-chat__body") as HTMLElement;
             if (bodyEl) {
                 bodyEl.textContent = this.currentContent;
@@ -2343,10 +3016,11 @@ export class AgentChat extends Model {
         if (stillRunning) {
             return;
         }
+        const sessionID = this.sessionId;
         const startedAt = this.toolCallStartedAt.get(name);
         const remaining = startedAt ? Math.max(600 - (Date.now() - startedAt), 0) : 0;
         window.setTimeout(() => {
-            if (this.toolCallStartedAt.get(name) !== startedAt ||
+            if (this.sessionId !== sessionID || this.toolCallStartedAt.get(name) !== startedAt ||
                 this.currentToolCalls.some((item) => item.name === name && item.result === undefined)) {
                 return;
             }
@@ -2360,42 +3034,74 @@ export class AgentChat extends Model {
             return;
         }
 
-        const el = document.createElement("div");
-        el.className = "agent-chat__msg agent-chat__msg--tool";
-        el.setAttribute("data-message-id", SessionStore.newSessionId());
-        el.innerHTML = renderTodoList(result);
+        const el = this.createTodoElement(result, SessionStore.newSessionId());
         this.insertBeforeAI(el);
         this.scrollToBottom(true);
         this.hasInterveningCard = true;
     }
 
-    private appendThinking(reasoning: string) {
-        const L = window.siyuan.languages;
-        if (this.currentThinkingText) {
-            // step 不保存 text（渲染时由 duration 经 i18n 生成）。
-            // toolNames 只取本轮新增的工具（lastStepToolCount 之后的），
-            // 避免累积重复历史工具——完整的 arguments/result 在 assistant entry 存一份。
-            const toolNames = this.currentToolCalls.slice(this.lastStepToolCount).map(function (t) {
-                return t.name;
-            });
-            this.currentThinkingSteps.push({
-                reasoning: this.currentThinkingReasoning,
-                reasoningContent: this.currentThinkingReasoningContent,
-                toolNames: toolNames.length > 0 ? toolNames : undefined,
-            });
-            this.lastStepToolCount = this.currentToolCalls.length;
+    private finishVisibleRound() {
+        if (!this.currentContent.trim()) {
+            return;
         }
+        this.flushTokenUpdate();
+        const content = this.currentContent;
+        const timestamp = Date.now();
+        const assistantEntryID = this.currentAssistantEntryId || SessionStore.newSessionId();
+        const roundID = this.currentRoundID || this.currentToolCalls[0]?.roundID;
+
+        // 新一轮思考开始前结束上一张思考卡片，使正文位于两轮思考之间，而不是回填进折叠区。
+        this.currentThinkingText = "";
+        this.finishActiveThinking();
+        this.flushThinkingStep();
+        if (this.currentAIElement) {
+            this.finalizeStreamingBody(content, timestamp, false);
+        } else {
+            this.appendPersistedAssistant(content, timestamp, assistantEntryID, false);
+        }
+        this.entries.push({
+            id: assistantEntryID,
+            type: "assistant",
+            content,
+            roundID,
+            toolCalls: this.currentToolCalls.length > 0
+                ? this.slimToolCallsForPersistence(this.currentToolCalls)
+                : undefined,
+            timestamp,
+        });
+
+        this.currentAIElement = null;
+        this.observeStickTarget(null);
+        this.currentAssistantEntryId = "";
+        this.currentContent = "";
+        this.fullContent = "";
+        this.currentToolCalls = [];
+        this.currentRoundID = "";
+        this.lastStepToolCount = 0;
+        this.renderedToolNames = {};
+        this.currentThinkingDuration = 0;
+        this.requestStartTime = Date.now();
+    }
+
+    private appendThinking(reasoning: string, roundID: string) {
+        const L = window.siyuan.languages;
+        this.flushReasoningUpdate();
+        this.collectCurrentThinkingStep();
+        this.finishVisibleRound();
+        // 工具名只在当前思考步骤内去重，新步骤仍需显示同名工具调用。
+        this.renderedToolNames = {};
         this.currentThinkingText = "";
         this.currentThinkingReasoning = reasoning;
         this.currentThinkingReasoningContent = "";
+        this.currentRoundID = roundID;
         const text = L.agentThinking || "Thinking";
 
         this.currentThinkingText = text;
 
         let detailLines = "";
-        if (reasoning === "processing" && this.currentToolCalls.length > 0) {
+        if (reasoning === "processing" && this.currentToolCalls.length > this.lastStepToolCount) {
             const newTools: Array<{ name: string; running: boolean }> = [];
-            for (let i = 0; i < this.currentToolCalls.length; i++) {
+            for (let i = this.lastStepToolCount; i < this.currentToolCalls.length; i++) {
                 const tc = this.currentToolCalls[i];
                 if (!this.renderedToolNames[tc.name]) {
                     this.renderedToolNames[tc.name] = true;
@@ -2411,51 +3117,27 @@ export class AgentChat extends Model {
             }
         }
 
-        if (reasoning === "processing" && this.currentAIElement) {
-            if (this.currentContent) {
-                const bodyEl = this.currentAIElement.querySelector(".agent-chat__body") as HTMLElement;
-                if (bodyEl) {
-                    bodyEl.classList.remove("agent-chat__body--streaming");
-                }
-                this.attachStepContent(this.currentContent);
-                this.currentAIElement.remove();
-            } else {
-                this.currentAIElement.remove();
-            }
-            this.currentAIElement = null;
-            this.currentAssistantEntryId = "";
-            this.currentContent = "";
-        } else if (reasoning === "processing" && this.currentContent) {
-            this.attachStepContent(this.currentContent);
-            this.currentContent = "";
-            const streamingEl = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-chat--streaming") as HTMLElement;
-            if (streamingEl) {
-                streamingEl.classList.remove("agent-chat__thinking-chat--streaming");
-            }
-        }
-
         if (reasoning === "processing" && this.hasInterveningCard) {
-            const L = window.siyuan.languages;
             // 与 finishActiveThinking 对齐：先把本张思考卡片的耗时算出来，
             // 既用于 DOM 显示「已思考 Xs」，也用于落盘 entry.duration（重载后仍能显示正确耗时）。
             const durSec = this.currentThinkingDuration ||
                 (this.requestStartTime ? (Date.now() - this.requestStartTime) / 1000 : 0);
             this.currentThinkingDuration = durSec;
-            const doneText = durSec > 0
-                ? (L.agentThinkingDoneTime ? L.agentThinkingDoneTime.replace("%s", Math.round(durSec) + "s") : (L.agentThinking || "Thinking"))
-                : (L.agentThinking || "Thinking");
+            const doneText = this.formatThinkingHeader(durSec);
             const oldCards = this.messagesContainer.querySelectorAll(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)");
             for (let i = 0; i < oldCards.length; i++) {
                 const card = oldCards[i] as HTMLElement;
+                const body = card.querySelector(".agent-chat__thinking-body");
+                if (!body?.textContent?.trim() && !this.currentThinkingSteps.some(hasAgentThinkingStepDetails)) {
+                    card.remove();
+                    continue;
+                }
                 card.classList.add("agent-chat__msg--thinking-done");
+                card.querySelector(".agent-chat__thinking-latest")?.classList.add("fn__none");
                 const txtEl = card.querySelector(".agent-chat__thinking-text");
                 if (txtEl) {
                     txtEl.textContent = doneText;
                 }
-            }
-            if (this.currentThinkingStepContent && this.currentThinkingSteps.length > 0) {
-                this.currentThinkingSteps[this.currentThinkingSteps.length - 1].content = this.currentThinkingStepContent;
-                this.currentThinkingStepContent = "";
             }
             if (this.currentThinkingSteps.length > 0) {
                 this.entries.push({
@@ -2464,17 +3146,17 @@ export class AgentChat extends Model {
                     steps: this.currentThinkingSteps.slice(),
                     duration: this.currentThinkingDuration || undefined
                 });
-                this.currentThinkingSteps = [];
-                this.currentThinkingEntryId = "";
             }
-            // 卡片边界：一张思考卡片已落盘，重置工具名去重表，使下一张卡片独立显示本轮工具
-            // （与重载路径 renderMergedThinkingCard 的单卡片局部去重 seenTools 对齐）。
+            this.currentThinkingSteps = [];
+            this.currentThinkingEntryId = "";
+            // 卡片边界：一张思考卡片已落盘，下一张卡片独立显示工具。
             this.renderedToolNames = {};
             // Flush tool calls as assistant entry
             if (this.currentToolCalls.length > 0) {
                 this.entries.push({
                     id: SessionStore.newSessionId(),
                     type: "assistant",
+                    roundID: this.currentToolCalls[0].roundID,
                     toolCalls: this.slimToolCallsForPersistence(this.currentToolCalls)
                 });
                 this.currentToolCalls = [];
@@ -2511,7 +3193,7 @@ export class AgentChat extends Model {
             existingCard.remove();
         }
 
-        const bodyHTML = '<div class="agent-chat__thinking-body agent-chat__thinking-body--preview">' +
+        const bodyHTML = '<div class="agent-chat__thinking-body">' +
             detailLines +
             "</div>";
 
@@ -2528,11 +3210,12 @@ export class AgentChat extends Model {
             '<svg class="agent-chat__thinking-arrow--contract fn__none"><use xlink:href="#iconContract"></use></svg>' +
             "</span>" +
             '<span class="agent-chat__thinking-text">' + escapeHtml(text) + "</span>" +
+            '<span class="agent-chat__thinking-latest"></span>' +
             "</div>" +
             bodyHTML +
             "</div>";
 
-        bindThinkingCardToggle(el);
+        bindThinkingCardToggle(el, () => this.syncScrollState("reconcile"));
         this.insertBeforeAI(el);
         this.scrollToBottom();
         this.observeStickTarget(el);
@@ -2555,19 +3238,37 @@ export class AgentChat extends Model {
         }
         if (!this.pendingReasoningUpdate) {
             this.pendingReasoningUpdate = true;
-            requestAnimationFrame(() => {
-                this.pendingReasoningUpdate = false;
-                const allReasoning = thinking.querySelectorAll(".agent-chat__thinking-reasoning-text");
-                const reasoningEl = allReasoning[allReasoning.length - 1] as HTMLElement;
-                if (reasoningEl) {
-                    reasoningEl.textContent = this.currentThinkingReasoningContent;
-                    // 预览态固定高度，滚到底部让最新 reasoning 内容可见。
-                    const body = reasoningEl.closest(".agent-chat__thinking-body") as HTMLElement | null;
-                    if (body) {
-                        body.scrollTop = body.scrollHeight;
-                    }
-                }
-            });
+            this.pendingReasoningElement = thinking;
+            this.reasoningRafId = requestAnimationFrame(() => this.flushReasoningUpdate());
+        }
+    }
+
+    private flushReasoningUpdate() {
+        if (!this.pendingReasoningUpdate) {
+            return;
+        }
+        this.pendingReasoningUpdate = false;
+        cancelAnimationFrame(this.reasoningRafId);
+        this.reasoningRafId = 0;
+        const thinking = this.pendingReasoningElement;
+        this.pendingReasoningElement = null;
+        if (!thinking) {
+            return;
+        }
+        const allReasoning = thinking.querySelectorAll(".agent-chat__thinking-reasoning-text");
+        const reasoningEl = allReasoning[allReasoning.length - 1] as HTMLElement;
+        if (reasoningEl) {
+            reasoningEl.textContent = this.currentThinkingReasoningContent;
+            const latestElement = thinking.parentElement?.querySelector(".agent-chat__thinking-latest") as HTMLElement | null;
+            if (latestElement) {
+                latestElement.textContent = this.currentThinkingReasoningContent.replace(/\s+/g, " ").trim();
+                latestElement.scrollLeft = latestElement.scrollWidth;
+            }
+            // 预览态固定高度，滚到底部让最新 reasoning 内容可见。
+            const body = reasoningEl.closest(".agent-chat__thinking-body") as HTMLElement | null;
+            if (body) {
+                body.scrollTop = body.scrollHeight;
+            }
         }
     }
 
@@ -2592,16 +3293,12 @@ export class AgentChat extends Model {
         copyBtn.innerHTML = '<svg><use xlink:href="#iconCopy"></use></svg>';
         copyBtn.addEventListener("click", (e: Event) => {
             e.stopPropagation();
-            navigator.clipboard.writeText(content).then(() => {
-                showMessage(window.siyuan.languages.copied, 2000);
-            }).catch(() => {
-                showMessage(window.siyuan.languages.copied, 2000);
-            });
+            void copyAgentText(content);
         });
         actions.appendChild(copyBtn);
 
         const regenBtn = document.createElement("span");
-        regenBtn.className = "block__icon block__icon--show ariaLabel";
+        regenBtn.className = "block__icon block__icon--show ariaLabel agent-chat__regenerate";
         regenBtn.setAttribute("data-position", "north");
         regenBtn.setAttribute("aria-label", L.agentRegenerate);
         regenBtn.innerHTML = '<svg><use xlink:href="#iconRefresh"></use></svg>';
@@ -2610,8 +3307,16 @@ export class AgentChat extends Model {
             this.regenerateResponse(this.findUserEntryIDBeforeElement(el));
         });
         actions.appendChild(regenBtn);
+        regenBtn.classList.toggle("fn__none", this.isCurrentSessionRunning());
 
         el.appendChild(actions);
+    }
+
+    private updateRegenerateButtons() {
+        const hidden = this.isCurrentSessionRunning();
+        this.messagesContainer.querySelectorAll(".agent-chat__regenerate").forEach((element) => {
+            element.classList.toggle("fn__none", hidden);
+        });
     }
 
     private findUserEntryIDBeforeElement(el: HTMLElement): string | undefined {
@@ -2637,7 +3342,7 @@ export class AgentChat extends Model {
     }
 
     private async regenerateResponse(userEntryID?: string, editedData?: AgentComposerData) {
-        if (this.isStreaming || this.mirrorLocked || this.modelOptions.length === 0) {
+        if (this.isCurrentSessionRunning() || this.modelOptions.length === 0) {
             return;
         }
         if (editedData !== undefined && userEntryID) {
@@ -2706,11 +3411,11 @@ export class AgentChat extends Model {
         this.currentContent = "";
         this.fullContent = "";
         this.currentToolCalls = [];
+        this.currentRoundID = "";
         this.lastStepToolCount = 0;
         this.renderedToolNames = {};
         this.hasInterveningCard = false;
         this.currentThinkingSteps = [];
-        this.currentThinkingStepContent = "";
         this.currentThinkingText = "";
         this.currentThinkingReasoning = "";
         this.currentThinkingReasoningContent = "";
@@ -2722,49 +3427,39 @@ export class AgentChat extends Model {
         this.requestStartTime = Date.now();
         this.currentThinkingDuration = 0;
         this.currentTurnID = "";
+        this.currentRoundID = "";
         const lastUserEntry = targetEntry;
         const lastUserText = lastUserEntry.content;
         const editorContext = this.captureEditorContext();
         lastUserEntry.editorContext = editorContext;
-        const pluginActions = this.getPluginActions();
-        this.abortController = new AbortController();
-        const requestSessionId = this.sessionId;
-        await fetchAgentSSE(
-            lastUserText,
-            window.siyuan.config.appearance.lang,
-            lastUserEntry.references || [],
-            (event: ISSEResult) => {
-                if (this.sessionId !== requestSessionId) {
-                    return;
-                }
-                return this.handleSSEEvent(event);
-            },
-            (err: Error) => {
-                if (this.sessionId !== requestSessionId) {
-                    return;
-                }
-                // 409：该会话正在其他实例对话中（实例级互斥），不进入流式。
-                if (err instanceof AgentHttpError && err.status === 409) {
-                    return this.handleConflictReject();
-                }
-                return this.handleConfigError(err, undefined, true);
-            },
-            this.abortController.signal,
-            this.sessionId,
-            this.getSelectedModel(),
-            this.selectedReasoningEffort,
-            true,
-            editorContext,
-            pluginActions,
-            lastUserEntry.id,
-            SessionStore.getRevision(this.sessionId),
-            editedData?.blockHTML,
-        );
+        const frontendCapabilities = listCapabilityManifests();
+        const run = this.beginSessionRun();
+        try {
+            await fetchAgentSSE(
+                lastUserText,
+                window.siyuan.config.appearance.lang,
+                lastUserEntry.references || [],
+                (event: ISSEResult) => this.handleSessionRunEvent(run, event),
+                (err: Error) => this.handleSessionRunError(run, err, undefined, true),
+                run.controller.signal,
+                run.sessionID,
+                this.getSelectedModel(),
+                this.selectedReasoningEffort,
+                true,
+                editorContext,
+                frontendCapabilities,
+                lastUserEntry.id,
+                SessionStore.getRevision(run.sessionID),
+                editedData?.blockHTML,
+            );
+        } finally {
+            await this.finishSessionRun(run);
+        }
     }
 
     // 流式结束时把 currentAIElement 的 body 从纯文本一次性转为富渲染（Lute + postRender）。
     // 由 finishResponse（正常结束）与 error 路径（中断）共用，保证流式期轻渲染后仍得到完整富文本。
-    private finalizeStreamingBody(content: string, ts: number) {
+    private finalizeStreamingBody(content: string, ts: number, showActions = true) {
         if (!this.currentAIElement) {
             return;
         }
@@ -2777,7 +3472,9 @@ export class AgentChat extends Model {
             // 富渲染只在此处执行一次，避免流式期间每帧 O(n²) 重建带来的卡顿。
             bodyEl.innerHTML = this.lute.ProtylePreviewStr("", content) || escapeHtml(content);
             postRender(bodyEl, this.app, this.host.onNavigate);
-            this.addCopyButton(this.currentAIElement, undefined, ts);
+            if (showActions) {
+                this.addCopyButton(this.currentAIElement, undefined, ts);
+            }
             this.scrollToBottom(true);
         }
     }
@@ -2813,7 +3510,7 @@ export class AgentChat extends Model {
             this.fullContent = savedFullContent;
             this.addCopyButton(el, undefined, ts);
             // 思考结束场景：定位到思考卡片下方（卡片贴顶、正文向下展开），而非直接滚到对话最底部。
-            if (activeThinkCard) {
+            if (activeThinkCard?.isConnected) {
                 this.scrollToThinkingCardBelow(activeThinkCard);
             } else {
                 this.scrollToBottom(true);
@@ -2834,6 +3531,7 @@ export class AgentChat extends Model {
                 id: this.currentAssistantEntryId || undefined,
                 type: "assistant",
                 content: this.currentContent,
+                roundID: this.currentRoundID || undefined,
                 toolCalls: this.currentToolCalls.length > 0 ? this.slimToolCallsForPersistence(this.currentToolCalls) : undefined,
                 timestamp: ts,
             });
@@ -2841,6 +3539,7 @@ export class AgentChat extends Model {
             this.entries.push({
                 id: SessionStore.newSessionId(),
                 type: "assistant",
+                roundID: this.currentToolCalls[0].roundID,
                 toolCalls: this.slimToolCallsForPersistence(this.currentToolCalls)
             });
         }
@@ -2850,6 +3549,7 @@ export class AgentChat extends Model {
         this.currentContent = "";
         this.fullContent = "";
         this.currentToolCalls = [];
+        this.currentRoundID = "";
         this.lastStepToolCount = 0;
         this.renderedToolNames = {};
         if (this.requestStartTime) {
@@ -2872,7 +3572,7 @@ export class AgentChat extends Model {
                 if (atBottom) {
                     this.scrollToBottom(true);
                 } else {
-                    this.messagesContainer.scrollTop = savedScroll;
+                    this.restoreScrollTop(savedScroll);
                 }
             } else {
                 await this.reloadFromDisk(true);
@@ -2893,31 +3593,30 @@ export class AgentChat extends Model {
         }
     }
 
-    // 把上一轮在思考卡片内显示过的 content 归属到刚 push 的最后一个 step，
-    // 并清空 currentThinkingStepContent。这样每个 step 的 content 都能正确归属到自己的轮次，
-    // 而不会被 flushThinkingStep 错挂到下一轮的 step（导致重载后 content 位置错位）。
-    private attachStepContent(content: string) {
-        if (content && this.currentThinkingSteps.length > 0) {
-            this.currentThinkingSteps[this.currentThinkingSteps.length - 1].content = content;
-        }
-        this.currentThinkingStepContent = "";
-    }
-
-    private flushThinkingStep() {
+    private collectCurrentThinkingStep() {
         if (this.currentThinkingText) {
             const toolNames = this.currentToolCalls.slice(this.lastStepToolCount).map(function (t) {
                 return t.name;
             });
-            this.currentThinkingSteps.push({
+            const toolCallIDs = this.currentToolCalls.slice(this.lastStepToolCount)
+                .map(toolCall => toolCall.id || "").filter(Boolean);
+            const step = {
                 reasoning: this.currentThinkingReasoning,
                 reasoningContent: this.currentThinkingReasoningContent,
+                roundID: this.currentRoundID || undefined,
                 toolNames: toolNames.length > 0 ? toolNames : undefined,
-                content: this.currentThinkingStepContent || undefined,
-            });
+                toolCallIDs: toolCallIDs.length > 0 ? toolCallIDs : undefined,
+            };
+            if (hasAgentThinkingStepDetails(step)) {
+                this.currentThinkingSteps.push(step);
+            }
             this.lastStepToolCount = this.currentToolCalls.length;
             this.currentThinkingText = "";
-            this.currentThinkingStepContent = "";
         }
+    }
+
+    private flushThinkingStep() {
+        this.collectCurrentThinkingStep();
         if (this.currentThinkingSteps.length > 0) {
             this.entries.push({
                 id: this.currentThinkingEntryId || undefined,
@@ -2925,11 +3624,11 @@ export class AgentChat extends Model {
                 steps: this.currentThinkingSteps.slice(),
                 duration: this.currentThinkingDuration || undefined,
             });
-            this.currentThinkingSteps = [];
-            this.currentThinkingEntryId = "";
-            // 卡片边界：与 appendThinking 的 hasInterveningCard 分支一致，重置工具名去重表。
-            this.renderedToolNames = {};
         }
+        this.currentThinkingSteps = [];
+        this.currentThinkingEntryId = "";
+        // 卡片边界：与 appendThinking 的 hasInterveningCard 分支一致，重置工具名去重表。
+        this.renderedToolNames = {};
     }
 
     private tryGenerateTitle() {
@@ -2949,15 +3648,23 @@ export class AgentChat extends Model {
                 language: window.siyuan.config.appearance.lang
             }),
         }).then((resp) => resp.json()).then((data) => {
-            if (this.sessionId === requestSessionID && data.code === 0 && data.data && data.data !== this.sessionTitle) {
-                this.sessionTitle = data.data;
-                this.pendingSessionTitle = data.data;
-                this.titleElement.textContent = data.data;
+            if (data.code !== 0 || !data.data) {
+                return;
+            }
+            const generatedTitle = data.data as string;
+            this.pendingSessionTitles.set(requestSessionID, generatedTitle);
+            void this.sessionPanel?.refresh();
+            if (this.sessionId === requestSessionID) {
+                this.sessionTitle = generatedTitle;
+                this.pendingSessionTitle = generatedTitle;
+                this.titleElement.textContent = generatedTitle;
                 // 流式结束时的统一提交会包含最新标题；流式中单独保存会改变内容修订号，
                 // 使尚未创建的 runtime turn 被误判为旧请求。
-                if (!this.isStreaming && !this.currentTurnID) {
+                if (!this.isCurrentSessionRunning() && !this.currentTurnID) {
                     void this.saveSession();
                 }
+            } else if (!this.sessionRuns.get(requestSessionID)) {
+                this.persistPendingSessionTitle(requestSessionID);
             }
         }).catch((e) => {
             console.error("agent title request error:", e);
@@ -2982,7 +3689,6 @@ export class AgentChat extends Model {
     private appendRetry(attempt: number, maxRetries: number) {
         this.finishActiveThinking();
         this.currentThinkingSteps = [];
-        this.currentThinkingStepContent = "";
         this.renderedToolNames = {};
         this.clearThinking();
         const el = document.createElement("div");
@@ -3019,20 +3725,8 @@ export class AgentChat extends Model {
                 });
             });
         });
-        // 快照应在执行区域之前：有确认卡片时插到确认卡片前，否则查找活跃的思考卡片
-        const confirmCards = this.messagesContainer.querySelectorAll(".agent-chat__msg--confirm");
-        if (confirmCards.length > 0) {
-            this.messagesContainer.insertBefore(el, confirmCards[confirmCards.length - 1]);
-        } else {
-            const activeThinking = this.messagesContainer.querySelector(
-                ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)"
-            );
-            if (activeThinking) {
-                this.messagesContainer.insertBefore(el, activeThinking);
-            } else {
-                this.insertBeforeAI(el);
-            }
-        }
+        // 快照在工具执行前产生，应显示在触发写操作的思考和确认内容之后。
+        this.insertBeforeAI(el);
         this.scrollToBottom(true);
         this.hasInterveningCard = true;
     }
@@ -3054,6 +3748,22 @@ export class AgentChat extends Model {
     }
 
     private async stopGeneration() {
+        const sessionID = this.sessionId;
+        const sessionRun = this.sessionRuns.get(sessionID);
+        if (sessionRun?.detached) {
+            this.sessionRuns.abort(sessionID);
+            if (this.abortController === sessionRun.controller) {
+                this.abortController = null;
+            }
+            this.currentTurnID = sessionRun.turnID;
+            this.pendingRecoverySessionIDs.add(sessionID);
+            this.setStreaming(false);
+            this.removeMirrorPlaceholder();
+            if (this.sessionId === sessionID) {
+                void this.recoverInterruptedTurn(sessionID, sessionRun.turnID);
+            }
+            return;
+        }
         if (this.abortController) {
             this.abortController.abort();
             this.abortController = null;
@@ -3090,6 +3800,7 @@ export class AgentChat extends Model {
                 id: this.currentAssistantEntryId || undefined,
                 type: "assistant",
                 content: this.currentContent,
+                roundID: this.currentRoundID || undefined,
                 toolCalls: this.currentToolCalls.length > 0 ? this.slimToolCallsForPersistence(this.currentToolCalls) : undefined,
                 timestamp: ts,
             });
@@ -3100,6 +3811,7 @@ export class AgentChat extends Model {
         this.currentContent = "";
         this.fullContent = "";
         this.currentToolCalls = [];
+        this.currentRoundID = "";
         this.lastStepToolCount = 0;
         this.renderedToolNames = {};
         if (this.requestStartTime) {
@@ -3107,7 +3819,6 @@ export class AgentChat extends Model {
         }
         this.updateTokenDisplay();
         this.setStreaming(false);
-        const sessionID = this.sessionId;
         const turnID = this.currentTurnID;
         // abort 只中断前端连接；外部工具可能仍在返回途中。不能在这里直接保存并清除 runtime，
         // 等后端写完 interrupted 检查点后再恢复并提交。turn 事件可能尚未到达，因此空 ID 也要轮询。
@@ -3151,7 +3862,8 @@ export class AgentChat extends Model {
         return '<ul class="agent-chat__confirm-effects">' + items.map((item) => `<li>${escapeHtml(item)}</li>`).join("") + "</ul>";
     }
 
-    private async appendConfirm(name: string, args: Record<string, unknown>, confirmID: string, effects?: IToolEffects) {
+    private async appendConfirm(name: string, args: Record<string, unknown>, confirmID: string, effects?: IToolEffects,
+                                forced = false, notify = true) {
         this.finishActiveThinking();
         this.flushThinkingStep();
         const L = window.siyuan.languages;
@@ -3164,9 +3876,12 @@ export class AgentChat extends Model {
             this.renderConfirmEffects(effects) +
             '<pre class="agent-chat__confirm-args">' + escapeHtml(argsStr) + "</pre>" +
             '<div class="agent-chat__confirm-actions">' +
-            '<button class="b3-button b3-button--cancel agent-chat__confirm-reject">' + (L.agentConfirmReject || "Reject") + "</button>" +
-            '<button class="b3-button b3-button--text agent-chat__confirm-approve">' + (L.agentConfirmApprove || "Approve") + "</button>" +
-            '<button class="b3-button b3-button--text agent-chat__confirm-always ariaLabel" data-position="n" aria-label="' + (L.agentConfirmAlwaysDesc || "Session Allow") + '">' + (L.agentConfirmAlways || "Session Allow") + "</button>" +
+            genAgentConfirmActionButtons(forced, {
+                reject: L.agentConfirmReject || "Reject",
+                approve: L.agentConfirmApprove || "Approve",
+                allowSession: L.agentConfirmAlways || "Session Allow",
+                allowSessionDescription: L.agentConfirmAlwaysDesc || "Session Allow",
+            }) +
             "</div>" +
             "</div>";
         const sessionID = this.sessionId;
@@ -3221,10 +3936,12 @@ export class AgentChat extends Model {
         this.insertBeforeAI(el);
         this.scrollToBottom(true);
         this.hasInterveningCard = true;
-        if (this.host.notify) {
-            this.host.notify("confirm");
-        } else if (!document.hasFocus() || document.hidden) {
-            sendNotification({title: L.agentNotifyConfirm, body: "", timeoutType: "default"});
+        if (notify) {
+            if (this.host.notify) {
+                this.host.notify("confirm");
+            } else if (!document.hasFocus() || document.hidden) {
+                sendNotification({title: L.agentNotifyConfirm, body: "", timeoutType: "default"});
+            }
         }
     }
 
@@ -3249,6 +3966,7 @@ export class AgentChat extends Model {
             console.error("agent confirm request error:", e);
             return false;
         }
+        this.removeRunInteraction(sessionID, "confirm", confirmID);
         if (this.sessionId !== sessionID) {
             return true;
         }
@@ -3257,60 +3975,96 @@ export class AgentChat extends Model {
         if (entry) {
             entry.status = always ? "always" : (approved ? "approved" : "rejected");
         }
+        if (always) {
+            this.applyPermissionMode("allowSession");
+        }
         try {
             await this.saveSession();
         } catch (e) {
             console.error("save agent confirmation state failed:", e);
         }
+        const run = this.sessionRuns.get(sessionID);
+        if (run?.detached && this.sessionId === sessionID) {
+            this.showMirrorPlaceholder(true);
+        }
         return true;
     }
 
-    private async handleFrontendToolCall(callID: string, args: Record<string, unknown>) {
-        // Resolve the action name ("frontend" tool calls carry the action in args.action).
-        const action = (args.action as string | undefined) || "";
-        const handler = lookupAction(action);
-        if (!handler) {
-            await this.postFrontendResult(callID, `Unknown frontend action: ${action}`, true);
+    private async handleBrowserCapabilityCall(callID: string, capabilityID: string, generation: number,
+                                              args: Record<string, unknown>) {
+        const capability = lookupCapability(capabilityID, generation);
+        if (!capability || !isCapabilityEnabled(capabilityID)) {
+            await this.postBrowserCapabilityResult(
+                callID, `Browser capability is unavailable: ${capabilityID}`, undefined, false, true,
+            );
             return;
         }
         try {
-            const outcome = await handler.handler(args, this.app);
+            const outcome = await capability.handler(args, this.app);
             const result = outcome.result || "";
             const error = outcome.error || "";
-            await this.postFrontendResult(callID, error ? error : result, !!error);
+            await this.postBrowserCapabilityResult(
+                callID,
+                error ? error : result,
+                outcome.structuredContent,
+                Object.prototype.hasOwnProperty.call(outcome, "structuredContent"),
+                !!error,
+            );
         } catch (e) {
-            await this.postFrontendResult(callID, `Frontend action threw: ${(e as Error).message}`, true);
+            await this.postBrowserCapabilityResult(callID, `Browser capability threw: ${(e as Error).message}`, undefined, false, true);
         }
     }
 
-    private async postFrontendResult(callID: string, result: string, isError: boolean) {
+    private async postBrowserCapabilityResult(callID: string, result: string, structuredContent: unknown,
+                                              structuredContentSet: boolean, isError: boolean) {
         for (let attempt = 0; attempt < 3; attempt++) {
             try {
-                const resp = await fetch("/api/ai/agent/frontendToolResult", {
+                const resp = await fetch("/api/ai/agent/browserCapabilityResult", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({callID, result, isError}),
+                    body: JSON.stringify({callID, result, structuredContent, structuredContentSet, isError}),
                 });
                 const response = await resp.json() as {code?: number};
                 if (resp.ok && response?.code === 0) {
                     return;
                 }
                 if (resp.status === 409) {
-                    console.error("agent frontend result expired:", callID);
+                    console.error("agent browser capability result expired:", callID);
                     return;
                 }
             } catch (e) {
                 if (attempt === 2) {
-                    console.error("agent frontend result request error:", e);
+                    console.error("agent browser capability result request error:", e);
                 }
             }
             await new Promise((resolve) => window.setTimeout(resolve, 200 * (attempt + 1)));
         }
     }
 
-    private appendQuestion(questionID: string, args: Record<string, unknown>) {
+    private appendQuestion(questionID: string, args: Record<string, unknown>, roundID?: string) {
+        this.flushTokenUpdate();
+        const content = this.currentContent;
         this.finishActiveThinking();
         this.flushThinkingStep();
+        const timestamp = Date.now();
+        if (this.currentAIElement) {
+            if (content.trim()) {
+                this.finalizeStreamingBody(content, timestamp, false);
+            } else {
+                this.currentAIElement.remove();
+            }
+            this.currentAIElement = null;
+            this.observeStickTarget(null);
+        } else if (content.trim()) {
+            this.appendPersistedAssistant(
+                content,
+                timestamp,
+                this.currentAssistantEntryId || SessionStore.newSessionId(),
+                false,
+            );
+        }
+        this.currentAssistantEntryId = "";
+        this.currentContent = "";
         const L = window.siyuan.languages;
         const rawQuestions = args.questions as Array<Record<string, unknown>>;
         if (!rawQuestions || rawQuestions.length === 0) {
@@ -3330,6 +4084,7 @@ export class AgentChat extends Model {
             type: "question",
             questionID: questionID,
             questions: rawQuestions,
+            roundID: roundID || this.currentRoundID || undefined,
             status: "pending",
         });
 
@@ -3408,6 +4163,7 @@ export class AgentChat extends Model {
             console.error("agent question request error:", e);
             return false;
         }
+        this.removeRunInteraction(sessionID, "question", questionID);
         if (this.sessionId !== sessionID) {
             return true;
         }
@@ -3423,6 +4179,10 @@ export class AgentChat extends Model {
         } catch (e) {
             console.error("save agent question state failed:", e);
         }
+        const run = this.sessionRuns.get(sessionID);
+        if (run?.detached && this.sessionId === sessionID) {
+            this.showMirrorPlaceholder(true);
+        }
         return true;
     }
 
@@ -3432,8 +4192,11 @@ export class AgentChat extends Model {
         toolNames?: string[];
         reasoningContent: string
     }) {
+        if (!hasAgentThinkingStepDetails(step)) {
+            return;
+        }
         const el = createThinkingCardElement(step);
-        bindThinkingCardToggle(el);
+        bindThinkingCardToggle(el, () => this.syncScrollState("reconcile"));
         this.messagesContainer.appendChild(el);
     }
 
@@ -3443,13 +4206,14 @@ export class AgentChat extends Model {
         toolNames?: string[];
         content?: string
     }>, entryId?: string, duration?: number) {
-        if (!steps || steps.length === 0) {
+        const visibleSteps = steps?.filter(hasAgentThinkingStepDetails) || [];
+        if (visibleSteps.length === 0) {
             return;
         }
         let detail = "";
-        const seenTools: Record<string, boolean> = {};
-        for (let i = 0; i < steps.length; i++) {
-            const step = steps[i];
+        const toolGroups = getAgentThinkingToolGroups(visibleSteps);
+        for (let i = 0; i < visibleSteps.length; i++) {
+            const step = visibleSteps[i];
             if (step.content) {
                 detail += '<div class="agent-chat__thinking-chat b3-typography">' + (this.lute.ProtylePreviewStr("", step.content) || escapeHtml(step.content)) + "</div>";
             }
@@ -3458,19 +4222,9 @@ export class AgentChat extends Model {
             }
             // 工具行放在该步 reasoning 之后，对齐实时流式渲染中
             // 「reasoning/content 先到、工具行在下一轮 thinking 时补到末尾」的实际呈现。
-            const names = step.toolNames && step.toolNames.length > 0
-                ? step.toolNames
-                : undefined;
-            if (names && names.length > 0) {
-                const newTools = names.filter(n => !seenTools[n]);
-                if (newTools.length > 0) {
-                    detail += "<div class=\"agent-chat__thinking-tools-line\"><span class=\"agent-chat__thinking-summary\">Tool calls:</span>";
-                    for (let j = 0; j < newTools.length; j++) {
-                        seenTools[newTools[j]] = true;
-                        detail += '<span class="agent-chat__thinking-tool">' + escapeHtml(newTools[j]) + "</span>";
-                    }
-                    detail += "</div>";
-                }
+            const names = toolGroups[i];
+            if (names.length > 0) {
+                detail += renderToolsLineHTML(names.map(name => ({name})));
             }
         }
 
@@ -3494,7 +4248,7 @@ export class AgentChat extends Model {
             "</div>" +
             "</div>";
 
-        bindThinkingCardToggle(el);
+        bindThinkingCardToggle(el, () => this.syncScrollState("reconcile"));
         this.messagesContainer.appendChild(el);
         postRender(el, this.app, this.host.onNavigate);
     }
@@ -3502,8 +4256,9 @@ export class AgentChat extends Model {
     // 由 duration 经 i18n 生成"已思考：Xs"标题文本；无 duration 时回退到"思考中..."。
     private formatThinkingHeader(duration?: number): string {
         const L = window.siyuan.languages;
-        if (duration && duration > 0) {
-            return L.agentThinkingDoneTime ? L.agentThinkingDoneTime.replace("%s", Math.round(duration) + "s") : (L.agentThinking || "Thinking");
+        const displaySeconds = getAgentThinkingDisplaySeconds(duration);
+        if (displaySeconds !== undefined) {
+            return L.agentThinkingDoneTime ? L.agentThinkingDoneTime.replace("%s", displaySeconds + "s") : (L.agentThinking || "Thinking");
         }
         return L.agentThinking || "Thinking";
     }
@@ -3706,6 +4461,9 @@ export class AgentChat extends Model {
         for (let i = 0; i < items.length; i++) {
             items[i].remove();
         }
+        if (items.length > 0) {
+            this.syncScrollState("reconcile");
+        }
     }
 
     // 启动思考计时器，每 100ms 刷新所有未完成思考卡片的标题文本为「思考中... X.Xs」。
@@ -3739,17 +4497,21 @@ export class AgentChat extends Model {
 
     private finishActiveThinking() {
         this.stopThinkingTimer();
-        const L = window.siyuan.languages;
+        this.flushReasoningUpdate();
         // 耗时存为数值（用于持久化 entry.duration），"已思考：Xs" 文本只在 DOM 显示、不落盘。
         const durSec = this.requestStartTime ? (Date.now() - this.requestStartTime) / 1000 : 0;
         this.currentThinkingDuration = durSec;
-        const doneText = durSec > 0
-            ? (L.agentThinkingDoneTime ? L.agentThinkingDoneTime.replace("%s", Math.round(durSec) + "s") : (L.agentThinking || "Thinking"))
-            : (L.agentThinking || "Thinking");
+        const doneText = this.formatThinkingHeader(durSec);
 
         const items = this.messagesContainer.querySelectorAll(
             ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)"
         );
+        const hasCurrentDetails = this.currentThinkingSteps.some(hasAgentThinkingStepDetails) ||
+            (this.currentThinkingText ? hasAgentThinkingStepDetails({
+                reasoningContent: this.currentThinkingReasoningContent,
+                toolNames: this.currentToolCalls.slice(this.lastStepToolCount).map(toolCall => toolCall.name),
+            }) : false);
+        let removedItem = false;
         for (let i = 0; i < items.length; i++) {
             const el = items[i] as HTMLElement;
             if (i === items.length - 1) {
@@ -3758,12 +4520,19 @@ export class AgentChat extends Model {
                     streamingChat.remove();
                 }
             }
+            const body = el.querySelector(".agent-chat__thinking-body");
+            const isCurrentCard = el.getAttribute("data-message-id") === this.currentThinkingEntryId;
+            if (!body?.textContent?.trim() && !(isCurrentCard && hasCurrentDetails)) {
+                el.remove();
+                removedItem = true;
+                continue;
+            }
             // 用户未手动操作且仍在预览态 → 思考完成后自动折叠（尊重用户已展开/折叠的最终状态）。
             if (!el.hasAttribute("data-user-interacted")) {
-                const body = el.querySelector(".agent-chat__thinking-body");
                 body?.classList.remove("agent-chat__thinking-body--preview");
             }
             el.classList.add("agent-chat__msg--thinking-done");
+            el.querySelector(".agent-chat__thinking-latest")?.classList.add("fn__none");
             if (doneText) {
                 const textEl = el.querySelector(".agent-chat__thinking-text");
                 if (textEl) {
@@ -3771,11 +4540,15 @@ export class AgentChat extends Model {
                 }
             }
         }
+        if (removedItem) {
+            this.syncScrollState("reconcile");
+        }
     }
 
     private setStreaming(streaming: boolean) {
         this.isStreaming = streaming;
-        this.host.onStatusChange?.(streaming ? "running" : "idle");
+        this.updateRegenerateButtons();
+        this.updateHostRunStatus();
         this.sendBtn.classList.toggle("fn__none", streaming);
         this.stopBtn.classList.toggle("fn__none", !streaming);
         this.updateSendButtonState();
@@ -3784,7 +4557,8 @@ export class AgentChat extends Model {
     // 根据"是否流式中"、"是否有可用模型"、"输入框是否有内容"综合决定发送按钮与输入框可用性。
     // 无模型时一并禁用发送按钮与输入框（attr disabled + 灰样式 + composer-host 禁用态），从源头阻止无效请求。
     private updateSendButtonState() {
-        const disabled = this.isStreaming || this.modelOptions.length === 0 || !this.hasComposerInput();
+        const sessionRunning = this.isCurrentSessionRunning();
+        const disabled = sessionRunning || this.modelOptions.length === 0 || !this.hasComposerInput();
         if (disabled) {
             this.sendBtn.setAttribute("disabled", "disabled");
         } else {
@@ -3793,7 +4567,7 @@ export class AgentChat extends Model {
         if (this.composerHost) {
             // 复用流式时已有的禁用态样式（灰显 + 阻止交互）。
             // 注意：仅流式 / 无模型时禁用 composer；输入为空不禁用 composer（用户仍可正常编辑）。
-            const composerDisabled = this.isStreaming || this.modelOptions.length === 0;
+            const composerDisabled = sessionRunning || this.modelOptions.length === 0;
             this.composerHost.classList.toggle("agent-chat__composer-host--disabled", composerDisabled);
         }
     }
@@ -3806,6 +4580,40 @@ export class AgentChat extends Model {
         return this.composer.getSendData().text.length > 0;
     }
 
+    private syncScrollState(mode: AgentScrollStateMode) {
+        const {scrollTop, scrollHeight, clientHeight} = this.messagesContainer;
+        // dock 折叠期间无法得到有效视口尺寸，保留当前会话的用户滚动意图，待恢复完成后重新派生。
+        if (!this.layoutVisible || clientHeight <= 0) {
+            this.scrollBottomBtn.classList.remove("agent-chat__scroll-bottom--visible");
+            return;
+        }
+        const state = resolveAgentScrollState({scrollTop, scrollHeight, clientHeight}, this.userScrolledUp, mode);
+        this.userScrolledUp = state.userScrolledUp;
+        this.scrollBottomBtn.classList.toggle("agent-chat__scroll-bottom--visible", state.buttonVisible);
+    }
+
+    private beginProgrammaticScroll(): number {
+        this.programmaticScroll = true;
+        this.programmaticScrollGeneration++;
+        return this.programmaticScrollGeneration;
+    }
+
+    private finishProgrammaticScroll(generation: number, mode: AgentScrollStateMode = "reconcile") {
+        if (generation !== this.programmaticScrollGeneration) {
+            return;
+        }
+        this.programmaticScroll = false;
+        this.syncScrollState(mode);
+    }
+
+    private restoreScrollTop(scrollTop: number) {
+        const generation = this.beginProgrammaticScroll();
+        this.messagesContainer.scrollTop = scrollTop;
+        requestAnimationFrame(() => {
+            this.finishProgrammaticScroll(generation, "restore");
+        });
+    }
+
     // 持续校正滚动位置约 duration ms（覆盖 dock 宽高过渡 / 异步富渲染期间 scrollHeight 变化），
     // 使 scrollTop 落到距底部 scrollBottom 的位置。scrollBottom 为 0 即贴底。
     // 供开关面板（layoutVisible 恢复）与切换会话（renderLoadedSession 后）共用。
@@ -3814,11 +4622,13 @@ export class AgentChat extends Model {
             return;
         }
         const startedAt = Date.now();
-        // 标记为程序化滚动，避免恢复期间触发 scroll 事件里的 userScrolledUp 翻转。
-        this.programmaticScroll = true;
+        const generation = this.beginProgrammaticScroll();
         const tick = () => {
+            if (generation !== this.programmaticScrollGeneration) {
+                return;
+            }
             if (!this.layoutVisible) {
-                this.programmaticScroll = false;
+                this.finishProgrammaticScroll(generation);
                 return;
             }
             const {scrollHeight} = this.messagesContainer;
@@ -3830,7 +4640,7 @@ export class AgentChat extends Model {
             } else {
                 // 多留一帧再清标志，确保最后一次 scroll 事件已被吞掉。
                 requestAnimationFrame(() => {
-                    this.programmaticScroll = false;
+                    this.finishProgrammaticScroll(generation, "restore");
                 });
             }
         };
@@ -3851,10 +4661,10 @@ export class AgentChat extends Model {
             // 卡片底部在文档中的位置 - 容器顶部在文档中的位置 + 当前已滚动量 = 卡片底部的 scrollTop 目标值。
             const target = this.messagesContainer.scrollTop + (cardRect.bottom - containerRect.top) + 8;
             const max = this.messagesContainer.scrollHeight - this.messagesContainer.clientHeight;
-            this.programmaticScroll = true;
+            const generation = this.beginProgrammaticScroll();
             this.messagesContainer.scrollTop = Math.min(target, max);
             requestAnimationFrame(() => {
-                this.programmaticScroll = false;
+                this.finishProgrammaticScroll(generation);
             });
         };
         if (delay > 0) {
@@ -3867,48 +4677,47 @@ export class AgentChat extends Model {
     private scrollToBottom(force = false, smooth = false) {
         if (!force && this.userScrolledUp) {
             return;
-        }        // Guard with a flag so the resulting scroll event can be told apart from
-        // a user-driven scroll. Without this, the programmatic stick-to-bottom
-        // write itself trips the scroll handler and, while streaming, flips
-        // userScrolledUp on transiently (scrollHeight keeps growing) which
-        // immediately breaks follow-scroll.
-        this.programmaticScroll = true;
+        }
+        if (force) {
+            this.userScrolledUp = false;
+            this.syncScrollState("reconcile");
+        }
+        // 递增序号保证只有最新滚动请求能够写入位置和解除保护，避免跨帧调用相互覆盖。
+        const generation = this.beginProgrammaticScroll();
         requestAnimationFrame(() => {
+            if (generation !== this.programmaticScrollGeneration) {
+                return;
+            }
             if (smooth) {
-                // Smooth scrolling fires scroll events asynchronously throughout the
-                // animation, so keep the guard raised until scrolling settles: on
-                // scrollend, on a 1s timeout fallback, or immediately if the user
-                // wheels/touches during the animation (counts as a user scroll).
+                // 平滑滚动会持续异步触发 scroll，直至 scrollend、超时或用户滚轮操作后才解除保护。
+                let timer = 0;
                 const finish = () => {
                     this.messagesContainer.removeEventListener("scrollend", finish);
                     this.messagesContainer.removeEventListener("wheel", onWheel);
                     clearTimeout(timer);
-                    this.programmaticScroll = false;
+                    this.finishProgrammaticScroll(generation);
                 };
                 const onWheel = () => {
                     this.messagesContainer.removeEventListener("scrollend", finish);
                     clearTimeout(timer);
-                    this.programmaticScroll = false;
+                    this.finishProgrammaticScroll(generation);
                 };
-                const timer = window.setTimeout(finish, 1000);
+                timer = window.setTimeout(finish, 1000);
                 this.messagesContainer.addEventListener("scrollend", finish, {once: true});
                 this.messagesContainer.addEventListener("wheel", onWheel, {once: true, passive: true});
                 this.messagesContainer.scrollTo({top: this.messagesContainer.scrollHeight, behavior: "smooth"});
             } else {
                 this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-                // Reset the flag only after the scroll event caused by this write has
-                // been dispatched (a second RAF runs after layout/event delivery).
+                // 多留一帧等待本次写入产生的 scroll 事件分发完毕。
                 requestAnimationFrame(() => {
-                    this.programmaticScroll = false;
+                    this.finishProgrammaticScroll(generation);
                 });
             }
         });
     }
 
-    // Observe a streaming message card so that asynchronous content growth
-    // (code highlighting, images, mermaid, fonts) keeps the view pinned to the
-    // bottom while the user has not scrolled up. token frames only fire when a
-    // chunk arrives; this closes the gap between chunks.
+    // 观察流式消息卡片，让代码高亮、图片、图表和字体等异步内容增长也能在用户未向上滚动时保持贴底。
+    // token 帧只会在新数据块到达时触发，此观察器用于覆盖两个数据块之间发生的尺寸变化。
     private observeStickTarget(el: HTMLElement | null) {
         if (this.stickResizeObserver) {
             this.stickResizeObserver.disconnect();
@@ -3918,6 +4727,7 @@ export class AgentChat extends Model {
             return;
         }
         this.stickResizeObserver = new ResizeObserver(() => {
+            this.syncScrollState("reconcile");
             if (!this.userScrolledUp) {
                 this.scrollToBottom();
             }
@@ -3936,7 +4746,7 @@ export class AgentChat extends Model {
             "repo": L.agentCatRepo, "history": L.agentCatHistory,
             "sync": L.agentCatSync, "database": L.agentCatDatabase,
         };
-        return m[name] || L.agentCatDefault;
+        return m[name] || name || L.agentCatDefault;
     }
 
     private formatMessageTime(ts: number): string {

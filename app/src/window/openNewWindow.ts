@@ -8,6 +8,7 @@ import {fetchSyncPost} from "../util/fetch";
 import {showMessage} from "../dialog/message";
 import {getAssetExtension, getDisplayName} from "../util/pathName";
 import {getSearch} from "../util/functions";
+import {isBrowserRenderableImagePath} from "../util/imageURL";
 
 interface windowOptions {
     position?: {
@@ -75,10 +76,15 @@ export const openNewWindowById = async (id: string | string[], options: windowOp
     /// #endif
 };
 
-export const openAssetNewWindow = (assetPath: string, options: windowOptions = {}) => {
+export const openAssetNewWindow = (
+    assetPath: string,
+    options: windowOptions = {},
+    page?: number | string,
+) => {
     /// #if !BROWSER
-    const suffix = getAssetExtension(assetPath);
-    if (Constants.SIYUAN_ASSETS_EXTS.includes(suffix)) {
+    const suffix = getAssetExtension(assetPath).toLowerCase();
+    if (Constants.SIYUAN_ASSETS_EXTS.includes(suffix) &&
+        isBrowserRenderableImagePath(assetPath)) {
         let docIcon = "iconPDF";
         if (Constants.SIYUAN_ASSETS_IMAGE.includes(suffix)) {
             docIcon = "iconImage";
@@ -96,7 +102,7 @@ export const openAssetNewWindow = (assetPath: string, options: windowOptions = {
             action: "Tab",
             children: {
                 path: assetPath,
-                page: parseInt(getSearch("page", assetPath)),
+                page: page ?? parseInt(getSearch("page", assetPath)),
                 instance: "Asset",
             }
         }];

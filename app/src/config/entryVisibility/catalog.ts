@@ -1,8 +1,19 @@
+import {CODE_TAB_SPACE_VALUES} from "../../protyle/wysiwyg/codeBlockUtil";
+import {
+    DESKTOP_TOOLBAR_ENTRIES,
+    getToolbarEntryId,
+    getToolbarEntryLabel,
+    TOOLBAR_ENTRY_ROOT_PATH,
+} from "../../protyle/toolbar/defaults";
+import {mergeEntryOrderPreservingUnknown} from "./order";
+
 export interface IEntryCatalogNode {
     key: string;
     label: () => string;
     simple: boolean;
     type: "entry" | "separator";
+    displayChildrenDirectly?: boolean;
+    sortable?: boolean;
     children?: IEntryCatalogNode[];
 }
 
@@ -16,12 +27,14 @@ export interface IEntryCatalogSection {
 const lang = (key: string) => () => window.siyuan.languages[key] || key;
 const literal = (value: string) => () => value;
 const location = (...labels: Array<() => string>) => () => labels.map((label) => label()).join(" - ");
-const node = (key: string, label: () => string, simple = true, children?: IEntryCatalogNode[]): IEntryCatalogNode => ({
+const node = (key: string, label: () => string, simple = true, children?: IEntryCatalogNode[],
+              sortable?: boolean): IEntryCatalogNode => ({
     key,
     label,
     simple,
     type: "entry",
     children,
+    sortable,
 });
 const separator = (key: string): IEntryCatalogNode => ({
     key,
@@ -29,6 +42,11 @@ const separator = (key: string): IEntryCatalogNode => ({
     simple: true,
     type: "separator",
 });
+
+const codeTabSpacesChildren = () => [
+    node("default", () => `${window.siyuan.languages.default} (${window.siyuan.config.editor.codeTabSpaces})`),
+    ...CODE_TAB_SPACE_VALUES.map((value) => node(`tabSpaces${value}`, literal(value.toString()))),
+];
 
 const copyChildren = () => [
     node("copyBlockRef", lang("copyBlockRef")),
@@ -40,7 +58,7 @@ const copyChildren = () => [
     node("copyID", lang("copyID"), false),
 ];
 
-const sortChildren = () => [
+const sortChildren = (inheritKey?: "sortByFiletree" | "sortByParent") => [
     node("fileNameASC", lang("fileNameASC"), false),
     node("fileNameDESC", lang("fileNameDESC"), false),
     node("fileNameNatASC", lang("fileNameNatASC")),
@@ -61,7 +79,7 @@ const sortChildren = () => [
     node("subDocCountDESC", lang("subDocCountDESC")),
     separator("separator_5"),
     node("customSort", lang("customSort")),
-    node("sortByFiletree", lang("sortByFiletree")),
+    ...(inheritKey ? [node(inheritKey, lang(inheritKey))] : []),
 ];
 
 const exportChildren = () => [
@@ -105,7 +123,7 @@ const importChildren = () => [
 ];
 
 const docTreeCommon = (multi = false) => [
-    node("copy", lang("copy"), true, [...copyChildren(), node("duplicate", lang("duplicate"))]),
+    node("copy", lang("copy"), true, [...copyChildren(), node("duplicate", lang("duplicateCopy"))]),
     node("move", lang("move")),
     node("addToDatabase", lang("addToDatabase"), false),
     node("delete", lang("delete")),
@@ -137,6 +155,7 @@ const docTreeDocument = () => {
         separator("separator_2"),
         node("rename", lang("rename")),
         node("attr", lang("attr")),
+        node("sort", lang("sort"), true, sortChildren("sortByParent")),
         riffCard,
         node("search", lang("search")),
         node("replace", lang("replace")),
@@ -161,7 +180,7 @@ const gutterCopyChildren = () => [
     node("copyText", lang("copyText")),
     node("copy", lang("copy")),
     node("copyAVID", lang("copyAVID")),
-    node("duplicate", lang("duplicate")),
+    node("duplicate", lang("duplicateCopy")),
     node("duplicateMirror", lang("duplicateMirror")),
     node("duplicateCompletely", lang("duplicateCompletely")),
 ];
@@ -191,12 +210,28 @@ const gutterTurnInto = () => node("turnInto", lang("turnInto"), true, [
         ]),
     ]);
 
-const gutterLayout = () => node("layout", lang("layout"), true, [
+const gutterHeadingTransform = () => node("tWithSubtitle", lang("tWithSubtitle"), true, [
+    node("heading1", lang("heading1")),
+    node("heading2", lang("heading2")),
+    node("heading3", lang("heading3")),
+    node("heading4", lang("heading4")),
+    node("heading5", lang("heading5")),
+    node("heading6", lang("heading6")),
+]);
+
+const gutterLayout = (includeSuperBlockAlignment = false) => node("layout", lang("layout"), true, [
     node("alignLeft", lang("alignLeft")),
     node("alignCenter", lang("alignCenter")),
     node("alignRight", lang("alignRight")),
     node("justify", lang("justify")),
     separator("separator_1"),
+    ...(includeSuperBlockAlignment ? [
+        node("alignTop", lang("alignTop")),
+        node("alignMiddle", lang("alignMiddle")),
+        node("alignBottom", lang("alignBottom")),
+        node("useDefaultVerticalAlign", lang("useDefaultVerticalAlign")),
+        separator("separator_verticalAlign"),
+    ] : []),
     node("ltr", lang("ltr")),
     node("rtl", lang("rtl")),
     separator("separator_2"),
@@ -204,7 +239,7 @@ const gutterLayout = () => node("layout", lang("layout"), true, [
 ]);
 
 const gutterWidth = () => node("width", lang("width"), true, [
-    node("widthInput", lang("width")),
+    node("widthInput", lang("entryPixelWidth")),
     node("width_25%", literal("25%")),
     node("width_33%", literal("33%")),
     node("width_50%", literal("50%")),
@@ -212,13 +247,15 @@ const gutterWidth = () => node("width", lang("width"), true, [
     node("width_75%", literal("75%")),
     node("width_100%", literal("100%")),
     separator("separator_1"),
-    node("widthDrag", lang("width")),
+    node("widthDrag", lang("entryPercentageWidth")),
     separator("separator_2"),
     node("default", lang("default")),
 ]);
 
 const gutterTable = () => node("table", lang("table"), true, [
     node("useDefaultWidth", lang("useDefaultWidth")),
+    node("distributeAllColWidths", lang("distributeAllColWidths")),
+    node("useDefaultWidthForAllColumns", lang("useDefaultWidthForAllColumns")),
     node("pinTableHead", lang("pinTableHead")),
     node("unpinTableHead", lang("unpinTableHead")),
     node("tableHeaderRow", lang("tableHeaderRow")),
@@ -253,7 +290,7 @@ const gutterTable = () => node("table", lang("table"), true, [
 
 const gutterBase = (multi: boolean) => [
     gutterTurnInto(),
-    ...(multi ? [node("mergeSuperBlock", () => `${window.siyuan.languages.merge} ${window.siyuan.languages.superBlock}`, true, [
+    ...(multi ? [gutterHeadingTransform(), node("mergeSuperBlock", () => `${window.siyuan.languages.merge} ${window.siyuan.languages.superBlock}`, true, [
         node("hLayout", lang("hLayout")),
         node("vLayout", lang("vLayout")),
     ])] : []),
@@ -280,12 +317,23 @@ const gutterMultiple = () => [
 
 const gutterSingle = () => [
     ...gutterBase(false),
+    separator("separator_listBlock"),
+    node("listBlock", lang("listBlock"), true, [
+        node("orderedListStart", lang("orderedListStart")),
+        node("continueListNumbering", lang("continueListNumbering")),
+        separator("separator_numbering"),
+        node("prependListItem", lang("prependListItem")),
+        node("appendListItem", lang("appendListItem")),
+    ]),
     separator("separator_cancelSuperBlock"),
-    node("cancelSuperBlock", () => `${window.siyuan.languages.cancel} ${window.siyuan.languages.superBlock}`),
-    node("turnIntoVLayout", () => `${window.siyuan.languages.turnInto} ${window.siyuan.languages.vLayout}`),
-    node("turnIntoHLayout", () => `${window.siyuan.languages.turnInto} ${window.siyuan.languages.hLayout}`),
+    node("superBlock", lang("superBlock"), true, [
+        node("cancelSuperBlock", () => `${window.siyuan.languages.cancel} ${window.siyuan.languages.superBlock}`),
+        node("turnIntoVLayout", () => `${window.siyuan.languages.turnInto} ${window.siyuan.languages.vLayout}`),
+        node("turnIntoHLayout", () => `${window.siyuan.languages.turnInto} ${window.siyuan.languages.hLayout}`),
+    ]),
     separator("separator_code"),
     node("code", lang("code"), true, [
+        node("md29", lang("md29"), true, codeTabSpacesChildren()),
         node("md31", lang("md31")),
         node("md2", lang("md2")),
         node("md27", lang("md27")),
@@ -337,14 +385,7 @@ const gutterSingle = () => [
         ]),
     ]),
     separator("separator_1"),
-    node("tWithSubtitle", lang("tWithSubtitle"), true, [
-        node("heading1", lang("heading1")),
-        node("heading2", lang("heading2")),
-        node("heading3", lang("heading3")),
-        node("heading4", lang("heading4")),
-        node("heading5", lang("heading5")),
-        node("heading6", lang("heading6")),
-    ]),
+    gutterHeadingTransform(),
     node("copyHeadings1", () => `${window.siyuan.languages.copy} ${window.siyuan.languages.headings1}`),
     node("cutHeadings1", () => `${window.siyuan.languages.cut} ${window.siyuan.languages.headings1}`),
     node("deleteHeadings1", () => `${window.siyuan.languages.delete} ${window.siyuan.languages.headings1}`),
@@ -353,6 +394,8 @@ const gutterSingle = () => [
     node("enterBack", lang("enterBack"), false),
     node("insertBefore", lang("insertBefore")),
     node("insertAfter", lang("insertAfter")),
+    node("insertSuperBlockLeft", lang("insertSuperBlockLeft")),
+    node("insertSuperBlockRight", lang("insertSuperBlockRight")),
     node("jumpTo", lang("jumpTo"), false, [
         node("jumpToParentPrev", lang("jumpToParentPrev"), false),
         node("jumpToParentNext", lang("jumpToParentNext"), false),
@@ -365,7 +408,7 @@ const gutterSingle = () => [
     node("foldRecursive", lang("foldRecursive")),
     node("attr", lang("attr")),
     node("appearance", lang("appearance")),
-    gutterLayout(),
+    gutterLayout(true),
     gutterWidth(),
     separator("separator_4"),
     node("wechatReminder", lang("wechatReminder"), false),
@@ -375,6 +418,95 @@ const gutterSingle = () => [
     separator("separator_5"),
     node("updateAndCreatedAt", () => `${window.siyuan.languages.modifiedAt} / ${window.siyuan.languages.createdAt}`, false),
 ];
+
+export const SLASH_MENU_ROOT_PATH = "editor.slash.menu";
+
+const toolbarBuiltinChildren = DESKTOP_TOOLBAR_ENTRIES.map((item) => item.separator
+    ? separator(item.key)
+    : node(item.key, lang(item.lang)));
+const toolbarBuiltinNodeMap = new Map(toolbarBuiltinChildren.map((item) => [item.key, item]));
+
+const slashMenuBuiltinChildren = [
+    node("template", lang("template")),
+    node("widget", lang("widget")),
+    node("assets", lang("assets")),
+    node("ref", lang("ref")),
+    node("blockEmbed", lang("blockEmbed")),
+    node("aiWriting", lang("aiWriting")),
+    node("database", lang("database")),
+    node("newFileRef", lang("newFileRef")),
+    node("newSubDocRef", lang("newSubDocRef")),
+    separator("separator_1"),
+    node("heading1", lang("heading1")),
+    node("heading2", lang("heading2")),
+    node("heading3", lang("heading3")),
+    node("heading4", lang("heading4")),
+    node("heading5", lang("heading5")),
+    node("heading6", lang("heading6")),
+    node("list", lang("list")),
+    node("orderedList", lang("ordered-list")),
+    node("check", lang("check")),
+    node("quote", lang("quote")),
+    node("calloutNote", location(lang("callout"), literal("Note"))),
+    node("calloutTip", location(lang("callout"), literal("Tip"))),
+    node("calloutImportant", location(lang("callout"), literal("Important"))),
+    node("calloutWarning", location(lang("callout"), literal("Warning"))),
+    node("calloutCaution", location(lang("callout"), literal("Caution"))),
+    node("code", lang("code")),
+    node("table", lang("table")),
+    node("line", lang("line")),
+    node("math", lang("math")),
+    node("html", literal("HTML")),
+    node("databaseTableView", lang("databaseTableView")),
+    node("databaseKanbanView", lang("databaseKanbanView")),
+    node("databaseGalleryView", lang("databaseGalleryView")),
+    separator("separator_2"),
+    node("emoji", lang("emoji")),
+    node("link", lang("link")),
+    node("bold", lang("bold")),
+    node("italic", lang("italic")),
+    node("underline", lang("underline")),
+    node("strike", lang("strike")),
+    node("mark", lang("mark")),
+    node("sup", lang("sup")),
+    node("sub", lang("sub")),
+    node("inlineCode", lang("inline-code")),
+    node("kbd", lang("kbd")),
+    node("tag", lang("tag")),
+    node("inlineMath", lang("inline-math")),
+    separator("separator_3"),
+    node("insertAsset", lang("insertAsset")),
+    node("insertHTMLFile", lang("insertHTMLFile")),
+    node("insertIframeURL", lang("insertIframeURL")),
+    node("insertImgURL", lang("insertImgURL")),
+    node("insertVideoURL", lang("insertVideoURL")),
+    node("insertAudioURL", lang("insertAudioURL")),
+    separator("separator_4"),
+    node("staff", literal("ABC")),
+    node("chart", literal("Chart")),
+    node("flowChart", literal("FlowChart")),
+    node("graph", literal("Graphviz")),
+    node("mermaid", literal("Mermaid")),
+    node("mindmap", literal("Mind map")),
+    node("UML", literal("PlantUML")),
+    separator("separator_5"),
+    node("infoStyle", lang("infoStyle")),
+    node("successStyle", lang("successStyle")),
+    node("warningStyle", lang("warningStyle")),
+    node("errorStyle", lang("errorStyle")),
+    node("clearFontStyle", lang("clearFontStyle")),
+];
+
+const slashMenuRoot = {
+    ...node("menu", lang("entrySlashMenu"), true, [...slashMenuBuiltinChildren], true),
+    displayChildrenDirectly: true,
+};
+
+const toolbarCatalogSection: IEntryCatalogSection = {
+    key: TOOLBAR_ENTRY_ROOT_PATH,
+    label: location(lang("editor"), lang("entryToolbar")),
+    children: toolbarBuiltinChildren,
+};
 
 export const entryCatalog: IEntryCatalogSection[] = [
     {
@@ -400,6 +532,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
         children: [
             node("newNotebook", lang("newNotebook")),
             node("newEncryptedNotebook", lang("newEncryptedNotebook")),
+            node("importNotebook", lang("importNotebook")),
             node("rebuildDataIndex", lang("rebuildDataIndex")),
             node("sort", lang("sort"), true, sortChildren()),
             node("publishAccess", lang("publishAccess")),
@@ -412,7 +545,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
             node("openDocument", lang("openDocument")),
             node("rename", lang("rename")),
             node("config", lang("config")),
-            node("sort", lang("sort"), true, sortChildren()),
+            node("sort", lang("sort"), true, sortChildren("sortByFiletree")),
             node("riffCard", lang("riffCard"), false),
             node("search", lang("search")),
             node("replace", lang("replace")),
@@ -429,14 +562,56 @@ export const entryCatalog: IEntryCatalogSection[] = [
         ],
     },
     {
+        key: "docTree.notebooks",
+        label: location(lang("entryDocPanel"), lang("agentCatNotebook"), lang("multiSelect"), lang("more")),
+        children: [
+            node("sort", lang("sort"), true, sortChildren("sortByFiletree")),
+            node("search", lang("search")),
+            node("replace", lang("replace")),
+            separator("separator_1"),
+            node("close", lang("close")),
+            node("delete", lang("delete")),
+            separator("separator_2"),
+            node("export", lang("export"), true, [
+                node("exportSiYuanZip", literal("SiYuan .sy.zip")),
+                node("exportMarkdown", literal("Markdown .zip")),
+            ]),
+        ],
+    },
+    {
         key: "docTree.document",
         label: location(lang("entryDocPanel"), lang("doc"), lang("more")),
         children: docTreeDocument(),
     },
     {
         key: "docTree.multi",
-        label: location(lang("entryDocPanel"), lang("multiSelect"), lang("more")),
+        label: location(lang("entryDocPanel"), lang("agentCatDoc"), lang("multiSelect"), lang("more")),
         children: docTreeMultiple(),
+    },
+    {
+        key: "tab",
+        label: lang("entryTabMenu"),
+        children: [
+            node("close", lang("close")),
+            node("closeOthers", lang("closeOthers")),
+            node("closeAll", lang("closeAll")),
+            node("closeUnmodified", lang("closeUnmodified")),
+            node("closeLeft", lang("closeLeft")),
+            node("closeRight", lang("closeRight")),
+            separator("separator_1"),
+            node("split", lang("split"), true, [
+                node("splitLR", lang("splitLR")),
+                node("splitMoveR", lang("splitMoveR")),
+                node("splitTB", lang("splitTB")),
+                node("splitMoveB", lang("splitMoveB")),
+                node("unsplit", lang("unsplit")),
+                node("unsplitAll", lang("unsplitAll")),
+            ]),
+            node("copy", lang("copy"), true, copyChildren()),
+            node("pin", lang("pin")),
+            node("unpin", lang("unpin")),
+            node("tabToWindow", lang("tabToWindow")),
+        ],
     },
     {
         key: "document.title",
@@ -478,12 +653,14 @@ export const entryCatalog: IEntryCatalogSection[] = [
         children: [
             node("insertImage", lang("insertImage")),
             node("insertAsset", lang("insertAsset")),
+            node("insertHTMLFile", lang("insertHTMLFile")),
             node("startRecord", lang("startRecord"), false),
             node("endRecord", lang("endRecord"), false),
             node("netImg2LocalAsset", lang("netImg2LocalAsset")),
             node("netAssets2LocalAssets", lang("netAssets2LocalAssets"), false),
             node("uploadAssets2CDN", lang("uploadAssets2CDN"), false),
             node("share2Liandi", lang("share2Liandi"), false),
+            node("loadAllContent", lang("loadAllContent")),
             node("keepLazyLoad", lang("keepLazyLoad")),
             separator("separator_1"),
             node("refresh", lang("refresh")),
@@ -508,17 +685,24 @@ export const entryCatalog: IEntryCatalogSection[] = [
                 node("default", lang("default")),
             ]),
             separator("separator_2"),
-            node("docInfo", lang("blockCount"), false),
+            node("docInfo", lang("entryDocumentStatistics"), false),
         ],
+    },
+    toolbarCatalogSection,
+    {
+        key: "editor.slash",
+        label: location(lang("editor"), lang("entrySlashMenu")),
+        sortable: false,
+        children: [slashMenuRoot],
     },
     {
         key: "gutter.single",
-        label: location(lang("editor"), lang("entryGutterMenu"), lang("blockCount")),
+        label: location(lang("editor"), lang("entryGutterMenu"), lang("entrySingleBlock")),
         children: gutterSingle(),
     },
     {
         key: "gutter.multi",
-        label: location(lang("editor"), lang("entryGutterMenu"), lang("multiSelect")),
+        label: location(lang("editor"), lang("entryGutterMenu"), lang("entryMultipleBlocks")),
         children: gutterMultiple(),
     },
     {
@@ -592,7 +776,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
             node("alignCenter", lang("alignCenter")),
             node("alignLeft", lang("alignLeft")),
             node("width", lang("width"), true, [
-                node("widthInput", lang("width")),
+                node("widthInput", lang("entryPixelWidth")),
                 node("width_25%", literal("25%")),
                 node("width_33%", literal("33%")),
                 node("width_50%", literal("50%")),
@@ -600,12 +784,12 @@ export const entryCatalog: IEntryCatalogSection[] = [
                 node("width_75%", literal("75%")),
                 node("width_100%", literal("100%")),
                 separator("separator_1"),
-                node("widthDrag", lang("width")),
+                node("widthDrag", lang("entryPercentageWidth")),
                 separator("separator_2"),
                 node("default", lang("default")),
             ]),
             node("height", lang("height"), true, [
-                node("heightInput", lang("height")),
+                node("heightInput", lang("entryPixelHeight")),
                 node("width_25%", literal("25%")),
                 node("width_33%", literal("33%")),
                 node("width_50%", literal("50%")),
@@ -613,7 +797,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
                 node("width_75%", literal("75%")),
                 node("width_100%", literal("100%")),
                 separator("separator_1"),
-                node("heightDrag", lang("height")),
+                node("heightDrag", lang("entryPercentageHeight")),
                 separator("separator_2"),
                 node("default", lang("default")),
             ]),
@@ -710,7 +894,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
 
 const entryMap = new Map<string, IEntryCatalogNode>();
 const parentMap = new Map<string, string>();
-const sectionMap = new Map(entryCatalog.map((section) => [section.key, section]));
+const sectionMap = new Map<string, IEntryCatalogSection>();
 const childrenMap = new Map<string, IEntryCatalogNode[]>();
 
 const indexNodes = (prefix: string, nodes: IEntryCatalogNode[]) => {
@@ -725,17 +909,34 @@ const indexNodes = (prefix: string, nodes: IEntryCatalogNode[]) => {
     });
 };
 
-entryCatalog.forEach((section) => indexNodes(section.key, section.children));
+const rebuildCatalogIndexes = () => {
+    entryMap.clear();
+    parentMap.clear();
+    sectionMap.clear();
+    childrenMap.clear();
+    entryCatalog.forEach((section) => {
+        sectionMap.set(section.key, section);
+        indexNodes(section.key, section.children);
+    });
+};
+
+rebuildCatalogIndexes();
 
 export const getEntryCatalogNode = (path: string) => entryMap.get(path);
 export const getEntryParentPath = (path: string) => parentMap.get(path);
-export const getEntryPaths = () => Array.from(entryMap.entries())
-    .filter(([, item]) => item.type === "entry")
-    .map(([path]) => path);
+export const getEntryPaths = () => Array.from(entryMap.keys());
 export const getEntryCatalogSection = (key: string) => sectionMap.get(key);
 export const getEntryCatalogChildren = (path: string) => childrenMap.get(path);
+export const isEntryOrderSortable = (parentPath: string) => {
+    const section = getEntryCatalogSection(parentPath);
+    if (section) {
+        return section.sortable !== false;
+    }
+    const entry = getEntryCatalogNode(parentPath);
+    return Boolean(entry && entry.sortable !== false);
+};
 export const getEntryOrderParents = () => Array.from(childrenMap.keys())
-    .filter((path) => getEntryCatalogSection(path)?.sortable !== false);
+    .filter(isEntryOrderSortable);
 export const getEntryCatalogPathChain = (sectionKey: string, path: string) => {
     const chain: string[] = [];
     let current: string | undefined = path;
@@ -747,4 +948,141 @@ export const getEntryCatalogPathChain = (sectionKey: string, path: string) => {
         current = getEntryParentPath(current);
     }
     return current === sectionKey ? chain : [];
+};
+
+const normalizeToolbarCatalogSeparators = (nodes: IEntryCatalogNode[]) => {
+    const result: IEntryCatalogNode[] = [];
+    nodes.forEach((item) => {
+        if (item.type === "separator" && (result.length === 0 || result[result.length - 1].type === "separator")) {
+            return;
+        }
+        result.push(item);
+    });
+    if (result[result.length - 1]?.type === "separator") {
+        result.pop();
+    }
+    return result;
+};
+
+const toolbarCatalogNodeSignature = (item: IEntryCatalogNode, pluginLabels: Map<string, string>) => [
+    item.key,
+    item.type,
+    pluginLabels.get(item.key) || "",
+];
+
+let toolbarCatalogSignature = JSON.stringify(toolbarBuiltinChildren.map((item) =>
+    toolbarCatalogNodeSignature(item, new Map())));
+
+export const refreshToolbarCatalog = (items: Array<string | IMenuItem>) => {
+    const nodes = new Map(toolbarBuiltinNodeMap);
+    const pluginLabels = new Map<string, string>();
+    const actualOrder: string[] = [];
+    items.forEach((item) => {
+        const menuItem = typeof item === "string" ? {name: item} : item;
+        const key = getToolbarEntryId(menuItem);
+        if (!key || actualOrder.includes(key)) {
+            return;
+        }
+        actualOrder.push(key);
+        if (nodes.has(key)) {
+            return;
+        }
+        const label = getToolbarEntryLabel(menuItem) || menuItem.tip || menuItem.name;
+        pluginLabels.set(key, label);
+        nodes.set(key, menuItem.name === "|" ? separator(key) : node(key, literal(label)));
+    });
+    const order = mergeEntryOrderPreservingUnknown(toolbarBuiltinChildren.map((item) => item.key), actualOrder);
+    const children = normalizeToolbarCatalogSeparators(order.flatMap((key) => nodes.get(key) || []));
+    const signature = JSON.stringify(children.map((item) => toolbarCatalogNodeSignature(item, pluginLabels)));
+    if (signature === toolbarCatalogSignature) {
+        return;
+    }
+    toolbarCatalogSection.children = children;
+    toolbarCatalogSignature = signature;
+    rebuildCatalogIndexes();
+};
+
+interface ISlashMenuCatalogPlugin {
+    name: string;
+    displayName?: string;
+    protyleSlash: Array<{
+        id: string;
+        html: string;
+        filter?: string[];
+    }>;
+}
+
+const encodeSlashMenuEntryKeyPart = (value: string) => encodeURIComponent(value).replace(/\./g, "%2E");
+
+export const getPluginSlashEntryKey = (pluginName: string, slashID: string,
+                                       type: "entry" | "separator" = "entry") =>
+    `${type === "separator" ? "plugin-separator" : "plugin"}:${encodeSlashMenuEntryKeyPart(pluginName)}:${encodeSlashMenuEntryKeyPart(slashID)}`;
+
+export const getSlashMenuEntryPath = (entryKey: string) => `${SLASH_MENU_ROOT_PATH}.${entryKey}`;
+
+const getPluginSlashEntryText = (slash: ISlashMenuCatalogPlugin["protyleSlash"][number]) => {
+    if (typeof document !== "undefined") {
+        const template = document.createElement("template");
+        template.innerHTML = slash.html;
+        const text = template.content.querySelector(".b3-list-item__text")?.textContent?.trim();
+        if (text) {
+            return text;
+        }
+    }
+    const match = slash.html.match(/<[^>]*class\s*=\s*["'][^"']*\bb3-list-item__text\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+    const text = match?.[1].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return text || slash.filter?.[0]?.trim() || slash.id;
+};
+
+let slashMenuCatalogSignature = "[]";
+
+const normalizeSlashMenuCatalogSeparators = (nodes: IEntryCatalogNode[]) => {
+    const result: IEntryCatalogNode[] = [];
+    nodes.forEach((item) => {
+        if (item.type === "separator" && (result.length === 0 || result[result.length - 1].type === "separator")) {
+            return;
+        }
+        result.push(item);
+    });
+    if (result[result.length - 1]?.type === "separator") {
+        result.pop();
+    }
+    return result;
+};
+
+export const refreshSlashMenuCatalog = (plugins: ISlashMenuCatalogPlugin[]) => {
+    const signature = JSON.stringify(plugins.map((plugin) => ({
+        name: plugin.name,
+        displayName: plugin.displayName,
+        items: plugin.protyleSlash.map((slash) => ({
+            id: slash.id,
+            html: slash.html,
+            filter: slash.filter,
+        })),
+    })));
+    if (signature === slashMenuCatalogSignature) {
+        return;
+    }
+    const pluginNodes: IEntryCatalogNode[] = [];
+    const pluginKeys = new Set<string>();
+    plugins.forEach((plugin) => {
+        plugin.protyleSlash.forEach((slash) => {
+            const identityKey = getPluginSlashEntryKey(plugin.name, slash.id);
+            if (pluginKeys.has(identityKey)) {
+                return;
+            }
+            pluginKeys.add(identityKey);
+            if (slash.html === "separator") {
+                pluginNodes.push(separator(getPluginSlashEntryKey(plugin.name, slash.id, "separator")));
+            } else {
+                const pluginName = plugin.displayName?.trim() || plugin.name;
+                pluginNodes.push(node(identityKey, literal(`${pluginName} - ${getPluginSlashEntryText(slash)}`)));
+            }
+        });
+    });
+    slashMenuRoot.children = normalizeSlashMenuCatalogSeparators(pluginNodes.length > 0
+        ? [...slashMenuBuiltinChildren, separator("separator_6"), ...pluginNodes]
+        : [...slashMenuBuiltinChildren]);
+    slashMenuCatalogSignature = signature;
+    rebuildCatalogIndexes();
 };

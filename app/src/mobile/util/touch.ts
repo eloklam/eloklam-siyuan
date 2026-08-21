@@ -7,12 +7,19 @@ import {
 } from "../../protyle/util/hasClosest";
 import {closeModel, closePanel} from "./closePanel";
 import {popMenu} from "../menu";
-import {activeBlur} from "./keyboardToolbar";
+import {activeBlur, resetAndroidBoundedSelectionGesture} from "./keyboardToolbar";
 import {isChromeBrowser, isInAndroid, isInHarmony, isIPhone} from "../../protyle/util/compatibility";
 import {getRangeByPoint} from "../../protyle/util/selection";
 import {getCurrentEditor} from "../editor";
 import {Constants} from "../../constants";
-import {getEmbedChildOperationContext} from "../../protyle/wysiwyg/getBlock";
+import {getEmbedGutterOperationContext} from "../../protyle/wysiwyg/getBlock";
+import {backModel} from "../menu/model";
+import {
+    hasVisibleSelectionText,
+    shouldRestoreLongPressSelection,
+} from "./touchSelection";
+import {getTouchAxis, shouldStartLongPressMultiSelect} from "./touchGesture";
+import {getMobileBlockSelectionElement} from "./blockSelection";
 
 let clientX: number;
 let clientY: number;
@@ -26,6 +33,8 @@ let scrollBlock: boolean;
 let isFirstMove = true;
 // 长按进入多选的定时器
 let longPressTimer: number;
+let longPressBlockElement: HTMLElement;
+let longPressTouchRange: Range;
 
 const popSide = (render = true) => {
     if (render) {
@@ -44,9 +53,69 @@ const clearLongPress = () => {
     }
 };
 
+const clearInvisibleEditorSelection = () => {
+    const editor = getCurrentEditor();
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) {
+        return false;
+    }
+    const range = selection.getRangeAt(0);
+    if (range.collapsed || hasVisibleSelectionText(range.toString()) ||
+        !editor.protyle.wysiwyg.element.contains(range.startContainer) ||
+        !editor.protyle.wysiwyg.element.contains(range.endContainer)) {
+        return false;
+    }
+    selection.removeAllRanges();
+    activeBlur();
+    return true;
+};
+
+const restoreInvisibleLongPressSelection = () => {
+    const editor = getCurrentEditor();
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0 || !longPressBlockElement ||
+        !longPressTouchRange?.startContainer.isConnected ||
+        !longPressBlockElement.contains(longPressTouchRange.startContainer)) {
+        return false;
+    }
+    const range = selection.getRangeAt(0);
+    if (!editor.protyle.wysiwyg.element.contains(range.startContainer) ||
+        !editor.protyle.wysiwyg.element.contains(range.endContainer)) {
+        return false;
+    }
+    const startBlockElement = hasClosestBlock(range.startContainer);
+    const endBlockElement = hasClosestBlock(range.endContainer);
+    if (!shouldRestoreLongPressSelection(
+        range.collapsed,
+        range.toString(),
+        startBlockElement ? startBlockElement.getAttribute("data-node-id") : undefined,
+        endBlockElement ? endBlockElement.getAttribute("data-node-id") : undefined,
+        longPressBlockElement.getAttribute("data-node-id"),
+    )) {
+        return false;
+    }
+    const restoredRange = longPressTouchRange.cloneRange();
+    selection.removeAllRanges();
+    selection.addRange(restoredRange);
+    window.siyuan.mobile.touchRange = restoredRange.cloneRange();
+    return true;
+};
+
 export const handleTouchUp = () => {
+    resetAndroidBoundedSelectionGesture();
     if (Date.now() - time < Constants.TIMEOUT_MULTIPLE_SELECT) {
         clearLongPress();
+    }
+    if (!restoreInvisibleLongPressSelection()) {
+        clearInvisibleEditorSelection();
+    }
+    longPressBlockElement = undefined;
+    longPressTouchRange = undefined;
+};
+
+export const handleTouchSelectionChange = () => {
+    if (longPressBlockElement && !restoreInvisibleLongPressSelection()) {
+        clearInvisibleEditorSelection();
     }
 };
 
@@ -68,8 +137,9 @@ export const handleTouchEnd = (event: TouchEvent) => {
             // 多选模式
             window.getSelection()?.removeAllRanges();
             activeBlur();
-            const blockElement = hasClosestBlock(target);
-            if (blockElement) {
+            const touchedBlockElement = hasClosestBlock(target);
+            if (touchedBlockElement) {
+                const blockElement = getMobileBlockSelectionElement(touchedBlockElement as HTMLElement);
                 // 本次按压已在按住期间触发多选，松手时不切换选中态，仅消费该手势
                 blockElement.querySelectorAll(".protyle-wysiwyg--select").forEach(item => {
                     item.classList.remove("protyle-wysiwyg--select");
@@ -109,7 +179,7 @@ export const handleTouchEnd = (event: TouchEvent) => {
             const embedElement = isInEmbedBlock(nodeElement);
             if (embedElement) {
                 editor.protyle.gutter.render(editor.protyle,
-                    getEmbedChildOperationContext(nodeElement) ? nodeElement : embedElement, target);
+                    getEmbedGutterOperationContext(nodeElement) ? nodeElement : embedElement, target);
                 return;
             }
             editor.protyle.gutter.render(editor.protyle, nodeElement, target);
@@ -134,6 +204,9 @@ export const handleTouchEnd = (event: TouchEvent) => {
     clientX = null;
     // 有些事件不经过 touchmove
 
+    if (!firstXY) {
+        return;
+    }
     const isXScroll = Math.abs(xDiff) > Math.abs(yDiff);
     const modelElement = hasClosestByAttribute(target, "id", "model", true);
     if (modelElement) {
@@ -142,7 +215,9 @@ export const handleTouchEnd = (event: TouchEvent) => {
             !hasClosestByClassName(target, "protyle-wysiwyg", true) &&
             // 划选文字时不触发关闭面板
             (getSelection().rangeCount === 0 || getSelection().toString() === "")) {
-            closeModel();
+            if (!backModel()) {
+                closeModel();
+            }
         }
         return;
     }
@@ -223,10 +298,18 @@ export const handleTouchEnd = (event: TouchEvent) => {
 
 export const handleTouchStart = (event: TouchEvent) => {
     time = Date.now();
+    longPressBlockElement = undefined;
+    longPressTouchRange = undefined;
     const target = event.touches[0].target as HTMLElement;
     if (0 < event.touches.length && (target.tagName === "VIDEO" || target.tagName === "AUDIO")) {
         // https://github.com/siyuan-note/siyuan/issues/14569
         activeBlur();
+        return;
+    }
+    // 可滚动面板内容优先处理原生滚动，避免斜向滑动触发侧栏关闭
+    if (hasClosestByAttribute(target, "data-prevent-swipe", null, true)) {
+        clientX = null;
+        clientY = null;
         return;
     }
     // 存在其他拖拽元素时
@@ -252,6 +335,7 @@ export const handleTouchStart = (event: TouchEvent) => {
     yDiff = undefined;
     lastClientX = undefined;
     firstXY = undefined;
+    previousClientX = undefined;
     if (isIPhone() ||
         (event.touches[0].clientX > 8 && event.touches[0].clientX < window.innerWidth - 8)) {
         clientX = event.touches[0].clientX;
@@ -267,12 +351,28 @@ export const handleTouchStart = (event: TouchEvent) => {
     clearLongPress();
     if (clientX && clientY && editor && !editor.protyle.toolbar.isMultiSelectMode()) {
         const blockElement = hasClosestBlock(target);
-        if (blockElement && editor.protyle.wysiwyg.element.contains(blockElement)) {
+        if (blockElement && editor.protyle.wysiwyg.element.contains(blockElement) &&
+            shouldStartLongPressMultiSelect(
+                target.tagName,
+                target.dataset.type,
+                !!hasClosestByAttribute(target, "data-type", "inline-math"),
+                target.tagName === "IMG" && !!hasClosestByClassName(target, "img"),
+            )) {
+            longPressBlockElement = blockElement;
+            const touchRange = getRangeByPoint(event.touches[0].clientX, event.touches[0].clientY);
+            const touchRangeElement = touchRange.startContainer.nodeType === Node.ELEMENT_NODE ?
+                touchRange.startContainer as Element : touchRange.startContainer.parentElement;
+            const editableElement = touchRangeElement?.closest('[contenteditable="true"]');
+            if (editableElement && blockElement.contains(editableElement)) {
+                longPressTouchRange = touchRange.cloneRange();
+                longPressTouchRange.collapse(true);
+            }
             longPressTimer = window.setTimeout(() => {
+                clearInvisibleEditorSelection();
                 const selection = window.getSelection();
                 if (selection?.rangeCount > 0) {
                     const range = selection.getRangeAt(0);
-                    if (!range.collapsed && range.toString().replace(Constants.ZWSP, "") !== "" &&
+                    if (!range.collapsed && hasVisibleSelectionText(range.toString()) &&
                         editor.protyle.wysiwyg.element.contains(range.startContainer) &&
                         editor.protyle.wysiwyg.element.contains(range.endContainer)) {
                         longPressTimer = undefined;
@@ -280,9 +380,10 @@ export const handleTouchStart = (event: TouchEvent) => {
                     }
                 }
                 window.getSelection()?.removeAllRanges();
-                editor.protyle.toolbar.showMultiSelectMode(editor.protyle, blockElement);
+                const selectionBlockElement = getMobileBlockSelectionElement(blockElement as HTMLElement);
+                editor.protyle.toolbar.showMultiSelectMode(editor.protyle, selectionBlockElement);
                 if (editor.protyle.options.render.gutter) {
-                    editor.protyle.gutter.render(editor.protyle, blockElement, target);
+                    editor.protyle.gutter.render(editor.protyle, selectionBlockElement, target);
                 }
             }, Constants.TIMEOUT_MULTIPLE_SELECT);
         }
@@ -314,6 +415,7 @@ export const handleTouchMove = (event: TouchEvent) => {
     if (clientX && clientY &&
         (Math.abs(clientX - event.touches[0].clientX) >= 5 || Math.abs(clientY - event.touches[0].clientY) >= 5)) {
         clearLongPress();
+        longPressTouchRange = undefined;
     }
     if (!clientX || !clientY ||
         target.tagName === "AUDIO" ||
@@ -343,16 +445,13 @@ export const handleTouchMove = (event: TouchEvent) => {
 
     xDiff = Math.floor(clientX - event.touches[0].clientX);
     yDiff = Math.floor(clientY - event.touches[0].clientY);
-    if (!firstDirection) {
-        firstDirection = xDiff > 0 ? "toLeft" : "toRight";
-    }
     // 上下滚动防止左右滑动
     if (!firstXY) {
-        if (Math.abs(xDiff) > Math.abs(yDiff)) {
-            firstXY = "x";
-        } else {
-            firstXY = "y";
+        firstXY = getTouchAxis(xDiff, yDiff, Constants.SIZE_DRAG_THRESHOLD);
+        if (!firstXY) {
+            return;
         }
+        firstDirection = xDiff > 0 ? "toLeft" : "toRight";
         if (firstXY === "x") {
             if ((hasClosestByAttribute(target, "id", "menu") && firstDirection === "toLeft") ||
                 (hasClosestByAttribute(target, "id", "sidebar") && firstDirection === "toRight")) {

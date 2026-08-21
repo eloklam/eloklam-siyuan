@@ -7,7 +7,7 @@
 		"id": "20240530101000-1m5un7l",
 		"title": "アセット",
 		"type": "doc",
-		"updated": "20260803170332"
+		"updated": "20260820133158"
 	},
 	"Children": [
 		{
@@ -17,7 +17,7 @@
 			"Properties": {
 				"ID": "20240530101000-you29ty",
 				"id": "20240530101000-penh301",
-				"updated": "20240530101000"
+				"updated": "20260820133158"
 			},
 			"Children": [
 				{
@@ -51,13 +51,63 @@
 			]
 		},
 		{
+			"ID": "20260820101323-b5x9rtd",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260820101323-b5x9rtd",
+				"updated": "20260820133158"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "デスクトップでは、"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "設定"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "エディタ"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "動作"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "リソースの開き方"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " で、クリック、Ctrl+クリック / ⌘クリック、Alt+クリック、Shift+クリック時のリソースの開き方を設定できます。"
+				}
+			]
+		},
+		{
 			"ID": "20240530101000-m11xu1w",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"ID": "20240530101000-o6et1uc",
 				"id": "20240530101000-m11xu1w",
-				"updated": "20250115152709"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -235,16 +285,12 @@
 			"Properties": {
 				"ID": "20240530101000-v13sz9b",
 				"id": "20240530101000-ev9oag3",
-				"updated": "20240530101000"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
 					"Type": "NodeImage",
 					"Data": "span",
-					"Properties": {
-						"parent-style": "display: block;",
-						"style": "display: block;"
-					},
 					"Children": [
 						{
 							"Type": "NodeBang"
@@ -277,10 +323,6 @@
 							"Type": "NodeCloseParen"
 						}
 					]
-				},
-				{
-					"Type": "NodeKramdownSpanIAL",
-					"Data": "{: style=\"display: block;\" parent-style=\"display: block;\"}"
 				}
 			]
 		},

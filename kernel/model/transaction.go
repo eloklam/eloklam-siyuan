@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -132,7 +132,7 @@ func flushTx(tx *Transaction) {
 	if txErr := performTx(tx); nil != txErr {
 		switch txErr.code {
 		case TxErrCodeSkipTx:
-			// 操作已跳过，提示消息已在具体函数中 PushMsg，不弹状态异常
+			// 操作已跳过，不弹状态异常
 			return
 		case TxErrCodeBlockNotFound, TxErrCodePushMsg:
 			pushMsg := txErr.msg
@@ -147,6 +147,10 @@ func flushTx(tx *Transaction) {
 				pushMsg += fmt.Sprintf(" [%s]", txErr.id)
 			}
 			util.PushTxErr(pushMsg, txErr.code, nil)
+			return
+		case TxErrCodeReloadUI:
+			logging.LogErrorf("transaction failed and requires UI reload: %s", txErr.msg)
+			util.ReloadUI()
 			return
 		case TxErrCodeDataIsSyncing:
 			util.PushMsg(Conf.Language(222), 5000)
@@ -198,7 +202,8 @@ const (
 	TxErrCodeWriteTree       = 2
 	TxErrHandleAttributeView = 3
 	TxErrCodePushMsg         = 4
-	TxErrCodeSkipTx          = 5 // 操作被跳过（如跨加密边界移动），已 PushMsg 提示，不弹状态异常
+	TxErrCodeSkipTx          = 5 // 操作被跳过，不弹状态异常
+	TxErrCodeReloadUI        = 6 // 事务已回滚，重新加载界面以恢复前后端一致状态
 )
 
 type TxErr struct {
@@ -365,6 +370,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 					ret = tx.doBatchUpdateAttrViewCells(operations)
 					operationIndex += len(operations) - 1
 				}
+			case "updateAttrViewCells":
+				ret = tx.doUpdateAttrViewCells(op)
 			case "updateAttrViewColOptions":
 				ret = tx.doUpdateAttrViewColOptions(op)
 			case "removeAttrViewColOption":
@@ -485,10 +492,18 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				tx.rollback()
 				return
 			}
+			if "delete" != op.Action || operationIndex == len(tx.DoOperations)-1 ||
+				"delete" != tx.DoOperations[operationIndex+1].Action {
+				tx.flushDeletedAttributeViewBlocks()
+			}
 		}
 	}
 
 	if ret = tx.normalizeListItemFolds(); nil != ret {
+		tx.rollback()
+		return
+	}
+	if ret = tx.validateStructureChanges(); nil != ret {
 		tx.rollback()
 		return
 	}
@@ -546,6 +561,7 @@ func (tx *Transaction) processLargeDelete() bool {
 	}
 
 	tx.doLargeDelete(deleteOps)
+	tx.flushDeletedAttributeViewBlocks()
 	return true
 }
 
@@ -582,10 +598,12 @@ func (tx *Transaction) processLargeInsert() bool {
 
 	if nil != firstDeleteOp {
 		tx.doDelete(firstDeleteOp)
+		tx.flushDeletedAttributeViewBlocks()
 	}
 	tx.doLargeInsert(insertOps)
 	if nil != lastDeleteOp {
 		tx.doDelete(lastDeleteOp)
+		tx.flushDeletedAttributeViewBlocks()
 	}
 	return true
 }
@@ -621,9 +639,9 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 	// 生成文档历史 https://github.com/siyuan-note/siyuan/issues/14359
 	generateOpTypeHistory(srcTree, HistoryOpUpdate)
 
-	var headingChildren []*ast.Node
-	if isMovingFoldHeading := ast.NodeHeading == srcNode.Type && treenode.IsSelfFolded(srcNode); isMovingFoldHeading {
-		headingChildren = treenode.HeadingChildren(srcNode)
+	headingChildren, captureHeadingMoveGroup, moveGroupErr := tx.resolveHeadingMoveChildren(operation, srcNode)
+	if nil != moveGroupErr {
+		return moveGroupErr
 	}
 	srcParent := srcNode.Parent
 
@@ -641,7 +659,7 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 	targetParentID := operation.ParentID
 	if "" != targetPreviousID {
 		if id == targetPreviousID {
-			return
+			return &TxErr{code: TxErrCodeSkipTx}
 		}
 
 		var targetTree *parse.Tree
@@ -680,14 +698,14 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 		}
 
 		if isMovingFoldHeadingIntoSelf(targetNode, headingChildren) {
-			return
+			return &TxErr{code: TxErrCodeSkipTx}
 		}
 
 		if isMovingParentIntoChild(srcNode, targetNode) {
-			return
+			return &TxErr{code: TxErrCodeSkipTx}
 		}
 
-		if 0 < len(headingChildren) {
+		if nil == operation.BlockIDs && 0 < len(headingChildren) {
 			// 折叠标题再编辑形成外层列表（前面加上 * ）时，前端给的 tx 序列会形成死循环，在这里解开
 			// Nested lists cause hang after collapsing headings https://github.com/siyuan-note/siyuan/issues/15943
 			lastChild := headingChildren[len(headingChildren)-1]
@@ -695,6 +713,9 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 				nil != lastChild.FirstChild && nil != lastChild.FirstChild.FirstChild && lastChild.FirstChild.FirstChild.ID == targetPreviousID {
 				headingChildren = headingChildren[:len(headingChildren)-1]
 			}
+		}
+		if captureHeadingMoveGroup {
+			tx.storeHeadingMoveBlockIDs(operation, headingChildren)
 		}
 
 		tx.markListItemFoldCandidate(srcParent, srcTree)
@@ -709,18 +730,21 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 
 		treenode.RefreshUpdated(srcNode)
 		tx.nodes[srcNode.ID] = srcNode
+		tx.markStructureCheck(srcNode)
+		for _, child := range headingChildren {
+			tx.markStructureCheck(child)
+		}
 		treenode.RefreshUpdated(srcTree.Root)
 		tx.writeTree(srcTree)
 		if !isSameTree {
 			tx.writeTree(targetTree)
-			task.AppendAsyncTaskWithDelay(task.SetDefRefCount, util.SQLFlushInterval, refreshRefCount, srcTree.ID)
-			task.AppendAsyncTaskWithDelay(task.SetDefRefCount, util.SQLFlushInterval, refreshRefCount, srcNode.ID)
+			tx.recordCrossTreeMoveRefRefresh(srcTree, targetTree, srcNode, headingChildren)
 		}
 		return
 	}
 
 	if id == targetParentID {
-		return
+		return &TxErr{code: TxErrCodeSkipTx}
 	}
 
 	targetTree, err := tx.loadTree(targetParentID)
@@ -745,11 +769,14 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 	}
 
 	if isMovingFoldHeadingIntoSelf(targetNode, headingChildren) {
-		return
+		return &TxErr{code: TxErrCodeSkipTx}
 	}
 
 	if isMovingParentIntoChild(srcNode, targetNode) {
-		return
+		return &TxErr{code: TxErrCodeSkipTx}
+	}
+	if captureHeadingMoveGroup {
+		tx.storeHeadingMoveBlockIDs(operation, headingChildren)
 	}
 
 	tx.markListItemFoldCandidate(srcParent, srcTree)
@@ -796,14 +823,117 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 
 	treenode.RefreshUpdated(srcNode)
 	tx.nodes[srcNode.ID] = srcNode
+	tx.markStructureCheck(srcNode)
+	for _, child := range headingChildren {
+		tx.markStructureCheck(child)
+	}
 	treenode.RefreshUpdated(srcTree.Root)
 	tx.writeTree(srcTree)
 	if !isSameTree {
 		tx.writeTree(targetTree)
-		task.AppendAsyncTaskWithDelay(task.SetDefRefCount, util.SQLFlushInterval, refreshRefCount, srcTree.ID)
-		task.AppendAsyncTaskWithDelay(task.SetDefRefCount, util.SQLFlushInterval, refreshRefCount, srcNode.ID)
+		tx.recordCrossTreeMoveRefRefresh(srcTree, targetTree, srcNode, headingChildren)
 	}
 	return
+}
+
+const moveGroupIDContextKey = "moveGroupID"
+
+func (tx *Transaction) resolveHeadingMoveChildren(operation *Operation, srcNode *ast.Node) (children []*ast.Node,
+	capture bool, ret *TxErr) {
+	if !tx.isReplay {
+		// 移动集合由内核根据提交前的树生成，不能信任调用方传入的块 ID。
+		operation.BlockIDs = nil
+	}
+	if tx.isReplay && nil != operation.BlockIDs {
+		// 重放只移动首次执行保存的子块前缀，当前位置后来纳入的块仍留在原处。
+		if ast.NodeHeading != srcNode.Type {
+			return nil, false, invalidHeadingMoveGroupError(srcNode.ID)
+		}
+		if children, ok := headingMoveChildrenByBlockIDs(srcNode, operation.BlockIDs); ok {
+			return children, false, nil
+		}
+		return nil, false, invalidHeadingMoveGroupError(srcNode.ID)
+	}
+	if ast.NodeHeading == srcNode.Type && treenode.IsSelfFolded(srcNode) {
+		return treenode.HeadingChildren(srcNode), !tx.isReplay, nil
+	}
+	return nil, false, nil
+}
+
+func headingMoveChildrenByBlockIDs(heading *ast.Node, blockIDs []string) (ret []*ast.Node, ok bool) {
+	if nil == blockIDs {
+		return nil, false
+	}
+	if 0 == len(blockIDs) {
+		return []*ast.Node{}, true
+	}
+
+	children := treenode.HeadingChildren(heading)
+	blockIndex := 0
+	for i, child := range children {
+		ret = append(ret, child)
+		if !child.IsBlock() || ast.NodeKramdownBlockIAL == child.Type {
+			continue
+		}
+		if child.ID != blockIDs[blockIndex] {
+			return nil, false
+		}
+		blockIndex++
+		if blockIndex != len(blockIDs) {
+			continue
+		}
+		for next := i + 1; next < len(children) && ast.NodeKramdownBlockIAL == children[next].Type; next++ {
+			ret = append(ret, children[next])
+		}
+		return ret, true
+	}
+	return nil, false
+}
+
+func invalidHeadingMoveGroupError(id string) *TxErr {
+	msg := "folded heading move group changed"
+	logging.LogWarnf("%s [%s]", msg, id)
+	return &TxErr{code: TxErrCodeReloadUI, msg: msg, id: id}
+}
+
+func (tx *Transaction) storeHeadingMoveBlockIDs(operation *Operation, headingChildren []*ast.Node) {
+	blockIDs := make([]string, 0)
+	for _, child := range headingChildren {
+		if child.IsBlock() && ast.NodeKramdownBlockIAL != child.Type {
+			blockIDs = append(blockIDs, child.ID)
+		}
+	}
+	operation.BlockIDs = cloneOperationBlockIDs(blockIDs)
+
+	moveGroupID, _ := operation.Context[moveGroupIDContextKey].(string)
+	if "" != moveGroupID {
+		for _, undoOperation := range tx.UndoOperations {
+			undoMoveGroupID, _ := undoOperation.Context[moveGroupIDContextKey].(string)
+			if moveGroupID == undoMoveGroupID {
+				undoOperation.BlockIDs = cloneOperationBlockIDs(blockIDs)
+			}
+		}
+		return
+	}
+
+	var candidates []*Operation
+	for _, undoOperation := range tx.UndoOperations {
+		if operation.ID == undoOperation.ID && ("move" == undoOperation.Action || "append" == undoOperation.Action) {
+			candidates = append(candidates, undoOperation)
+		}
+	}
+	if 1 == len(candidates) {
+		candidates[0].BlockIDs = cloneOperationBlockIDs(blockIDs)
+	}
+}
+
+func cloneOperationBlockIDs(blockIDs []string) []string {
+	if nil == blockIDs {
+		return nil
+	}
+	ret := make([]string, len(blockIDs))
+	copy(ret, blockIDs)
+	return ret
 }
 
 func isMovingFoldHeadingIntoSelf(targetNode *ast.Node, headingChildren []*ast.Node) bool {
@@ -839,8 +969,7 @@ func (tx *Transaction) doPrependInsert(operation *Operation) (ret *TxErr) {
 	block := treenode.GetBlockTree(operation.ParentID)
 	if nil == block {
 		logging.LogWarnf("not found block [%s]", operation.ParentID)
-		util.ReloadUI() // 比如分屏后编辑器状态不一致，这里强制重新载入界面
-		return
+		return &TxErr{code: TxErrCodeReloadUI, msg: "parent block not found", id: operation.ParentID}
 	}
 	tree, err := tx.loadTree(block.ID)
 	if err != nil {
@@ -920,6 +1049,7 @@ func (tx *Transaction) doPrependInsert(operation *Operation) (ret *TxErr) {
 
 		treenode.CreatedUpdated(toInsert)
 		tx.nodes[toInsert.ID] = toInsert
+		tx.markStructureCheck(toInsert)
 	}
 
 	treenode.CreatedUpdated(insertedNode)
@@ -942,8 +1072,7 @@ func (tx *Transaction) doAppendInsert(operation *Operation) (ret *TxErr) {
 	block := treenode.GetBlockTree(operation.ParentID)
 	if nil == block {
 		logging.LogWarnf("not found block [%s]", operation.ParentID)
-		util.ReloadUI() // 比如分屏后编辑器状态不一致，这里强制重新载入界面
-		return
+		return &TxErr{code: TxErrCodeReloadUI, msg: "parent block not found", id: operation.ParentID}
 	}
 	tree, err := tx.loadTree(block.ID)
 	if err != nil {
@@ -1034,6 +1163,7 @@ func (tx *Transaction) doAppendInsert(operation *Operation) (ret *TxErr) {
 
 		treenode.CreatedUpdated(toInsert)
 		tx.nodes[toInsert.ID] = toInsert
+		tx.markStructureCheck(toInsert)
 	}
 
 	treenode.CreatedUpdated(insertedNode)
@@ -1072,9 +1202,9 @@ func (tx *Transaction) doAppend(operation *Operation) (ret *TxErr) {
 	}
 	srcParent := srcNode.Parent
 
-	var headingChildren []*ast.Node
-	if isMovingFoldHeading := ast.NodeHeading == srcNode.Type && treenode.IsSelfFolded(srcNode); isMovingFoldHeading {
-		headingChildren = treenode.HeadingChildren(srcNode)
+	headingChildren, captureHeadingMoveGroup, moveGroupErr := tx.resolveHeadingMoveChildren(operation, srcNode)
+	if nil != moveGroupErr {
+		return moveGroupErr
 	}
 	var srcEmptyList, targetNewList *ast.Node
 	if ast.NodeListItem == srcNode.Type {
@@ -1107,6 +1237,9 @@ func (tx *Transaction) doAppend(operation *Operation) (ret *TxErr) {
 		util.PushMsg(Conf.Language(313), 5000)
 		return &TxErr{code: TxErrCodeSkipTx}
 	}
+	if captureHeadingMoveGroup {
+		tx.storeHeadingMoveBlockIDs(operation, headingChildren)
+	}
 
 	targetRoot := targetTree.Root
 	tx.markListItemFoldCandidate(srcParent, srcTree)
@@ -1130,10 +1263,16 @@ func (tx *Transaction) doAppend(operation *Operation) (ret *TxErr) {
 	if nil != srcEmptyList {
 		srcEmptyList.Unlink()
 	}
+	tx.markStructureCheck(srcNode)
+	tx.markStructureCheck(targetNewList)
+	for _, child := range headingChildren {
+		tx.markStructureCheck(child)
+	}
 
 	tx.writeTree(srcTree)
 	if !isSameTree {
 		tx.writeTree(targetTree)
+		tx.recordCrossTreeMoveRefRefresh(srcTree, targetTree, srcNode, headingChildren)
 	}
 	return
 }
@@ -1257,12 +1396,17 @@ func (tx *Transaction) doDelete0(operation *Operation, tree *parse.Tree) (delete
 }
 
 func syncDelete2AvBlock(node *ast.Node, nodeTree *parse.Tree, delChildrenWhenDelParent bool, tx *Transaction) {
-	changedAvIDs := syncDelete2AttributeView(node, delChildrenWhenDelParent)
-	avIDs := tx.syncDelete2Block(node, nodeTree)
-	changedAvIDs = append(changedAvIDs, avIDs...)
-	changedAvIDs = gulu.Str.RemoveDuplicatedElem(changedAvIDs)
+	if nil == tx {
+		// 非事务调用（例如 RemoveDoc）无法批量收集，收集后立即清理已删除块的属性视图绑定行
+		// https://github.com/siyuan-note/siyuan/issues/18557
+		deletedAttrViewBlockIDs := map[string]map[string]struct{}{}
+		collectDeletedAttributeViewBlocks(node, delChildrenWhenDelParent, deletedAttrViewBlockIDs)
+		flushDeletedAttributeViewBlocks(deletedAttrViewBlockIDs)
+	} else {
+		tx.collectDeletedAttributeViewBlocks(node, delChildrenWhenDelParent)
+	}
 
-	for _, avID := range changedAvIDs {
+	for _, avID := range tx.syncDelete2Block(node, nodeTree) {
 		ReloadAttrView(avID)
 	}
 }
@@ -1319,85 +1463,137 @@ func (tx *Transaction) syncDelete2Block(node *ast.Node, nodeTree *parse.Tree) (c
 	return
 }
 
-func syncDelete2AttributeView(node *ast.Node, delChildrenWhenDelParent bool) (changedAvIDs []string) {
+func (tx *Transaction) collectDeletedAttributeViewBlocks(node *ast.Node, delChildrenWhenDelParent bool) {
+	collectDeletedAttributeViewBlocks(node, delChildrenWhenDelParent, tx.deletedAttrViewBlockIDs)
+}
+
+func collectDeletedAttributeViewBlocks(node *ast.Node, delChildrenWhenDelParent bool, deletedAttrViewBlockIDs map[string]map[string]struct{}) {
+	collect := func(n *ast.Node) {
+		avs := n.IALAttr(av.NodeAttrNameAvs)
+		if "" == avs {
+			return
+		}
+		for avID := range strings.SplitSeq(avs, ",") {
+			blockIDs := deletedAttrViewBlockIDs[avID]
+			if nil == blockIDs {
+				blockIDs = map[string]struct{}{}
+				deletedAttrViewBlockIDs[avID] = blockIDs
+			}
+			blockIDs[n.ID] = struct{}{}
+		}
+	}
 	if !delChildrenWhenDelParent {
-		changedAvIDs = deleteAttrView(node, changedAvIDs)
+		collect(node)
 		return
 	}
-
 	ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
-		if !entering || !n.IsBlock() {
-			return ast.WalkContinue
+		if entering && n.IsBlock() {
+			collect(n)
 		}
-
-		changedAvIDs = append(changedAvIDs, deleteAttrView(n, changedAvIDs)...)
 		return ast.WalkContinue
 	})
+}
 
-	changedAvIDs = gulu.Str.RemoveDuplicatedElem(changedAvIDs)
+func groupDeletedAttributeViewBlocks(boundAVIDs map[string][]string) (ret map[string]map[string]struct{}) {
+	ret = map[string]map[string]struct{}{}
+	for blockID, avIDs := range boundAVIDs {
+		blockID = strings.TrimSpace(blockID)
+		if "" == blockID {
+			continue
+		}
+		for _, avID := range avIDs {
+			avID = strings.TrimSpace(avID)
+			if "" == avID {
+				continue
+			}
+			blockIDs := ret[avID]
+			if nil == blockIDs {
+				blockIDs = map[string]struct{}{}
+				ret[avID] = blockIDs
+			}
+			blockIDs[blockID] = struct{}{}
+		}
+	}
 	return
 }
 
-func deleteAttrView(n *ast.Node, changedAvIDs []string) []string {
-	avs := n.IALAttr(av.NodeAttrNameAvs)
-	if "" == avs {
-		return nil
+func (tx *Transaction) flushDeletedAttributeViewBlocks() {
+	flushDeletedAttributeViewBlocks(tx.deletedAttrViewBlockIDs)
+	tx.deletedAttrViewBlockIDs = map[string]map[string]struct{}{}
+}
+
+func flushDeletedAttributeViewBlocks(deletedAttrViewBlockIDs map[string]map[string]struct{}) {
+	for avID, deletedBlockIDs := range deletedAttrViewBlockIDs {
+		attrView, err := av.ParseAttributeView(avID)
+		if nil != err || !removeAttributeViewBoundBlocks(attrView, deletedBlockIDs) {
+			continue
+		}
+		regenAttrViewGroups(attrView)
+		av.SaveAttributeView(attrView)
+		ReloadAttrView(avID)
+	}
+}
+
+func removeAttributeViewBoundBlocks(attrView *av.AttributeView, deletedBlockIDs map[string]struct{}) (changed bool) {
+	if nil == attrView {
+		return false
 	}
 
-	avIDs := strings.SplitSeq(avs, ",")
-	for avID := range avIDs {
-		attrView, parseErr := av.ParseAttributeView(avID)
-		if nil != parseErr {
-			continue
-		}
-
-		changedAv := false
-		blockValues := attrView.GetBlockKeyValues()
-		if nil == blockValues {
-			continue
-		}
-
-		removedItemID := ""
-		for i, blockValue := range blockValues.Values {
-			if nil == blockValue.Block {
+	blockValues := attrView.GetBlockKeyValues()
+	if nil == blockValues {
+		return false
+	}
+	removedItemIDs := map[string]struct{}{}
+	values := make([]*av.Value, 0, len(blockValues.Values))
+	for _, blockValue := range blockValues.Values {
+		if nil != blockValue && nil != blockValue.Block {
+			if _, deleted := deletedBlockIDs[blockValue.Block.ID]; deleted {
+				if "" != blockValue.BlockID {
+					removedItemIDs[blockValue.BlockID] = struct{}{}
+				}
+				changed = true
 				continue
 			}
-
-			if blockValue.Block.ID == n.ID {
-				removedItemID = blockValue.BlockID
-				blockValues.Values = append(blockValues.Values[:i], blockValues.Values[i+1:]...)
-				changedAv = true
-				break
-			}
 		}
-
-		if "" != removedItemID {
-			// 条目 ID 与绑定块 ID 自 v3.7.3 起不同，只删主键值会把该条目其余字段的值留成孤儿：
-			// 它们不再属于任何行，界面上看不见也无法恢复。这里一并清掉。
-			for _, keyValues := range attrView.KeyValues {
-				if nil == keyValues || keyValues == blockValues {
-					continue
-				}
-				values := keyValues.Values[:0]
-				for i, value := range keyValues.Values {
-					if nil == value || value.BlockID != removedItemID {
-						values = append(values, keyValues.Values[i])
-					}
-				}
-				keyValues.Values = values
-			}
-			for _, view := range attrView.Views {
-				view.ItemIDs = gulu.Str.RemoveElem(view.ItemIDs, removedItemID)
-			}
-		}
-
-		if changedAv {
-			regenAttrViewGroups(attrView)
-			av.SaveAttributeView(attrView)
-			changedAvIDs = append(changedAvIDs, avID)
-		}
+		values = append(values, blockValue)
 	}
-	return changedAvIDs
+	if !changed {
+		return
+	}
+	blockValues.Values = values
+	// 条目 ID 与绑定块 ID 自 v3.7.3 起不同，只删主键值会把该条目其余字段的值留成孤儿：
+	// 它们不再属于任何行，界面上看不见也无法恢复。这里一并清掉。
+	for _, keyValues := range attrView.KeyValues {
+		if nil == keyValues || keyValues == blockValues {
+			continue
+		}
+		kept := keyValues.Values[:0]
+		for i, value := range keyValues.Values {
+			if nil == value {
+				kept = append(kept, keyValues.Values[i])
+				continue
+			}
+			if _, removed := removedItemIDs[value.BlockID]; removed {
+				continue
+			}
+			kept = append(kept, keyValues.Values[i])
+		}
+		keyValues.Values = kept
+	}
+	for _, view := range attrView.Views {
+		if nil == view {
+			continue
+		}
+		itemIDs := view.ItemIDs[:0]
+		for _, itemID := range view.ItemIDs {
+			if _, removed := removedItemIDs[itemID]; removed {
+				continue
+			}
+			itemIDs = append(itemIDs, itemID)
+		}
+		view.ItemIDs = itemIDs
+	}
+	return
 }
 
 func (tx *Transaction) doLargeInsert(operations []*Operation) {
@@ -1452,8 +1648,7 @@ func (tx *Transaction) doInsert(operation *Operation) (ret *TxErr) {
 	}
 	if nil == bt {
 		logging.LogWarnf("not found block tree [%s, %s, %s]", operation.ParentID, operation.PreviousID, operation.NextID)
-		util.ReloadUI() // 比如分屏后编辑器状态不一致，这里强制重新载入界面
-		return
+		return &TxErr{code: TxErrCodeReloadUI, msg: "insertion target block not found"}
 	}
 
 	var err error
@@ -1588,6 +1783,10 @@ func (tx *Transaction) doInsert0(operation *Operation, tree *parse.Tree) (ret *T
 
 	treenode.CreatedUpdated(insertedNode)
 	tx.nodes[insertedNode.ID] = insertedNode
+	tx.markStructureCheck(insertedNode)
+	for _, remain := range remains {
+		tx.markStructureCheck(remain)
+	}
 
 	// 收集引用的定义块 ID
 	refDefIDs := getRefDefIDs(insertedNode)
@@ -1706,7 +1905,7 @@ func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 	}
 	if err = treenode.ValidateBlockReplacement(oldNode, updatedNode); err != nil {
 		logging.LogErrorf("validate updated block [%s] structure failed: %s", id, err)
-		return &TxErr{code: TxErrCodePushMsg, msg: err.Error(), id: id}
+		return &TxErr{code: TxErrCodeReloadUI, msg: err.Error(), id: id}
 	}
 	if err = validateBlockUpdateType(oldNode, updatedNode, operation.LockType); err != nil {
 		logging.LogError(err.Error())
@@ -2037,6 +2236,7 @@ func (tx *Transaction) doCreate(operation *Operation) (ret *TxErr) {
 	// 兜底校验：禁止跨加密边界块引（创建文档可能携带跨边界引用）
 	// 必须在 getRefDefIDs 之前，避免跨边界引用被收集进引用缓存
 	degradeCrossBoundaryBlockRefs(tree.Root, tree.Box)
+	tx.markStructureCheck(tree.Root)
 	tx.writeTree(tree)
 	// 新建文档中的引用均为本次新增，刷新其最近引用时间用于块引"最近引用"排序
 	TouchRefUsed(getRefDefIDs(tree.Root))
@@ -2188,7 +2388,7 @@ type Operation struct {
 	PreviousID string   `json:"previousID"`
 	NextID     string   `json:"nextID"`
 	RetData    any      `json:"retData"`
-	BlockIDs   []string `json:"blockIDs"`
+	BlockIDs   []string `json:"blockIDs"` // move/append 时为随折叠标题移动的顶层块，闪卡操作时为目标块
 	BlockID    string   `json:"blockID"`
 
 	DeckID string      `json:"deckID"` // 用于添加/删除闪卡
@@ -2196,31 +2396,136 @@ type Operation struct {
 
 	LockType bool `json:"-"` // 外部块更新是否禁止改变主类型
 
-	AvID              string           `json:"avID"`              // 属性视图 ID
-	SrcIDs            []string         `json:"srcIDs"`            // 用于从属性视图中删除行
-	Srcs              []map[string]any `json:"srcs"`              // 用于添加属性视图行（包括绑定块）{id, content, isDetached}
-	IsDetached        bool             `json:"isDetached"`        // 用于标识是否未绑定块，仅存在于属性视图中
-	Name              string           `json:"name"`              // 属性视图列名
-	Typ               string           `json:"type"`              // 属性视图列类型
-	Format            string           `json:"format"`            // 属性视图列格式化
-	KeyID             string           `json:"keyID"`             // 属性视图字段 ID
-	RowID             string           `json:"rowID"`             // 属性视图行 ID
-	IsTwoWay          bool             `json:"isTwoWay"`          // 属性视图关联列是否是双向关系
-	BackRelationKeyID string           `json:"backRelationKeyID"` // 属性视图关联列回链关联列的 ID
-	RemoveDest        bool             `json:"removeDest"`        // 属性视图删除关联目标
-	Layout            av.LayoutType    `json:"layout"`            // 属性视图布局类型
-	GroupID           string           `json:"groupID"`           // 属性视图分组视图 ID
-	TargetGroupID     string           `json:"targetGroupID"`     // 属性视图目标分组视图 ID
-	ViewID            string           `json:"viewID"`            // 属性视图视图 ID
-	ViewIDs           []string         `json:"viewIDs,omitempty"` // 数据库视图 ID 列表
-	IgnoreDefaultFill bool             `json:"ignoreDefaultFill"` // 是否忽略默认填充
+	AvID              string                `json:"avID"`                  // 属性视图 ID
+	SrcIDs            []string              `json:"srcIDs"`                // 用于从属性视图中删除行
+	Srcs              []map[string]any      `json:"srcs"`                  // 用于添加属性视图行（包括绑定块）{id, content, isDetached}
+	IsDetached        bool                  `json:"isDetached"`            // 用于标识是否未绑定块，仅存在于属性视图中
+	Name              string                `json:"name"`                  // 属性视图列名
+	Typ               string                `json:"type"`                  // 属性视图列类型
+	Format            string                `json:"format"`                // 属性视图列格式化
+	KeyID             string                `json:"keyID"`                 // 属性视图字段 ID
+	RowID             string                `json:"rowID"`                 // 属性视图行 ID
+	CellUpdates       []*AttrViewCellUpdate `json:"cellUpdates,omitempty"` // 属性视图单元格批量更新
+	IsTwoWay          bool                  `json:"isTwoWay"`              // 属性视图关联列是否是双向关系
+	BackRelationKeyID string                `json:"backRelationKeyID"`     // 属性视图关联列回链关联列的 ID
+	RemoveDest        bool                  `json:"removeDest"`            // 属性视图删除关联目标
+	Layout            av.LayoutType         `json:"layout"`                // 属性视图布局类型
+	GroupID           string                `json:"groupID"`               // 属性视图分组视图 ID
+	TargetGroupID     string                `json:"targetGroupID"`         // 属性视图目标分组视图 ID
+	ViewID            string                `json:"viewID"`                // 属性视图视图 ID
+	ViewIDs           []string              `json:"viewIDs,omitempty"`     // 数据库视图 ID 列表
+	IgnoreDefaultFill bool                  `json:"ignoreDefaultFill"`     // 是否忽略默认填充
 
 	Context map[string]any `json:"context"` // 上下文信息
+}
+
+type AttrViewCellUpdate struct {
+	KeyID string `json:"keyID"`
+	RowID string `json:"rowID"`
+	Data  any    `json:"data"`
 }
 
 type listItemFoldCandidate struct {
 	id   string
 	tree *parse.Tree
+}
+
+func (tx *Transaction) markStructureCheck(node *ast.Node) {
+	if nil == node {
+		return
+	}
+	if nil == tx.structureCheckNodes {
+		tx.structureCheckNodes = map[*ast.Node]struct{}{}
+	}
+	tx.structureCheckNodes[node] = struct{}{}
+}
+
+func isNodeInDocument(node *ast.Node) bool {
+	for current := node; nil != current; current = current.Parent {
+		if ast.NodeDocument == current.Type {
+			return true
+		}
+	}
+	return false
+}
+
+func (tx *Transaction) structureOperationSummary() string {
+	var operations []string
+	for index, operation := range tx.DoOperations {
+		switch operation.Action {
+		case "append", "appendInsert", "insert", "move", "moveOutlineHeading", "prependInsert":
+			operations = append(operations, fmt.Sprintf("%d:%s id=%s parent=%s previous=%s next=%s",
+				index, operation.Action, operation.ID, operation.ParentID, operation.PreviousID, operation.NextID))
+		}
+	}
+	return strings.Join(operations, "; ")
+}
+
+func (tx *Transaction) validateStructureChanges() (ret *TxErr) {
+	for node := range tx.structureCheckNodes {
+		if !isNodeInDocument(node) {
+			continue
+		}
+		if err := treenode.ValidateBlockPlacement(node); nil != err {
+			msg := fmt.Sprintf("%s, operations [%s]", err, tx.structureOperationSummary())
+			return &TxErr{code: TxErrCodeReloadUI, msg: msg, id: node.ID}
+		}
+	}
+	return
+}
+
+type crossTreeMoveRefRefresh struct {
+	BoxID         string
+	OldRootID     string
+	NewRootID     string
+	MovedBlockIDs []string
+}
+
+func collectCrossTreeMovedBlockIDs(srcNode *ast.Node, headingChildren []*ast.Node) (ret []string) {
+	seen := map[string]struct{}{}
+	appendNode := func(node *ast.Node) {
+		if nil == node {
+			return
+		}
+		for _, id := range node.BlockIDs() {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ret = append(ret, id)
+		}
+	}
+	appendNode(srcNode)
+	for _, child := range headingChildren {
+		appendNode(child)
+	}
+	return
+}
+
+func (tx *Transaction) recordCrossTreeMoveRefRefresh(srcTree, targetTree *parse.Tree, srcNode *ast.Node,
+	headingChildren []*ast.Node) {
+	if nil == srcTree || nil == targetTree || srcTree.ID == targetTree.ID {
+		return
+	}
+	movedBlockIDs := collectCrossTreeMovedBlockIDs(srcNode, headingChildren)
+	if 1 > len(movedBlockIDs) {
+		return
+	}
+
+	for i := range tx.crossTreeMoveRefRefreshes {
+		refresh := &tx.crossTreeMoveRefRefreshes[i]
+		if refresh.BoxID != targetTree.Box || refresh.OldRootID != srcTree.ID || refresh.NewRootID != targetTree.ID {
+			continue
+		}
+		refresh.MovedBlockIDs = gulu.Str.RemoveDuplicatedElem(append(refresh.MovedBlockIDs, movedBlockIDs...))
+		return
+	}
+	tx.crossTreeMoveRefRefreshes = append(tx.crossTreeMoveRefRefreshes, crossTreeMoveRefRefresh{
+		BoxID:         targetTree.Box,
+		OldRootID:     srcTree.ID,
+		NewRootID:     targetTree.ID,
+		MovedBlockIDs: movedBlockIDs,
+	})
 }
 
 type Transaction struct {
@@ -2248,8 +2553,11 @@ type Transaction struct {
 	fromAPI  bool // 是否来自 /api/transactions HTTP 入口（用于撤销日志捕获判别）
 	isReplay bool // 是否为 undo/redo 重放构造的事务（重放不再进入撤销日志）
 
-	listItemFoldCandidates   []listItemFoldCandidate
-	listItemFoldCandidateIDs map[string]struct{}
+	listItemFoldCandidates    []listItemFoldCandidate
+	listItemFoldCandidateIDs  map[string]struct{}
+	deletedAttrViewBlockIDs   map[string]map[string]struct{}
+	structureCheckNodes       map[*ast.Node]struct{}
+	crossTreeMoveRefRefreshes []crossTreeMoveRefRefresh
 
 	luteEngine *lute.Lute
 	m          *sync.Mutex
@@ -2316,6 +2624,9 @@ func (tx *Transaction) begin() (err error) {
 	tx.calendarJournalBoxID = ""
 	tx.listItemFoldCandidates = nil
 	tx.listItemFoldCandidateIDs = map[string]struct{}{}
+	tx.deletedAttrViewBlockIDs = map[string]map[string]struct{}{}
+	tx.structureCheckNodes = map[*ast.Node]struct{}{}
+	tx.crossTreeMoveRefRefreshes = nil
 	tx.luteEngine = util.NewLute()
 	tx.m.Lock()
 	tx.state.Store(1)
@@ -2421,6 +2732,7 @@ func (tx *Transaction) commit() (err error) {
 		PushCreate(box, tree.Path, nil)
 	}
 
+	crossTreeMoveRefRefreshes := append([]crossTreeMoveRefRefresh(nil), tx.crossTreeMoveRefRefreshes...)
 	IncSync()
 	if calendarJournal != nil {
 		if err = finalizeCalendarItemCommitJournal(calendarJournal.BoxID); err != nil {
@@ -2431,12 +2743,19 @@ func (tx *Transaction) commit() (err error) {
 	// 已提交且 trees 稳定后记录到全局撤销日志（rollback 不记录）
 	GlobalUndoLog.Record(tx)
 	tx.m.Unlock()
+	if 0 < len(crossTreeMoveRefRefreshes) {
+		task.AppendAsyncTaskWithDelay(task.RefreshCrossTreeMoveRefs, util.SQLFlushInterval,
+			refreshCrossTreeMoveRefs, crossTreeMoveRefRefreshes)
+	}
 	return
 }
 
 func (tx *Transaction) rollback() {
 	tx.trees, tx.nodes, tx.boxIcons, tx.removedCreatedDocs, tx.restoredCreatedDocs = nil, nil, nil, nil, nil
 	tx.listItemFoldCandidates, tx.listItemFoldCandidateIDs = nil, nil
+	tx.deletedAttrViewBlockIDs = nil
+	tx.structureCheckNodes = nil
+	tx.crossTreeMoveRefRefreshes = nil
 	tx.state.Store(3)
 	tx.m.Unlock()
 	return

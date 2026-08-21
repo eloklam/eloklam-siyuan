@@ -3,6 +3,21 @@ import {isWindow} from "../../util/functions";
 import {hasClosestBlock, hasClosestByClassName, hasClosestByTag} from "../../protyle/util/hasClosest";
 import {getColIndex} from "../../protyle/util/table";
 
+export const getTableResizeBounds = (tableElement: HTMLTableElement) => {
+    const captionElement = tableElement.querySelector("caption");
+    let top = 0;
+    if (captionElement && captionElement.style.captionSide !== "bottom") {
+        const tableRect = tableElement.getBoundingClientRect();
+        top = Math.max(0, Math.min(tableRect.height,
+            captionElement.getBoundingClientRect().bottom - tableRect.top));
+    }
+    return {
+        top,
+        height: Math.max(0, Math.min(tableElement.querySelector("colgroup").clientHeight,
+            tableElement.clientHeight - top)),
+    };
+};
+
 const getRightBlock = (element: HTMLElement, x: number, y: number) => {
     let left = x + 34;
     let nodeElement = element;
@@ -80,6 +95,7 @@ export const windowMouseMove = (event: MouseEvent) => {
         const inDockOverlay = hasClosestByClassName(target, "b3-menu") ||
             hasClosestByClassName(target, "tooltip") ||
             hasClosestByClassName(target, "block__popover") ||
+            hasClosestByClassName(target, "protyle-hint--agent-overlay") ||
             hasClosestByClassName(target, "b3-dialog", true);
         if (event.buttons !== 0 || inDockOverlay) {
             docks.forEach(dock => dock.clearDockHoverTimeout());
@@ -260,19 +276,17 @@ export const windowMouseMove = (event: MouseEvent) => {
             }
 
             if (tableElement.getAttribute("contenteditable") === "true") {
-                const tableHeight = blockElement.querySelector("colgroup").clientHeight;
-                const captionElement = blockElement.querySelector("caption");
-                const captionHeight = (captionElement && captionElement.style.captionSide !== "bottom") ? captionElement.clientHeight : 0;
+                const resizeBounds = getTableResizeBounds(tableElement);
                 const rect = cellElement.getBoundingClientRect();
                 if (rect.right - event.clientX < 3 && rect.right - event.clientX > 0) {
                     resizeElement.setAttribute("data-col-index", (getColIndex(cellElement) + cellElement.colSpan - 1).toString());
                     // 记录基础 left（不含 scrollLeft），以便横向滚动后重新定位 https://github.com/siyuan-note/siyuan/issues/13828
                     resizeElement.setAttribute("data-left", (cellElement.offsetWidth + cellElement.offsetLeft - 3).toString());
-                    resizeElement.setAttribute("style", `top:${captionHeight}px;height:${tableHeight}px;left: ${Math.round(cellElement.offsetWidth + cellElement.offsetLeft - blockElement.firstElementChild.scrollLeft - 3)}px;display:block`);
+                    resizeElement.setAttribute("style", `top:${resizeBounds.top}px;height:${resizeBounds.height}px;left: ${Math.round(cellElement.offsetWidth + cellElement.offsetLeft - blockElement.firstElementChild.scrollLeft - 3)}px;display:block`);
                 } else if (event.clientX - rect.left < 3 && event.clientX - rect.left > 0 && cellElement.previousElementSibling) {
                     resizeElement.setAttribute("data-col-index", (getColIndex(cellElement) - 1).toString());
                     resizeElement.setAttribute("data-left", (cellElement.offsetLeft - 3).toString());
-                    resizeElement.setAttribute("style", `top:${captionHeight}px;height:${tableHeight}px;left: ${Math.round(cellElement.offsetLeft - blockElement.firstElementChild.scrollLeft - 3)}px;display:block`);
+                    resizeElement.setAttribute("style", `top:${resizeBounds.top}px;height:${resizeBounds.height}px;left: ${Math.round(cellElement.offsetLeft - blockElement.firstElementChild.scrollLeft - 3)}px;display:block`);
                 }
             }
         }

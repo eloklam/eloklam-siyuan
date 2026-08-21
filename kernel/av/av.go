@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -475,7 +475,7 @@ func NewCalendarView() (ret *View) {
 	return &View{
 		ID:         ast.NewNodeID(),
 		Name:       GetAttributeViewI18n("calendar"),
-		Filters:    []*ViewFilter{},
+		Filters:    []*ViewFilter{{Combination: FilterCombinationAnd}},
 		Sorts:      []*ViewSort{},
 		PageSize:   ViewDefaultPageSize,
 		LayoutType: LayoutTypeCalendar,
@@ -1322,6 +1322,7 @@ var (
 	ErrInvalidBoxID           = errors.New("invalid box id")
 	ErrViewNotFound           = errors.New("view not found")
 	ErrKeyNotFound            = errors.New("key not found")
+	ErrItemNotFound           = errors.New("item not found")
 	ErrWrongLayoutType        = errors.New("wrong layout type")
 	ErrInvalidColumnAlign     = errors.New("invalid column align")
 	ErrSpecTooNew             = errors.New("attribute view spec is too new")

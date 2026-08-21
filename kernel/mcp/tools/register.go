@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -149,6 +149,12 @@ func notifyRegistryObservers(name string, tool *Tool) {
 func register(t *Tool) {
 	if t.Source == "" {
 		t.Source = "native"
+	}
+	if t.CapabilityID == "" {
+		t.CapabilityID = BuildCapabilityID("native", "backend", t.Name)
+	}
+	if t.Runtime == "" {
+		t.Runtime = "kernel"
 	}
 	attachEncryptedBoxLeaseResolver(t)
 	if err := SetTool(t.Name, t); err != nil {

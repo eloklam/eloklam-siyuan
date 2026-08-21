@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -26,6 +26,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/conf"
+	mcpserver "github.com/siyuan-note/siyuan/kernel/mcp"
 	mcpclient "github.com/siyuan-note/siyuan/kernel/mcp/client"
 	"github.com/siyuan-note/siyuan/kernel/model"
 	"github.com/siyuan-note/siyuan/kernel/server/proxy"
@@ -199,6 +200,15 @@ func setAI(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	if ai.MCP != nil {
+		for _, server := range ai.MCP.Servers {
+			if err = mcpclient.ValidateMCPServerEnvironment(server); err != nil {
+				ret.Code = -1
+				ret.Msg = "invalid MCP server environment: " + err.Error()
+				return
+			}
+		}
+	}
 
 	var oldServers []conf.MCPServer
 	if model.Conf.AI != nil && model.Conf.AI.MCP != nil {
@@ -210,6 +220,7 @@ func setAI(c *gin.Context) {
 	ai.Normalize()
 	ai.ReconcileModelIDs()
 	model.Conf.SetAI(ai)
+	mcpserver.RefreshToolExposure()
 
 	// MCP 配置可能变更（开关切换、编辑、增删 server），异步重连让连接立即跟上。
 	if model.Conf.AI.MCP != nil {
@@ -283,6 +294,7 @@ func setSecrets(c *gin.Context) {
 
 	model.Conf.Secrets = secrets
 	model.Conf.Save()
+	reconnectStdioMCPWithEnvironment()
 
 	ret.Data = model.Conf.Secrets
 }
@@ -312,8 +324,29 @@ func setVariables(c *gin.Context) {
 
 	model.Conf.Variables = variables
 	model.Conf.Save()
+	reconnectStdioMCPWithEnvironment()
 
 	ret.Data = model.Conf.Variables
+}
+
+func reconnectStdioMCPWithEnvironment() {
+	if model.Conf.AI == nil || model.Conf.AI.MCP == nil {
+		return
+	}
+	serverIDs := stdioMCPServerIDsWithEnvironment(model.Conf.AI.MCP.Servers)
+	if len(serverIDs) > 0 {
+		mcpclient.ReconnectMCPAsync(model.Conf.AI.MCP.Servers, serverIDs, nil)
+	}
+}
+
+func stdioMCPServerIDsWithEnvironment(servers []conf.MCPServer) []string {
+	var serverIDs []string
+	for _, server := range servers {
+		if server.Enabled && server.Type == "stdio" && len(server.Env) > 0 {
+			serverIDs = append(serverIDs, server.ID)
+		}
+	}
+	return serverIDs
 }
 
 func setFlashcard(c *gin.Context) {
@@ -406,6 +439,11 @@ func setEditor(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	if _, ok = arg["fontFamilies"]; !ok && editor.FontFamily == model.Conf.Editor.FontFamily &&
+		editor.FontWeight == model.Conf.Editor.FontWeight {
+		editor.FontFamilies = model.Conf.Editor.FontFamilies
+	}
+	editor.NormalizeFontFamilies()
 
 	if "" == editor.PlantUMLServePath {
 		editor.PlantUMLServePath = "https://www.plantuml.com/plantuml/svg/~1"
@@ -423,11 +461,11 @@ func setEditor(c *gin.Context) {
 	}
 
 	if nil == editor.FloatWindowDelay {
-		v := 620
-		editor.FloatWindowDelay = &v
+		editor.FloatWindowDelay = new(620)
 	} else {
 		*editor.FloatWindowDelay = max(0, min(2000, *editor.FloatWindowDelay))
 	}
+	editor.AssetOpen = conf.NormalizeAssetOpen(editor.AssetOpen)
 
 	oldVirtualBlockRef := model.Conf.Editor.VirtualBlockRef
 	oldVirtualBlockRefInclude := model.Conf.Editor.VirtualBlockRefInclude
@@ -525,6 +563,7 @@ func setFiletree(c *gin.Context) {
 		return
 	}
 
+	oldSortMode := model.Conf.FileTree.Sort
 	param, err := gulu.JSON.MarshalJSON(arg)
 	if err != nil {
 		ret.Code = -1
@@ -586,6 +625,9 @@ func setFiletree(c *gin.Context) {
 
 	model.Conf.FileTree = fileTree
 	model.Conf.Save()
+	if oldSortMode != fileTree.Sort {
+		model.PushDocSortModeChanged("global", "", "", "/", &fileTree.Sort)
+	}
 	if oldBoxDocEnabled != model.IsBoxDocEnabled() {
 		model.RefreshBoxDocFeature()
 	}
@@ -713,11 +755,9 @@ func setAppearance(c *gin.Context) {
 	if nil == appearance.EntryVisibility {
 		appearance.EntryVisibility = model.Conf.Appearance.EntryVisibility
 	}
+	appearance.StatusBar = util.NormalizeStatusBar(appearance.StatusBar, util.IsMobileContainer())
 	model.Conf.Appearance = appearance
 	util.StatusBarCfg = model.Conf.Appearance.StatusBar
-	if nil == util.StatusBarCfg {
-		util.StatusBarCfg = &util.StatusBar{}
-	}
 	if nil == model.Conf.Appearance.Notifications {
 		// 旧配置未迁移，按默认全部启用处理
 		model.Conf.Appearance.Notifications = util.NewNotifications()
@@ -727,6 +767,7 @@ func setAppearance(c *gin.Context) {
 	util.Lang = model.Conf.Lang
 	model.Conf.Save()
 	model.InitAppearance()
+	model.WatchThemes()
 
 	ret.Data = model.Conf.Appearance
 	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
@@ -833,6 +874,7 @@ func setTheme(c *gin.Context) {
 	}
 
 	model.InitAppearance()
+	model.WatchThemes()
 	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
 }
 
@@ -857,6 +899,16 @@ func setPublish(c *gin.Context) {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
+	}
+
+	if nil == publish.Auth {
+		// 请求体缺省 auth（如 null）时保留现有认证配置，避免把 null 写入 conf.json 导致下次启动崩溃
+		// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-rp9f-c2fj-h648
+		if nil != model.Conf.Publish.Auth {
+			publish.Auth = model.Conf.Publish.Auth
+		} else {
+			publish.Auth = conf.NewPublish().Auth
+		}
 	}
 
 	// 认证启用时校验发布服务账户：用户名非空且不重复、密码至少 8 位，

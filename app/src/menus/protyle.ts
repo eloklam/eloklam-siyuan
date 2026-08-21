@@ -9,6 +9,7 @@ import {
 import {MenuItem} from "./Menu";
 import {getTableCellVerticalAlignmentMenus, setTableCellStyle} from "../protyle/util/tableControl";
 import {focusBlock, focusByRange, focusByWbr, getEditorRange, selectAll,} from "../protyle/util/selection";
+import {getViewFoldOccurrenceID, hasViewFoldContext, setViewFoldTransient} from "../protyle/util/viewFold";
 import {
     deleteColumn,
     deleteRow,
@@ -23,6 +24,7 @@ import {
     moveRowToUp,
     setTableAlign,
     toggleTableHeader,
+    transposeTable,
     updateTableTitle
 } from "../protyle/util/table";
 import {mathRender} from "../protyle/render/mathRender";
@@ -62,10 +64,18 @@ import {popSearch} from "../mobile/menu/search";
 import {showMessage} from "../dialog/message";
 import {img3115} from "../boot/compatibleVersion";
 import {hideTooltip} from "../dialog/tooltip";
-import {base64ToURL} from "../util/image";
+import {base64ToURL} from "../protyle/upload/base64";
 import {setPosition} from "../util/setPosition";
 import {setFold} from "../protyle/util/blockFold";
 import {isEncryptedBox} from "../util/pathName";
+import {getHTMLAssetIFrameSrc} from "../asset/html";
+import {
+    getDistributedTableColumnWidth,
+    isDefaultTableColumnWidth,
+    TABLE_DEFAULT_COLUMN_WIDTH,
+} from "../protyle/util/tableColumnWidth";
+import {getParentDocumentID} from "../protyle/util/parentDocument";
+import {shouldFocusAfterZoom} from "../protyle/util/focusRestore";
 
 const renderAssetList = (element: Element, k: string, position: IPosition, exts: string[] = []) => {
     fetchPost("/api/search/searchAsset", {
@@ -427,7 +437,9 @@ export const refMenu = (protyle: IProtyle, element: HTMLElement) => {
         id: "insertRight",
         label: window.siyuan.languages.insertRight,
         icon: "iconLayoutRight",
-        accelerator: window.siyuan.config.keymap.editor.general.insertRight.custom + "/" + updateHotkeyTip("⌥" + window.siyuan.languages.click),
+        accelerator: window.siyuan.config.keymap.editor.general.insertRight.custom +
+            (window.siyuan.config.keymap.editor.general.insertRight.custom ? "/" : "") +
+            updateHotkeyTip("⌥" + window.siyuan.languages.click),
         click() {
             checkFold(refBlockId, (zoomIn, action, isRoot) => {
                 if (!isRoot) {
@@ -933,14 +945,19 @@ export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
 
 export const enterBack = (protyle: IProtyle, id: string) => {
     if (!protyle.block.showAll) {
-        const ids = protyle.path.split("/");
-        if (ids.length > 2) {
+        const parentDocumentID = getParentDocumentID({
+            path: protyle.path,
+            notebookID: protyle.notebookId,
+            rootID: protyle.block.rootID,
+            boxDocEnabled: window.siyuan.config.fileTree.boxDocEnabled,
+        });
+        if (parentDocumentID) {
             /// #if MOBILE
-            openMobileFileById(protyle.app, ids[ids.length - 2], [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]);
+            openMobileFileById(protyle.app, parentDocumentID, [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]);
             /// #else
             openFileById({
                 app: protyle.app,
-                id: ids[ids.length - 2],
+                id: parentDocumentID,
                 action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]
             });
             /// #endif
@@ -988,7 +1005,7 @@ export const zoomOut = (options: {
         }
         const focusElement = options.protyle.wysiwyg.element.querySelector(`[data-node-id="${options.focusId || options.id}"]`);
         if (focusElement) {
-            focusBlock(focusElement);
+            focusBlock(focusElement, undefined, true, true);
             focusElement.scrollIntoView();
             return;
         }
@@ -1017,7 +1034,13 @@ export const zoomOut = (options: {
         if (options.id !== options.protyle.block.rootID) {
             action.push(Constants.CB_GET_ALL);
         }
-        if (options.focusId) {
+        const focusAfterZoom = shouldFocusAfterZoom({
+            focusId: options.focusId,
+            id: options.id,
+            rootID: options.protyle.block.rootID,
+            isPushBack: options.isPushBack,
+        });
+        if (focusAfterZoom) {
             action.push(Constants.CB_GET_FOCUS);
         }
         onGet({
@@ -1031,6 +1054,7 @@ export const zoomOut = (options: {
             scrollPosition: options.focusId ? "start" : undefined,
             afterCB: options.callback,
             dataDocType: options.dataDocType,
+            focusAfterZoom,
         });
         // https://github.com/siyuan-note/siyuan/issues/4874
         if (options.focusId) {
@@ -1052,7 +1076,7 @@ export const zoomOut = (options: {
                 } else {
                     showElement = getFirstBlock(showElement);
                 }
-                focusBlock(showElement);
+                focusBlock(showElement, undefined, true, true);
             } else if (!options.focusId) {
                 const getDocParam: IObject = {
                     id: options.protyle.block.rootID,
@@ -1067,6 +1091,7 @@ export const zoomOut = (options: {
                         protyle: options.protyle,
                         action: options.isPushBack ? [Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_UNUNDO],
                         dataDocType: options.dataDocType,
+                        focusAfterZoom: true,
                     });
                 });
                 return;
@@ -1089,6 +1114,7 @@ export const zoomOut = (options: {
                             focusId: options.focusId
                         },
                         dataDocType: options.dataDocType,
+                        focusAfterZoom: true,
                     });
                 });
                 return;
@@ -1488,10 +1514,15 @@ export const imgMenu = (protyle: IProtyle, range: Range, assetElement: HTMLEleme
         window.siyuan.menus.menu.removeCB = async () => {
             const newSrc = textElements[0].value;
             if (src !== newSrc && newSrc.startsWith("data:image/")) {
-                const base64Src = await base64ToURL([newSrc]);
-                imgElement.setAttribute("src", base64Src[0]);
-                imgElement.setAttribute("data-src", base64Src[0]);
-                assetElement.querySelector(".img__net")?.remove();
+                const base64Src = await base64ToURL([newSrc], protyle, {
+                    source: "programmatic",
+                    target: "editor",
+                });
+                if (base64Src[0]) {
+                    imgElement.setAttribute("src", base64Src[0]);
+                    imgElement.setAttribute("data-src", base64Src[0]);
+                    assetElement.querySelector(".img__net")?.remove();
+                }
             }
 
             const ocrElement = window.siyuan.menus.menu.element.querySelector('[data-type="ocr"]') as HTMLTextAreaElement;
@@ -2117,7 +2148,9 @@ export const iframeMenu = (protyle: IProtyle, nodeElement: Element) => {
                         iframeElement.style.width = "640px";
                     }
                 } else {
-                    iframeElement.setAttribute("src", value);
+                    const src = getHTMLAssetIFrameSrc(value);
+                    iframeElement.setAttribute("src", src);
+                    (event.target as HTMLTextAreaElement).value = src;
                 }
 
                 updateTransaction(protyle, nodeElement, html);
@@ -2251,15 +2284,49 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
             }
         });
     }
-    const thMatchElement = nodeElement.querySelectorAll("col")[colIndex];
-    if (thMatchElement && (thMatchElement.style.width || thMatchElement.style.minWidth !== "60px")) {
+    const columns = Array.from(tableElement.querySelectorAll<HTMLTableColElement>(":scope > colgroup > col"));
+    const thMatchElement = columns[colIndex];
+    if (thMatchElement) {
         otherMenus.push({
             id: "useDefaultWidth",
             label: window.siyuan.languages.useDefaultWidth,
+            disabled: isDefaultTableColumnWidth(thMatchElement.style.width, thMatchElement.style.minWidth),
             click: () => {
                 const html = nodeElement.outerHTML;
                 thMatchElement.style.width = "";
-                thMatchElement.style.minWidth = "60px";
+                thMatchElement.style.minWidth = `${TABLE_DEFAULT_COLUMN_WIDTH}px`;
+                updateTransaction(protyle, nodeElement, html);
+            }
+        });
+    }
+    if (alignWholeTable) {
+        otherMenus.push({
+            id: "distributeAllColWidths",
+            icon: "iconScale",
+            label: window.siyuan.languages.distributeAllColWidths,
+            disabled: columns.length < 2,
+            click: () => {
+                const html = nodeElement.outerHTML;
+                const width = getDistributedTableColumnWidth(columns.map(column =>
+                    column.getBoundingClientRect().width || TABLE_DEFAULT_COLUMN_WIDTH));
+                columns.forEach(column => {
+                    column.style.width = `${width}px`;
+                    column.style.removeProperty("min-width");
+                });
+                updateTransaction(protyle, nodeElement, html);
+            }
+        });
+        otherMenus.push({
+            id: "useDefaultWidthForAllColumns",
+            label: window.siyuan.languages.useDefaultWidthForAllColumns,
+            disabled: columns.length === 0 || columns.every(column =>
+                isDefaultTableColumnWidth(column.style.width, column.style.minWidth)),
+            click: () => {
+                const html = nodeElement.outerHTML;
+                columns.forEach(column => {
+                    column.style.width = "";
+                    column.style.minWidth = `${TABLE_DEFAULT_COLUMN_WIDTH}px`;
+                });
                 updateTransaction(protyle, nodeElement, html);
             }
         });
@@ -2299,6 +2366,15 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
             updateTableTitle(protyle, nodeElement);
         }
     });
+    if (alignWholeTable) {
+        otherMenus.push({
+            id: "transposeTable",
+            label: window.siyuan.languages.transposeTable,
+            click: () => {
+                transposeTable(protyle, nodeElement, range);
+            }
+        });
+    }
     otherMenus.push({id: "separator_1", type: "separator"});
     const horizontalCells = alignWholeTable ? Array.from(tableElement.rows[0].cells) : [cellElement];
     const alignmentMenus: IMenu[] = [{
@@ -2587,37 +2663,29 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
         });
     }
     menus.push(...other2Menus);
-    if ((cellElement.parentElement.parentElement.tagName !== "THEAD" &&
-        ((!hasNone && !hasRowSpan) || (hasNone && !hasRowSpan && hasColSpan))) || colIsPure) {
-        menus.push({
-            id: "separator_delete",
-            type: "separator"
-        });
-    }
+    menus.push({
+        id: "separator_delete",
+        type: "separator"
+    });
     const removeMenus = [];
-    if (cellElement.parentElement.parentElement.tagName !== "THEAD" &&
-        ((!hasNone && !hasRowSpan) || (hasNone && !hasRowSpan && hasColSpan))) {
-        removeMenus.push({
-            id: "deleteRow",
-            icon: "iconDeleteRow",
-            label: window.siyuan.languages["delete-row"],
-            accelerator: window.siyuan.config.keymap.editor.table["delete-row"].custom,
-            click: () => {
-                deleteRow(protyle, range, cellElement, nodeElement);
-            }
-        });
-    }
-    if (colIsPure) {
-        removeMenus.push({
-            id: "deleteColumn",
-            icon: "iconDeleteColumn",
-            label: window.siyuan.languages["delete-column"],
-            accelerator: window.siyuan.config.keymap.editor.table["delete-column"].custom,
-            click: () => {
-                deleteColumn(protyle, range, nodeElement, cellElement);
-            }
-        });
-    }
+    removeMenus.push({
+        id: "deleteRow",
+        icon: "iconDeleteRow",
+        label: window.siyuan.languages["delete-row"],
+        accelerator: window.siyuan.config.keymap.editor.table["delete-row"].custom,
+        click: () => {
+            deleteRow(protyle, range, cellElement, nodeElement);
+        }
+    });
+    removeMenus.push({
+        id: "deleteColumn",
+        icon: "iconDeleteColumn",
+        label: window.siyuan.languages["delete-column"],
+        accelerator: window.siyuan.config.keymap.editor.table["delete-column"].custom,
+        click: () => {
+            deleteColumn(protyle, range, nodeElement, cellElement);
+        }
+    });
     menus.push(...removeMenus);
     return {menus, removeMenus, insertMenus, otherMenus, other2Menus};
 };
@@ -2629,6 +2697,21 @@ export const setFoldById = (data: {
     Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${data.id}"]`)).find((item: Element) => {
         if (!isInEmbedBlock(item)) {
             const operations = setFold(protyle, item, true, false, true, true);
+            if (hasViewFoldContext(protyle)) {
+                const occurrenceID = getViewFoldOccurrenceID(protyle, item);
+                void setViewFoldTransient(protyle, item, false, undefined, true).then(() => {
+                    const focusElement = Array.from(protyle.wysiwyg.element.querySelectorAll(
+                        `[data-node-id="${data.currentNodeID}"]`
+                    )).find(element => getViewFoldOccurrenceID(protyle, element) === occurrenceID);
+                    if (focusElement) {
+                        focusBlock(focusElement);
+                    }
+                }).catch(error => console.error(error));
+                return true;
+            }
+            if (operations.doOperations.length === 0) {
+                return true;
+            }
             operations.doOperations[0].context = {
                 focusId: data.currentNodeID,
             };

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -47,19 +47,58 @@ func TestTurnContextStaysInUserMessage(t *testing.T) {
 	}
 }
 
-func TestSystemPromptSortsPluginActions(t *testing.T) {
-	actions := []PluginAction{
-		{Name: "plugin__z__run", Description: "Run Z"},
-		{Name: "plugin__a__run", Description: "Run A"},
+func TestSystemPromptDocumentsBlockReferenceSyntax(t *testing.T) {
+	if !strings.Contains(systemPrompt, `((<blockID> "<static anchor text>"))`) {
+		t.Fatal("system prompt is missing the static SiYuan block-reference syntax")
 	}
+	if !strings.Contains(systemPrompt, `((<blockID> '<dynamic anchor text>'))`) {
+		t.Fatal("system prompt is missing the dynamic SiYuan block-reference syntax")
+	}
+	if !strings.Contains(systemPrompt, `for fixed text`) ||
+		!strings.Contains(systemPrompt, `for text that follows the target block's content`) {
+		t.Fatal("system prompt does not explain static and dynamic block-reference behavior")
+	}
+	if !strings.Contains(systemPrompt, `Never use ((<blockID>)) or [[<blockID>]]`) {
+		t.Fatal("system prompt does not reject block references without anchor text or bracketed block IDs")
+	}
+	if !strings.Contains(systemPrompt, `in chat responses use [title](siyuan://blocks/<blockID>)`) {
+		t.Fatal("system prompt does not distinguish note-content block references from chat-response links")
+	}
+}
 
-	forward := buildSystemPrompt("English", actions)
-	reversed := buildSystemPrompt("English", []PluginAction{actions[1], actions[0]})
-	if forward != reversed {
-		t.Fatal("plugin action order changed the system prompt")
+func TestSystemPromptDocumentsTagRendering(t *testing.T) {
+	for _, instruction := range []string{
+		`render its exact label as <span data-type="tag">label</span>`,
+		`including a leading $, inside the span`,
+		`Never prefix the label with # or use #label# in chat`,
+	} {
+		if !strings.Contains(systemPrompt, instruction) {
+			t.Fatalf("system prompt is missing the tag rendering instruction %q", instruction)
+		}
 	}
-	if strings.Index(forward, actions[1].Name) > strings.Index(forward, actions[0].Name) {
-		t.Fatalf("plugin actions are not sorted in system prompt: %q", forward)
+}
+
+func TestSystemPromptDocumentsSuperBlockLayout(t *testing.T) {
+	for _, instruction := range []string{
+		`"row" means a vertical layout`,
+		`"col" means a horizontal layout`,
+		`{{{col`,
+		`Use {{{row for a vertical super-block`,
+		`Never use data-layout in raw block DOM`,
+		`data-sb-layout="row" or data-sb-layout="col"`,
+		`every child must be complete block DOM with an explicit data-type`,
+	} {
+		if !strings.Contains(systemPrompt, instruction) {
+			t.Fatalf("system prompt is missing the super-block instruction %q", instruction)
+		}
+	}
+}
+
+func TestSystemPromptOmitsUnavailableSkillInstructions(t *testing.T) {
+	capabilities := &capabilitySet{registrations: map[string]*capabilityRegistration{}}
+	prompt := buildSystemPrompt("English", capabilities)
+	if strings.Contains(prompt, "<available_skills>") || strings.Contains(prompt, "Skill Management") {
+		t.Fatalf("unavailable skill instructions leaked into system prompt: %q", prompt)
 	}
 }
 
@@ -149,6 +188,7 @@ func TestAssistantContextSurvivesCheckpointRoundTrip(t *testing.T) {
 		Type:          "assistant",
 		Content:       "Let me search for that.",
 		ReasoningCont: "I need to use the search tool.",
+		RoundID:       "round-1",
 		ToolCalls: []AgentToolCall{{
 			ID:            "call-original",
 			Name:          "search",
@@ -156,16 +196,27 @@ func TestAssistantContextSurvivesCheckpointRoundTrip(t *testing.T) {
 			ArgumentsJSON: argumentsJSON,
 			Result:        "search result",
 			State:         "finished",
+			ProviderData: &AgentToolCallProviderData{
+				Google: &AgentGoogleToolCallProviderData{ThoughtSignature: "thought-signature"},
+			},
 		}},
 	}}
 
 	checkpoint := entriesToAgentMessages(entries)
-	if len(checkpoint) != 1 || checkpoint[0].ReasoningContent != entries[0].ReasoningCont {
+	if len(checkpoint) != 1 || checkpoint[0].ReasoningContent != entries[0].ReasoningCont ||
+		checkpoint[0].RoundID != entries[0].RoundID {
 		t.Fatalf("assistant reasoning was not restored into checkpoint: %#v", checkpoint)
 	}
 	if len(checkpoint[0].ToolCalls) != 1 || checkpoint[0].ToolCalls[0].ID != "call-original" ||
-		checkpoint[0].ToolCalls[0].ArgumentsJSON != argumentsJSON {
+		checkpoint[0].ToolCalls[0].ArgumentsJSON != argumentsJSON ||
+		checkpoint[0].ToolCalls[0].ProviderData == nil || checkpoint[0].ToolCalls[0].ProviderData.Google == nil ||
+		checkpoint[0].ToolCalls[0].ProviderData.Google.ThoughtSignature != "thought-signature" {
 		t.Fatalf("assistant tool call was not restored exactly: %#v", checkpoint[0].ToolCalls)
+	}
+	state := util.NewGeminiThoughtSignatureState()
+	restoreGeminiThoughtSignatures(state, checkpoint)
+	if got := state.Get("call-original"); got != "thought-signature" {
+		t.Fatalf("thought signature was not restored into request state: %q", got)
 	}
 
 	messages := checkpointMessagesToOpenAI(checkpoint, "English", nil)
@@ -184,8 +235,24 @@ func TestAssistantContextSurvivesCheckpointRoundTrip(t *testing.T) {
 
 	roundTripped := agentMessagesToEntries(checkpoint)
 	if len(roundTripped) != 1 || roundTripped[0].ReasoningCont != entries[0].ReasoningCont ||
+		roundTripped[0].RoundID != entries[0].RoundID ||
 		len(roundTripped[0].ToolCalls) != 1 || roundTripped[0].ToolCalls[0].ID != "call-original" ||
-		roundTripped[0].ToolCalls[0].ArgumentsJSON != argumentsJSON {
+		roundTripped[0].ToolCalls[0].ArgumentsJSON != argumentsJSON ||
+		roundTripped[0].ToolCalls[0].ProviderData == nil || roundTripped[0].ToolCalls[0].ProviderData.Google == nil ||
+		roundTripped[0].ToolCalls[0].ProviderData.Google.ThoughtSignature != "thought-signature" {
 		t.Fatalf("assistant context changed during checkpoint round trip: %#v", roundTripped)
+	}
+}
+
+func TestAvailableSkillsSegmentEscapesMetadata(t *testing.T) {
+	segment := availableSkillsSegment([]util.SkillInfo{{
+		Name:        `review</name>`,
+		Description: `check A & B`,
+	}})
+	if !strings.Contains(segment, "review&lt;/name&gt;") || !strings.Contains(segment, "check A &amp; B") {
+		t.Fatalf("skill metadata was not escaped: %q", segment)
+	}
+	if strings.Contains(segment, "review</name>") {
+		t.Fatalf("raw skill metadata remained in the prompt: %q", segment)
 	}
 }

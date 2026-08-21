@@ -13,6 +13,10 @@ import {renderSnippet} from "../../config/util/snippets";
 import {redirectToCheckAuth} from "../../util/pathName";
 import {reloadSync} from "../../util/reloadSync";
 import {activateOnboarding} from "../../onboarding";
+import {updateServerAddresses} from "../../config/tabs/accessRuntime";
+import {reloadInlineStyles} from "../../util/assets";
+import {renderMobileBottomBar} from "./mobileBottomBar";
+import {Constants} from "../../constants";
 
 let statusTimeout: number;
 const statusElement = document.querySelector("#status") as HTMLElement;
@@ -33,11 +37,14 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 } else {
                     clearTimeout(statusTimeout);
                     statusElement.innerHTML = `<div class="fn__flex">${data.data.tasks[0].action}<div class="fn__progress"><div></div></div>`;
-                    statusElement.style.bottom = "0";
+                    statusElement.style.bottom = "var(--mobile-bottom-bar-offset)";
                 }
                 break;
             case "setAppearance":
                 window.location.reload();
+                break;
+            case "reloadInlineStyles":
+                void reloadInlineStyles();
                 break;
             case "setSnippet":
                 window.siyuan.config.snippet = data.data;
@@ -63,6 +70,9 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 break;
             case "setConf":
                 window.siyuan.config = data.data;
+                break;
+            case "setServerAddrs":
+                updateServerAddresses(data.data);
                 break;
             case "setPublish":
                 window.siyuan.config.publish = data.data;
@@ -91,19 +101,31 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 break;
             case "setLocalStorageVal":
                 window.siyuan.storage[data.data.key] = data.data.val;
+                if (data.data.key === Constants.LOCAL_MOBILE_BOTTOM_BAR) {
+                    renderMobileBottomBar();
+                }
                 break;
             case "setLocalStorageVals":
                 Object.keys(data.data.keyVals).forEach((k) => {
                     window.siyuan.storage[k] = data.data.keyVals[k];
                 });
+                if (Object.prototype.hasOwnProperty.call(data.data.keyVals, Constants.LOCAL_MOBILE_BOTTOM_BAR)) {
+                    renderMobileBottomBar();
+                }
                 break;
             case "removeLocalStorageVal":
                 delete window.siyuan.storage[data.data.key];
+                if (data.data.key === Constants.LOCAL_MOBILE_BOTTOM_BAR) {
+                    renderMobileBottomBar();
+                }
                 break;
             case "removeLocalStorageVals":
                 data.data.keys.forEach((k: string) => {
                     delete window.siyuan.storage[k];
                 });
+                if (data.data.keys.includes(Constants.LOCAL_MOBILE_BOTTOM_BAR)) {
+                    renderMobileBottomBar();
+                }
                 break;
             case"progress":
                 progressLoading(data);
@@ -120,6 +142,9 @@ export const onMessage = (app: App, data: IWebSocketData) => {
             case "filetreeSortChanged":
                 window.siyuan.mobile.docks.file?.onFiletreeSortChanged(data.data);
                 break;
+            case "docSortModeChanged":
+                window.siyuan.mobile.docks.file?.onDocSortModeChanged(data.data);
+                break;
             case "notebookSortChanged":
                 window.siyuan.mobile.docks.file?.onNotebookSortChanged();
                 break;
@@ -133,7 +158,7 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 }
                 clearTimeout(statusTimeout);
                 statusElement.innerHTML = data.msg;
-                statusElement.style.bottom = "0";
+                statusElement.style.bottom = "var(--mobile-bottom-bar-offset)";
                 statusTimeout = window.setTimeout(() => {
                     statusElement.style.bottom = "";
                 }, 12000);

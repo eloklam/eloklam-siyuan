@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -128,6 +128,86 @@ func TestModernProtocolClient(t *testing.T) {
 	if !found {
 		t.Fatal("dynamically registered tool was not listed")
 	}
+}
+
+func TestToolProjectionPolicyAndExecutionRecheck(t *testing.T) {
+	server := newServer()
+	allowed := true
+	projection := newToolProjection(server, func(tool *tools.Tool) bool {
+		return allowed && tool.Source != "mcp"
+	})
+	handlerCalls := 0
+	tool := &tools.Tool{
+		Name:         "projected",
+		Description:  "Projected tool",
+		InputSchema:  tools.ToolSchema{Type: "object"},
+		CapabilityID: "native/backend/projected",
+		Handler: func(map[string]any) (tools.CallToolResult, error) {
+			handlerCalls++
+			return tools.CallToolResult{}, nil
+		},
+	}
+	projection.sync(tool.Name, tool)
+
+	httpServer := httptest.NewServer(newHTTPHandler(server))
+	t.Cleanup(httpServer.Close)
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "1.0.0"}, nil)
+	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { session.Close() })
+
+	listResult, err := session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !toolListContains(listResult.Tools, tool.Name) {
+		t.Fatal("allowed capability was not exposed")
+	}
+
+	allowed = false
+	callResult, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: tool.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !callResult.IsError || handlerCalls != 0 {
+		t.Fatalf("disabled capability was executed: result=%#v calls=%d", callResult, handlerCalls)
+	}
+
+	projection.sync(tool.Name, tool)
+	listResult, err = session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if toolListContains(listResult.Tools, tool.Name) {
+		t.Fatal("disabled capability remained exposed")
+	}
+
+	allowed = true
+	projection.sync(tool.Name, tool)
+	callResult, err = session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: tool.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if callResult.IsError || handlerCalls != 1 {
+		t.Fatalf("re-enabled capability was not executed: result=%#v calls=%d", callResult, handlerCalls)
+	}
+}
+
+func TestExternalMCPToolsAreNotReexposed(t *testing.T) {
+	if externalMCPToolAllowed(&tools.Tool{Name: "remote", Source: "mcp", Runtime: "mcp"}) {
+		t.Fatal("external MCP capability was exposed through the SiYuan MCP server")
+	}
+}
+
+func toolListContains(toolList []*mcpsdk.Tool, name string) bool {
+	for _, tool := range toolList {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestToolOutputSchemaSerialization(t *testing.T) {
@@ -510,6 +590,43 @@ func TestLegacyInitializeDoesNotNegotiateModernProtocol(t *testing.T) {
 	}
 }
 
+func TestMCPAllowsNonLoopbackHostThroughLoopbackProxy(t *testing.T) {
+	_, httpServer := newTestHTTPServer(t)
+	tests := []struct {
+		name    string
+		body    string
+		headers map[string]string
+	}{
+		{
+			name: "modern",
+			body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`,
+			headers: map[string]string{
+				"Host":                 "192.168.5.77:8300",
+				"MCP-Protocol-Version": protocolVersion20260728,
+				"Mcp-Method":           "tools/list",
+			},
+		},
+		{
+			name: "legacy",
+			body: `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"legacy","version":"1.0.0"}}}`,
+			headers: map[string]string{
+				"Host": "192.168.5.77:8300",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := postMCP(t, httpServer.URL, test.body, test.headers)
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				data, _ := io.ReadAll(response.Body)
+				t.Fatalf("unexpected proxy response: %d %q", response.StatusCode, data)
+			}
+		})
+	}
+}
+
 func TestModernProtocolRejectsCrossOriginAndDelete(t *testing.T) {
 	_, httpServer := newTestHTTPServer(t)
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`
@@ -547,7 +664,11 @@ func postMCP(t *testing.T, endpoint, body string, headers map[string]string) *ht
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	for name, value := range headers {
-		request.Header.Set(name, value)
+		if strings.EqualFold(name, "Host") {
+			request.Host = value
+		} else {
+			request.Header.Set(name, value)
+		}
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -55,7 +55,7 @@ func TestSortAndLimitAttributeViewSearchResults(t *testing.T) {
 		results = append(results, &AvSearchTempResult{AvID: string(rune('a' + i)), AvUpdated: int64(i)})
 	}
 
-	results = sortAndLimitAttributeViewSearchResults(results, "", SearchAttributeViewDefaultLimit)
+	results = sortAndLimitAttributeViewSearchResults(results, "")
 	if len(results) != 12 {
 		t.Fatalf("expected 12 results, got %d", len(results))
 	}
@@ -68,14 +68,9 @@ func TestSortAndLimitAttributeViewSearchResults(t *testing.T) {
 		{AvID: "second", AvUpdated: 1, Score: 2},
 		{AvID: "third", AvUpdated: 5, Score: 1},
 	}
-	results = sortAndLimitAttributeViewSearchResults(results, "keyword", SearchAttributeViewDefaultLimit)
+	results = sortAndLimitAttributeViewSearchResults(results, "keyword")
 	if results[0].AvID != "second" || results[1].AvID != "third" || results[2].AvID != "first" {
 		t.Fatalf("unexpected keyword result order: %s, %s, %s", results[0].AvID, results[1].AvID, results[2].AvID)
-	}
-
-	results = sortAndLimitAttributeViewSearchResults(results, "keyword", SearchAttributeViewLimitAll)
-	if len(results) != 3 {
-		t.Fatalf("expected all 3 results with limit -1, got %d", len(results))
 	}
 }
 

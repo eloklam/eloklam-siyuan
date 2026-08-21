@@ -66,8 +66,7 @@ const highlightLocatedItem = (blockElement: HTMLElement, protyle: IProtyle, view
     clearLocatedHighlight(blockElement);
     const token = Symbol();
     highlightTokens.set(blockElement, token);
-    const isCalendar = viewType === "calendar";
-    const className = viewType === "table" ? "av__row--locate" : (isCalendar ? "av__calendar-event--locate" : "av__gallery-item--locate");
+    const className = "protyle-wysiwyg--hl";
     const targetQuery = getLocatedItemQuery(viewType, itemID);
     requestAnimationFrame(() => {
         if (!blockElement.isConnected || highlightTokens.get(blockElement) !== token) {
@@ -155,7 +154,11 @@ export const queueAVLocateRequest = (blockID: string, request: IAVLocateRequest)
     if (previous) {
         window.clearTimeout(previous.timer);
     }
-    const locateRequest = {...request, select: true, highlight: true};
+    const locateRequest = {
+        ...request,
+        select: request.select ?? false,
+        highlight: request.highlight ?? true,
+    };
     const timer = window.setTimeout(() => {
         if (queuedLocateRequests.get(blockID)?.request === locateRequest) {
             queuedLocateRequests.delete(blockID);
@@ -373,12 +376,8 @@ export const finishAVLocate = (blockElement: HTMLElement, protyle: IProtyle, dat
         locateRequests.delete(blockElement);
         return;
     }
-    if (data.target?.status !== "visible") {
+    if (data.viewType !== "calendar" && data.target?.status !== "visible") {
         clearAVLocateRequest(blockElement, request);
-        if (data.viewType === "calendar" && !request.messageShown) {
-            request.messageShown = true;
-            showMessage(data.target?.status === "filtered" ? window.siyuan.languages.databaseItemFiltered : window.siyuan.languages.databaseItemNotFound);
-        }
         return;
     }
     const groupQuery = data.target.groupID ? `.av__body[data-group-id="${data.target.groupID}"]` : ".av__body";
@@ -386,9 +385,9 @@ export const finishAVLocate = (blockElement: HTMLElement, protyle: IProtyle, dat
     // 因此按已渲染的 DOM 判断条目是否可见（未渲染时下面统一提示未找到）
     const isCalendarVisible = data.viewType === "calendar" &&
         !!blockElement.querySelector(getLocatedItemQuery(data.viewType, request.itemID));
-    if (data.target?.status !== "visible" && !isCalendarVisible) {
+    if (data.viewType === "calendar" && !isCalendarVisible) {
         clearAVLocateRequest(blockElement, request);
-        if (data.viewType === "calendar" && !request.messageShown) {
+        if (!request.messageShown) {
             request.messageShown = true;
             showMessage(data.target?.status === "filtered" ? window.siyuan.languages.databaseItemFiltered : window.siyuan.languages.databaseItemNotFound);
         }

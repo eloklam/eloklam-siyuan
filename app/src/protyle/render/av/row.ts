@@ -200,7 +200,7 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.ro
 
     html = `<div class="av__row" data-index="${options.rowIndex}" data-id="${tableRow.id}">`;
     if (options.pinIndex > -1) {
-        html += '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
+        html += '<div class="av__colsticky av__colsticky--freeze"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
     } else {
         html += '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div></div>';
     }
@@ -246,8 +246,12 @@ export const selectRow = (checkElement: Element, type: "toggle" | "select" | "un
     }
     const useElement = checkElement.querySelector("use");
     const bodyElement = hasClosestByClassName(rowElement, "av__body") as HTMLElement;
+    const blockElement = hasClosestByClassName(rowElement, "av") as HTMLElement;
+    if (blockElement && (type === "select" ||
+        (type === "toggle" && useElement.getAttribute("xlink:href") !== "#iconCheck"))) {
+        clearSelect(["cell"], blockElement);
+    }
     if (rowElement.classList.contains("av__row--header") || type === "unselectAll") {
-        const blockElement = hasClosestByClassName(rowElement, "av") as HTMLElement;
         if (blockElement) {
             clearAVItemSelectionState(blockElement);
         }
@@ -399,6 +403,13 @@ export const insertAttrViewBlockAnimation = (options: {
     previousId: string,
     groupID?: string
 }) => {
+    const getPreviousTableRow = (element: Element) => {
+        let previousElement = element?.previousElementSibling as HTMLElement;
+        while (previousElement && !previousElement.matches(".av__row[data-id], .av__row--header")) {
+            previousElement = previousElement.previousElementSibling as HTMLElement;
+        }
+        return previousElement;
+    };
     options.blockElement.querySelector('[data-type="av-search"]').textContent = "";
     const groupQuery = options.groupID ? `.av__body[data-group-id="${options.groupID}"] ` : "";
     let previousElement = options.blockElement.querySelector(groupQuery + `.av__row[data-id="${options.previousId}"]`) || options.blockElement.querySelector(groupQuery + ".av__row--header");
@@ -406,12 +417,13 @@ export const insertAttrViewBlockAnimation = (options: {
     const hasSort = options.blockElement.querySelector('.av__views [data-type="av-sort"]').classList.contains("block__icon--active");
     if (hasSort) {
         // 日历等布局不渲染 .av__row--util，缺失时保持原有插入位置。
-        previousElement = options.blockElement.querySelector(groupQuery + ".av__row--util")?.previousElementSibling || previousElement;
+        previousElement = getPreviousTableRow(options.blockElement.querySelector(groupQuery + ".av__row--util")) || previousElement;
     }
     const bodyElement = options.blockElement.querySelector(`.av__body[data-group-id="${options.groupID}"] `);
     if (bodyElement && ["updated", "created"].includes(bodyElement.getAttribute("data-dtype")) &&
         bodyElement.getAttribute("data-content") !== "_@today@_") {
-        previousElement = options.blockElement.querySelector('.av__body[data-content="_@today@_"] .av__row--util')?.previousElementSibling;
+        previousElement = getPreviousTableRow(
+            options.blockElement.querySelector('.av__body[data-content="_@today@_"] .av__row--util'));
     }
     if (!previousElement) {
         return;
@@ -419,7 +431,7 @@ export const insertAttrViewBlockAnimation = (options: {
     let cellsHTML = '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div></div>';
     const pinIndex = previousElement.querySelectorAll(".av__colsticky .av__cell").length - 1;
     if (pinIndex > -1) {
-        cellsHTML = '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
+        cellsHTML = '<div class="av__colsticky av__colsticky--freeze"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
     }
     previousElement.querySelectorAll(".av__cell").forEach((item: HTMLElement, index) => {
         let lineNumber = 1;

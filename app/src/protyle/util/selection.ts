@@ -18,6 +18,7 @@ import {countBlockWord, countSelectWord} from "../../layout/status";
 import {hideElements} from "../ui/hideElements";
 import {genRenderFrame} from "../render/util";
 import {Constants} from "../../constants";
+import {getUndoFocusElement} from "./selectionFocus";
 
 const selectIsEditor = (editor: Element, range?: Range) => {
     if (!range) {
@@ -209,16 +210,23 @@ export const getBlockRangeSelectElements = (rangeStartElement: HTMLElement, rang
     return {endElement, selectElements, startElement, toDown};
 };
 
-export const selectBlocksByRange = (protyle: IProtyle, range: Range) => {
+export const getBlockElementsByRange = (range: Range) => {
     const startBlockElement = hasClosestBlock(range.startContainer);
     const endBlockElement = hasClosestBlock(range.endContainer);
     if (!startBlockElement || !endBlockElement) {
-        return;
+        return [];
     }
     const startElement = (isInEmbedBlock(startBlockElement) || startBlockElement) as HTMLElement;
     const endElement = (isInEmbedBlock(endBlockElement) || endBlockElement) as HTMLElement;
-    const selectElements = startElement === endElement ? [startElement] :
+    return startElement === endElement ? [startElement] :
         getBlockRangeSelectElements(startElement, endElement).selectElements;
+};
+
+export const selectBlocksByRange = (protyle: IProtyle, range: Range) => {
+    const selectElements = getBlockElementsByRange(range);
+    if (selectElements.length === 0) {
+        return;
+    }
     selectElements.forEach(selectElement => {
         selectElement.classList.add("protyle-wysiwyg--select");
         selectElement.querySelectorAll(".protyle-wysiwyg--select").forEach(item => {
@@ -673,7 +681,7 @@ Record<string, string> | undefined => {
     endRange.collapse(false);
     const start = getSelectionOffset(startEditableElement, undefined, startRange, ignoreZWSP).start;
     const end = getSelectionOffset(endEditableElement, undefined, endRange, ignoreZWSP).end;
-    return {
+    const context: Record<string, string> = {
         undoFocusId: startBlockElement.getAttribute("data-node-id"),
         undoFocusIndex: startBlockElements.indexOf(startBlockElement).toString(),
         undoFocusStart: start.toString(),
@@ -683,47 +691,54 @@ Record<string, string> | undefined => {
         undoFocusEnd: end.toString(),
         undoFocusIgnoreZWSP: ignoreZWSP.toString(),
     };
+    const startEmbedElement = isInEmbedBlock(startBlockElement, false);
+    if (startEmbedElement && startEmbedElement === isInEmbedBlock(endBlockElement, false)) {
+        context.undoFocusEmbedId = startEmbedElement.getAttribute("data-node-id");
+    }
+    return context;
 };
 
-// 在撤销或重做操作全部应用后，根据保存的位置重建选区。
-export const restoreUndoFocus = (protyle: IProtyle, operations: IOperation[]) => {
-    const operation = operations.find(item => item.context?.undoFocusId);
-    if (!operation) {
-        return false;
-    }
-    const start = Number(operation.context.undoFocusStart);
-    const end = Number(operation.context.undoFocusEnd);
+export const restoreFocusContext = (protyle: IProtyle, context: Record<string, string>) => {
+    const start = Number(context.undoFocusStart);
+    const end = Number(context.undoFocusEnd);
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < 0) {
         return false;
     }
-    const startBlockElements = Array.from(protyle.wysiwyg.element.querySelectorAll(
-        `[data-node-id="${operation.context.undoFocusId}"]`
+    const focusScopeElement = context.undoFocusEmbedId ? protyle.wysiwyg.element.querySelector(
+        `[data-type="NodeBlockQueryEmbed"][data-node-id="${context.undoFocusEmbedId}"]`
+    ) : protyle.wysiwyg.element;
+    if (!focusScopeElement) {
+        return false;
+    }
+    const startBlockElements = Array.from(focusScopeElement.querySelectorAll(
+        `[data-node-id="${context.undoFocusId}"]`
     ));
-    const startIndex = Number(operation.context.undoFocusIndex);
-    const indexedStartElement = Number.isInteger(startIndex) && startIndex >= 0 ?
-        startBlockElements[startIndex] : undefined;
-    const startBlockElement = indexedStartElement ||
-        startBlockElements.find(item => !isInEmbedBlock(item, false)) || startBlockElements[0];
-    const endBlockElements = operation.context.undoFocusEndId === operation.context.undoFocusId ?
-        startBlockElements : Array.from(protyle.wysiwyg.element.querySelectorAll(
-            `[data-node-id="${operation.context.undoFocusEndId || operation.context.undoFocusId}"]`
+    const startBlockElement = getUndoFocusElement(
+        startBlockElements,
+        context.undoFocusIndex,
+        item => !isInEmbedBlock(item, false),
+    );
+    const endBlockElements = context.undoFocusEndId === context.undoFocusId ?
+        startBlockElements : Array.from(focusScopeElement.querySelectorAll(
+            `[data-node-id="${context.undoFocusEndId || context.undoFocusId}"]`
         ));
-    const endIndex = Number(operation.context.undoFocusEndIndex);
-    const indexedEndElement = Number.isInteger(endIndex) && endIndex >= 0 ? endBlockElements[endIndex] : undefined;
-    const endBlockElement = indexedEndElement ||
-        endBlockElements.find(item => !isInEmbedBlock(item, false)) || endBlockElements[0];
+    const endBlockElement = getUndoFocusElement(
+        endBlockElements,
+        context.undoFocusEndIndex,
+        item => !isInEmbedBlock(item, false),
+    );
     if (!startBlockElement || !endBlockElement) {
         return false;
     }
-    const ignoreZWSP = operation.context.undoFocusIgnoreZWSP === "true";
-    if (operation.context.undoFocusCollapseToEnd === "true") {
+    const ignoreZWSP = context.undoFocusIgnoreZWSP === "true";
+    if (context.undoFocusCollapseToEnd === "true") {
         return !!focusByOffset(endBlockElement, end, end, true, ignoreZWSP);
     }
     if (startBlockElement === endBlockElement) {
         return !!focusByOffset(startBlockElement, start, end, true, ignoreZWSP);
     }
     let startRange: Range;
-    if (operation.context.undoFocusStartAtEnd === "true") {
+    if (context.undoFocusStartAtEnd === "true") {
         startRange = document.createRange();
         setLastNodeRange(getContenteditableElement(startBlockElement) || startBlockElement, startRange);
         startRange.collapse(true);
@@ -753,6 +768,12 @@ export const restoreUndoFocus = (protyle: IProtyle, operations: IOperation[]) =>
     }
     focusByRange(range);
     return true;
+};
+
+// 在撤销或重做操作全部应用后，根据保存的位置重建选区。
+export const restoreUndoFocus = (protyle: IProtyle, operations: IOperation[]) => {
+    const operation = operations.find(item => item.context?.undoFocusId);
+    return operation ? restoreFocusContext(protyle, operation.context) : false;
 };
 
 const searchNode = (
@@ -1000,7 +1021,7 @@ export const setInsertWbrHTML = (nodeElement: HTMLElement, range: Range, protyle
     }
 };
 
-export const focusByWbr = (element: Element, range: Range) => {
+export const focusByWbr = (element: Element, range: Range, preserveWbr = false) => {
     const wbrElements = element.querySelectorAll("wbr");
     if (wbrElements.length === 0) {
         return;
@@ -1052,7 +1073,9 @@ export const focusByWbr = (element: Element, range: Range) => {
         }
     }
     range.collapse(true);
-    wbrElement.remove();
+    if (!preserveWbr) {
+        wbrElement.remove();
+    }
     focusByRange(range);
     return range;
 };
@@ -1072,7 +1095,8 @@ export const focusByRange = (range: Range) => {
     selection.addRange(range);
 };
 
-export const focusBlock = (element: Element, parentElement?: HTMLElement, toStart = true): false | Range => {
+export const focusBlock = (element: Element, parentElement?: HTMLElement, toStart = true,
+                           focusAVTitle = false): false | Range => {
     if (!element) {
         return false;
     }
@@ -1113,13 +1137,20 @@ export const focusBlock = (element: Element, parentElement?: HTMLElement, toStar
             setRange = true;
         } else if (type === "NodeAttributeView") {
             /// #if !MOBILE
-            const cursorElement = element.querySelector(".av__cursor");
-            if (cursorElement) {
-                range.setStart(cursorElement.firstChild, 0);
+            const titleElement = focusAVTitle && element.querySelector(".av__title:not(.fn__none)");
+            if (titleElement) {
+                range.selectNodeContents(titleElement);
+                range.collapse(toStart);
                 setRange = true;
             } else {
-                element.setAttribute("data-need-focus", "true");
-                return false;
+                const cursorElement = element.querySelector(".av__cursor");
+                if (cursorElement) {
+                    range.setStart(cursorElement.firstChild, 0);
+                    setRange = true;
+                } else {
+                    element.setAttribute("data-need-focus", focusAVTitle ? "zoom" : "true");
+                    return false;
+                }
             }
             /// #else
             return false;

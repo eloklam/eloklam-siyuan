@@ -1,5 +1,5 @@
 import type {App} from "../../index";
-import {windowMouseMove} from "./mousemove";
+import {getTableResizeBounds, windowMouseMove} from "./mousemove";
 import {windowKeyUp} from "./keyup";
 import {windowKeyDown} from "./keydown";
 import {globalClick} from "./click";
@@ -9,6 +9,7 @@ import {hasClosestByAttribute, hasClosestByClassName, isInEmbedBlock} from "../.
 import {hideTooltip} from "../../dialog/tooltip";
 import {hideAllElements} from "../../protyle/ui/hideElements";
 import {dragOverScroll, stopScrollAnimation} from "./dragover";
+import {clearTabHoverSwitch} from "../../layout/tabDrag";
 import {setWebViewFocusable} from "../../mobile/util/mobileAppUtil";
 import {cancelManualTouch, initTouchDragBridge, isLastPointerMouse} from "../../util/touchDragBridge";
 import {isWindow} from "../../util/functions";
@@ -16,6 +17,7 @@ import {getDockByType} from "../../layout/tabUtil";
 import {fetchPost} from "../../util/fetch";
 import {initHarmonyTextSelectionMenu} from "../../util/harmonyTextSelectionMenu";
 import {clearDragTipGhost, hideDragTip} from "../../protyle/util/dragTip";
+import {formatPainter} from "../../protyle/toolbar/FormatPainter";
 
 const KANBAN_GROUP_DRAG_TYPE = `${Constants.SIYUAN_DROP_GUTTER}NodeAttributeView${Constants.ZWSP}Group${Constants.ZWSP}`.toLowerCase();
 
@@ -61,14 +63,19 @@ export const initWindowEvent = (app: App) => {
         }
     }, {passive: true});
 
-    // 横向滚动表格时重新定位表格列宽调整手柄 https://github.com/siyuan-note/siyuan/issues/13828
+    // 滚动表格时重新定位表格列宽调整手柄 https://github.com/siyuan-note/siyuan/issues/13828
     window.addEventListener("scroll", (event: Event) => {
         const scrollElement = event.target as HTMLElement;
-        // 仅处理表格内容容器（.table 块的 firstElementChild）的滚动
-        if (!scrollElement.parentElement || !scrollElement.parentElement.classList.contains("table")) {
+        const tableBlockElement = hasClosestByClassName(scrollElement, "table");
+        if (!tableBlockElement) {
             return;
         }
-        const resizeElement = scrollElement.parentElement.querySelector(".table__resize") as HTMLElement;
+        const tableElement = tableBlockElement.querySelector("table") as HTMLTableElement;
+        if (!tableElement ||
+            (scrollElement !== tableBlockElement.firstElementChild && scrollElement !== tableElement)) {
+            return;
+        }
+        const resizeElement = tableBlockElement.querySelector(".table__resize") as HTMLElement;
         if (!resizeElement) {
             return;
         }
@@ -77,15 +84,25 @@ export const initWindowEvent = (app: App) => {
         if (baseLeft === null || !style || style.indexOf("display:block") === -1) {
             return;
         }
-        const left = parseInt(baseLeft) - scrollElement.scrollLeft;
-        resizeElement.setAttribute("style", style.replace(/left: ?-?\d+px;/, `left: ${Math.round(left)}px;`));
+        const left = parseInt(baseLeft) - (tableBlockElement.firstElementChild as HTMLElement).scrollLeft;
+        const resizeBounds = getTableResizeBounds(tableElement);
+        resizeElement.setAttribute("style", style
+            .replace(/top:-?\d+(?:\.\d+)?px;/, `top:${resizeBounds.top}px;`)
+            .replace(/height:-?\d+(?:\.\d+)?px;/, `height:${resizeBounds.height}px;`)
+            .replace(/left: ?-?\d+px;/, `left: ${Math.round(left)}px;`));
     }, true);
 
     let scrollTarget: HTMLElement | false;
-    window.addEventListener("dragstart", clearDragTipGhost, true);
+    window.addEventListener("dragstart", () => {
+        clearDragTipGhost();
+        hideTooltip();
+    }, true);
     window.addEventListener("dragover", (event: DragEvent & { target: HTMLElement }) => {
         const isDocumentTab = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_DOCUMENT_TAB);
         const tabBarElement = hasClosestByClassName(event.target, "layout-tab-bar");
+        if (!tabBarElement && event.dataTransfer.types.includes(Constants.SIYUAN_DROP_BLOCK)) {
+            clearTabHoverSwitch();
+        }
         if (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB) && (!isDocumentTab || tabBarElement)) {
             if (!tabBarElement) {
                 stopScrollAnimation();
@@ -190,6 +207,7 @@ export const initWindowEvent = (app: App) => {
         }
     });
     window.addEventListener("dragend", () => {
+        clearTabHoverSwitch();
         stopScrollAnimation();
         hideDragTip();
         clearDragTipGhost();
@@ -210,6 +228,7 @@ export const initWindowEvent = (app: App) => {
     });
 
     window.addEventListener("mousedown", (event: MouseEvent & { target: HTMLElement }) => {
+        formatPainter.deactivateByPointer(event.target);
         const tabBarElement = hasClosestByClassName(event.target, "layout-tab-bar", true);
         const isWindowTabBar = tabBarElement && Array.from(tabBarElement.parentElement.children).some((item) =>
             item.classList.contains("layout-tab-bar--readonly"));

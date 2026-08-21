@@ -11,11 +11,14 @@ import {ipcRenderer} from "electron";
 import {Constants} from "../constants";
 import {setStorageVal} from "../protyle/util/compatibility";
 import {getAllEditor} from "../layout/getAll";
-import {unregisterAction} from "../layout/dock/agent/frontendActions";
+import {unregisterCapability} from "../layout/dock/agent/frontendCapabilities";
+import {cancelAssetUploadsByPlugin} from "../protyle/upload/pluginEvent";
+import {removeBreadcrumbButtons} from "./breadcrumbButton";
 
 export const uninstall = (app: App, name: string, isReload: boolean) => {
     app.plugins.find((plugin: Plugin, index) => {
         if (plugin.name === name) {
+            cancelAssetUploadsByPlugin(plugin);
             try {
                 plugin.onunload();
             } catch (e) {
@@ -57,8 +60,9 @@ export const uninstall = (app: App, name: string, isReload: boolean) => {
                 plugin.topBarIcons.splice(i, 1);
                 i--;
             }
-            // rm agent actions
-            plugin.agentActions.forEach(name => unregisterAction(name));
+            removeBreadcrumbButtons(plugin.name);
+            // 移除插件注册的 Agent 能力
+            plugin.agentCapabilities.forEach((capability) => unregisterCapability(capability.id, capability.generation));
             /// #if !MOBILE
             // rm statusBar
             plugin.statusBarIcons.forEach(item => {

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
@@ -104,6 +105,68 @@ func TestConvertSchemaPreservesRawJSONSchema(t *testing.T) {
 	}
 }
 
+func TestParseToolArgsPreservesNestedValues(t *testing.T) {
+	args, err := parseToolArgs(
+		`{"todos":[{"content":"Task","status":"in_progress"}],"enabled":true,"count":2}`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	todos, ok := args["todos"].([]any)
+	if !ok || len(todos) != 1 {
+		t.Fatalf("unexpected todos: %#v", args["todos"])
+	}
+	todo, ok := todos[0].(map[string]any)
+	if !ok || todo["content"] != "Task" || todo["status"] != "in_progress" {
+		t.Fatalf("unexpected todo: %#v", todos[0])
+	}
+	if args["enabled"] != true || args["count"] != float64(2) {
+		t.Fatalf("unexpected primitive values: %#v", args)
+	}
+}
+
+func TestParseToolArgsDoesNotRewriteValidStrings(t *testing.T) {
+	args, err := parseToolArgs(`{"arguments":"{\"value\":1}","enabled":"true"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args["arguments"] != `{"value":1}` || args["enabled"] != "true" {
+		t.Fatalf("string values were rewritten: %#v", args)
+	}
+
+	empty, err := parseToolArgs(" ")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty arguments were not accepted: %#v, %v", empty, err)
+	}
+}
+
+func TestParseToolArgsRejectsInvalidJSON(t *testing.T) {
+	if _, err := parseToolArgs(`{"questions":[`); err == nil {
+		t.Fatal("invalid JSON was accepted")
+	}
+	if _, err := parseToolArgs(`null`); err == nil {
+		t.Fatal("null arguments were accepted")
+	}
+	if _, err := parseToolArgs(`[]`); err == nil {
+		t.Fatal("array arguments were accepted")
+	}
+}
+
+func TestDoomLoopTracksFailedQuestionCalls(t *testing.T) {
+	var tracker doomLoopTracker
+	for i := 0; i < doomLoopStopThreshold; i++ {
+		tracker.record("question", "", map[string]any{}, true)
+	}
+	if tracker.count != doomLoopStopThreshold || tracker.prevName != "question" {
+		t.Fatalf("failed question calls were not tracked: %#v", tracker)
+	}
+
+	tracker.record("question", "", map[string]any{}, false)
+	if tracker.count != 0 || tracker.prevSig != "" || tracker.prevName != "" {
+		t.Fatalf("successful question call did not reset tracker: %#v", tracker)
+	}
+}
+
 func TestResultToStringUsesStructuredContent(t *testing.T) {
 	result := resultToString(tools.CallToolResult{
 		StructuredContent: map[string]any{"status": "ok"},
@@ -163,6 +226,17 @@ func TestExecuteToolPreservesModelAttachments(t *testing.T) {
 	if result.Text != "attached" || result.IsError || len(result.ModelAttachments) != 1 ||
 		string(result.ModelAttachments[0].Data) != "image" {
 		t.Fatalf("model attachment was not preserved: %#v", result)
+	}
+}
+
+func TestValidateToolCallInputRejectsMissingActionBeforeConfirmation(t *testing.T) {
+	args := map[string]any{"id": "20260707184942-prjqwqo"}
+	if _, _, err := validateToolCallInput(t.Context(), "outline", args); err == nil {
+		t.Fatal("outline without its required action must fail validation before confirmation")
+	}
+	args["action"] = "get"
+	if _, _, err := validateToolCallInput(t.Context(), "outline", args); err != nil {
+		t.Fatalf("valid outline arguments were rejected: %s", err)
 	}
 }
 
@@ -280,11 +354,48 @@ func TestQueryToolActionEffects(t *testing.T) {
 	}
 }
 
+func TestBrowserCapabilityEffects(t *testing.T) {
+	native := &capabilityRegistration{ID: "native/frontend/open_search", ModelName: "frontend__open_search", Source: "native", Runtime: "browser"}
+	if needsCapabilityConfirm(native, "", nil, false, nil) || needsCapabilitySnapshot(native, "") {
+		t.Fatal("built-in browser capability must not require confirmation or create a snapshot")
+	}
+	pluginUnknown := &capabilityRegistration{ID: "plugin/frontend/example/run", ModelName: "frontend__plugin_run", Source: "plugin", Runtime: "browser"}
+	if !needsCapabilityConfirm(pluginUnknown, "", nil, false, nil) {
+		t.Fatal("plugin browser capability with unknown effects must require confirmation")
+	}
+	pluginRead := &capabilityRegistration{ID: "plugin/frontend/example/read", ModelName: "frontend__plugin_read", Source: "plugin", Runtime: "browser", Effects: tools.ToolEffects{LocalRead: true}, EffectsDeclared: true}
+	if needsCapabilityConfirm(pluginRead, "", nil, false, nil) {
+		t.Fatal("plugin browser capability declared local-read-only must not require confirmation")
+	}
+	pluginActions := &capabilityRegistration{
+		ID: "plugin/frontend/example/actions", ModelName: "frontend__plugin_actions", Source: "plugin", Runtime: "browser",
+		ActionEffects: map[string]tools.ToolEffects{
+			"read":  {LocalRead: true},
+			"write": {LocalWrite: true},
+		},
+	}
+	if needsCapabilityConfirm(pluginActions, "read", nil, false, nil) {
+		t.Fatal("plugin browser action with explicit read effects must not require confirmation")
+	}
+	if !needsCapabilityConfirm(pluginActions, "write", nil, false, nil) ||
+		!needsCapabilityConfirm(pluginActions, "unknown", nil, false, nil) {
+		t.Fatal("plugin browser write or undeclared action must require confirmation")
+	}
+	for _, action := range []string{"html", "preview"} {
+		if needsConfirm("export", action, nil) || needsLocalSnapshot("export", action) {
+			t.Errorf("read-only export action %q must not require confirmation or create a snapshot", action)
+		}
+	}
+	if !needsConfirm("export", "docx", nil) || !needsLocalSnapshot("export", "docx") {
+		t.Fatal("file-producing export actions must retain confirmation and snapshot protection")
+	}
+}
+
 func TestConfirmSessionAcceptsResponseOnce(t *testing.T) {
 	const confirmID = "test-confirm"
 	ch := make(chan confirmResult, 1)
 	confirmChannelsMu.Lock()
-	confirmChannels[confirmID] = ch
+	confirmChannels[confirmID] = &confirmWaiter{sessionID: testSessionID, ch: ch}
 	confirmChannelsMu.Unlock()
 	t.Cleanup(func() {
 		confirmChannelsMu.Lock()
@@ -292,10 +403,11 @@ func TestConfirmSessionAcceptsResponseOnce(t *testing.T) {
 		confirmChannelsMu.Unlock()
 	})
 
-	if !ConfirmSession(confirmID, true, false) {
+	accepted, err := ConfirmSession(confirmID, true, false)
+	if err != nil || !accepted {
 		t.Fatal("registered confirmation was rejected")
 	}
-	if ConfirmSession(confirmID, false, false) {
+	if accepted, err = ConfirmSession(confirmID, false, false); err != nil || accepted {
 		t.Fatal("duplicate confirmation was accepted")
 	}
 	result, accepted := finishConfirmWait(confirmID, ch)
@@ -304,7 +416,7 @@ func TestConfirmSessionAcceptsResponseOnce(t *testing.T) {
 	}
 }
 
-func TestQuestionAndFrontendResultsAreAcceptedOnce(t *testing.T) {
+func TestQuestionAndBrowserCapabilityResultsAreAcceptedOnce(t *testing.T) {
 	const questionID = "test-question"
 	questionCh := make(chan QuestionAnswer, 1)
 	questionChannelsMu.Lock()
@@ -317,16 +429,37 @@ func TestQuestionAndFrontendResultsAreAcceptedOnce(t *testing.T) {
 		t.Fatalf("unexpected question answer: %#v", answer)
 	}
 
-	const callID = "test-frontend-call"
-	frontendCh := make(chan frontendCallResult, 1)
-	frontendCallChannelsMu.Lock()
-	frontendCallChannels[callID] = frontendCh
-	frontendCallChannelsMu.Unlock()
-	if !FrontendToolResult(callID, "result", false) || FrontendToolResult(callID, "duplicate", false) {
-		t.Fatal("frontend result was not accepted exactly once")
+	const callID = "test-browser-capability-call"
+	capabilityCh := make(chan browserCapabilityResult, 1)
+	browserCapabilityChannelsMu.Lock()
+	browserCapabilityChannels[callID] = capabilityCh
+	browserCapabilityChannelsMu.Unlock()
+	if !BrowserCapabilityResult(callID, "result", nil, false, false) ||
+		BrowserCapabilityResult(callID, "duplicate", nil, false, false) {
+		t.Fatal("browser capability result was not accepted exactly once")
 	}
-	if result := <-frontendCh; result.result != "result" || result.isError {
-		t.Fatalf("unexpected frontend result: %#v", result)
+	if result := <-capabilityCh; result.result != "result" || result.isError {
+		t.Fatalf("unexpected browser capability result: %#v", result)
+	}
+}
+
+func TestQuestionEventIncludesRoundID(t *testing.T) {
+	const roundID = "test-round"
+	events := make(chan AgentEvent, 1)
+	resultCh := make(chan string, 1)
+	go func() {
+		resultCh <- handleQuestion(context.Background(), map[string]any{"questions": []any{}}, roundID, events, time.Second)
+	}()
+
+	event := <-events
+	if event.Type != "question" || event.RoundID != roundID || event.QuestionID == "" {
+		t.Fatalf("unexpected question event: %#v", event)
+	}
+	if !AnswerQuestion(event.QuestionID, []string{"answer"}) {
+		t.Fatal("question answer was rejected")
+	}
+	if result := <-resultCh; result != "answer" {
+		t.Fatalf("unexpected question result: %q", result)
 	}
 }
 
@@ -344,17 +477,60 @@ func TestWaitCompletionKeepsConcurrentlyAcceptedResults(t *testing.T) {
 		t.Fatalf("accepted question answer was lost: %#v, accepted=%v", answer, accepted)
 	}
 
-	const callID = "test-frontend-timeout-race"
-	frontendCh := make(chan frontendCallResult, 1)
-	frontendCallChannelsMu.Lock()
-	frontendCallChannels[callID] = frontendCh
-	frontendCallChannelsMu.Unlock()
-	if !FrontendToolResult(callID, "accepted", false) {
-		t.Fatal("frontend result was rejected")
+	const callID = "test-browser-capability-timeout-race"
+	capabilityCh := make(chan browserCapabilityResult, 1)
+	browserCapabilityChannelsMu.Lock()
+	browserCapabilityChannels[callID] = capabilityCh
+	browserCapabilityChannelsMu.Unlock()
+	if !BrowserCapabilityResult(callID, "accepted", nil, false, false) {
+		t.Fatal("browser capability result was rejected")
 	}
-	result, accepted := finishFrontendWait(callID, frontendCh)
+	result, accepted := finishBrowserCapabilityWait(callID, capabilityCh)
 	if !accepted || result.result != "accepted" || result.isError {
-		t.Fatalf("accepted frontend result was lost: %#v, accepted=%v", result, accepted)
+		t.Fatalf("accepted browser capability result was lost: %#v, accepted=%v", result, accepted)
+	}
+}
+
+func TestBrowserCapabilityValidatesStructuredOutput(t *testing.T) {
+	validationTool := &tools.Tool{
+		Name:        "test_browser_capability_output",
+		Description: "Test browser capability output",
+		InputSchema: tools.ToolSchema{Type: "object"},
+		OutputSchema: &tools.ToolSchema{
+			Type: "object",
+			Properties: map[string]tools.Property{
+				"value": {Type: "string"},
+			},
+			Required: []string{"value"},
+		},
+	}
+	validator, err := tools.CompileToolValidator(validationTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration := &capabilityRegistration{
+		ID:        "native/frontend/test_output",
+		ModelName: validationTool.Name,
+		Runtime:   "browser",
+		Validator: validator,
+	}
+	events := make(chan AgentEvent, 1)
+	resultCh := make(chan executedToolResult, 1)
+	go func() {
+		resultCh <- handleBrowserCapability(context.Background(), openai.ToolCall{
+			Function: openai.FunctionCall{Name: validationTool.Name, Arguments: `{}`},
+		}, registration, map[string]any{}, events, time.Second)
+	}()
+	event := <-events
+	if event.Type != "browser_capability_call" {
+		t.Fatalf("unexpected event: %#v", event)
+	}
+	if !BrowserCapabilityResult(event.CallID, "", map[string]any{"value": 1}, true, false) {
+		t.Fatal("browser capability result was rejected")
+	}
+	result := <-resultCh
+	if !result.IsError || !result.ExecutionUnknown {
+		t.Fatalf("invalid structured output was accepted: %#v", result)
 	}
 }
 

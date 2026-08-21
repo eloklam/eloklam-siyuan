@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1708,12 +1708,11 @@ func FullTextSearchBlockInBoxWithHPathContext(ctx context.Context, query string,
 			blocks, matchedBlockCount, matchedRootCount = searchBySQLInBox("SELECT * FROM `blocks` WHERE `id` = '"+query+"'", beforeLen, page, pageSize, boxID)
 		} else {
 			if 2 > len(strings.Split(strings.TrimSpace(query), " ")) {
-				rawQuery := strings.TrimSpace(query)
-				query = stringQuery(rawQuery)
-				if "" != rawQuery && searchHPath && isDocumentSearchEnabled(types) {
-					blocks, matchedBlockCount, matchedRootCount = fullTextSearchByFTSAndHPathInBox(rawQuery, query, boxFilter, pathFilter, boxArgs, pathArgs, typeFilter, ignoreFilter, orderBy, beforeLen, page, pageSize, boxID)
+				ftsQuery, hPathQuery := buildKeywordSearchQueries(query)
+				if "" != hPathQuery && searchHPath && isDocumentSearchEnabled(types) {
+					blocks, matchedBlockCount, matchedRootCount = fullTextSearchByFTSAndHPathInBox(hPathQuery, ftsQuery, boxFilter, pathFilter, boxArgs, pathArgs, typeFilter, ignoreFilter, orderBy, beforeLen, page, pageSize, boxID)
 				} else {
-					blocks, matchedBlockCount, matchedRootCount = fullTextSearchByFTSInBox(query, boxFilter, pathFilter, boxArgs, pathArgs, typeFilter, ignoreFilter, orderByClause, beforeLen, page, pageSize, boxID)
+					blocks, matchedBlockCount, matchedRootCount = fullTextSearchByFTSInBox(ftsQuery, boxFilter, pathFilter, boxArgs, pathArgs, typeFilter, ignoreFilter, orderByClause, beforeLen, page, pageSize, boxID)
 				}
 			} else {
 				docMode = true // 文档全文搜索模式 https://github.com/siyuan-note/siyuan/issues/10584
@@ -1968,7 +1967,7 @@ func buildOrderBy(query string, method, orderBy int) string {
 		return clause // 默认是按相关度降序
 	default:
 		exactName := buildExactSearchOrderCondition("name", query)
-		exactAlias := buildExactSearchOrderCondition("alias", query)
+		exactAlias := buildExactAliasSearchOrderCondition("alias", query)
 		exactContent := buildExactSearchOrderCondition("content", query)
 		clause := "ORDER BY CASE " +
 			"WHEN " + exactName + " THEN 10 " +
@@ -1992,6 +1991,19 @@ func buildExactSearchOrderCondition(field, query string) string {
 	}
 	escapedQuery = strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(escapedQuery)
 	return field + " LIKE '" + escapedQuery + "' ESCAPE '\\'"
+}
+
+func buildExactAliasSearchOrderCondition(field, query string) string {
+	if "" == query || strings.Contains(query, ",") {
+		return "0"
+	}
+
+	escapedQuery := strings.ReplaceAll(query, "'", "''")
+	if Conf.Search.CaseSensitive {
+		return "instr(',' || " + field + " || ',', '," + escapedQuery + ",') > 0"
+	}
+	escapedQuery = strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(escapedQuery)
+	return "(',' || " + field + " || ',') LIKE '%," + escapedQuery + ",%' ESCAPE '\\'"
 }
 
 // buildTypeFilter returns a complete SQL predicate (including outer parens)
@@ -2632,7 +2644,7 @@ func buildHPathSearchOrderBy(query string, orderBy int) string {
 		return clause + stableOrder
 	default:
 		exactName := buildExactSearchOrderCondition("b.name", query)
-		exactAlias := buildExactSearchOrderCondition("b.alias", query)
+		exactAlias := buildExactAliasSearchOrderCondition("b.alias", query)
 		exactContent := buildExactSearchOrderCondition("b.content", query)
 		escapedQuery := strings.ReplaceAll(query, "'", "''")
 		clause := "ORDER BY matches.match_source ASC, CASE " +
@@ -3162,6 +3174,10 @@ func columnConcat() string {
 	}
 	buf.WriteString("||tag")
 	return buf.String()
+}
+
+func buildKeywordSearchQueries(query string) (ftsQuery, hPathQuery string) {
+	return stringQuery(query), strings.TrimSpace(query)
 }
 
 func stringQuery(query string) string {

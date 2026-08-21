@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -49,6 +49,7 @@ func setupAttributeViewValidationTest(t *testing.T) {
 	}
 	Conf = NewAppConf()
 	Conf.Lang = "en"
+	Conf.FileTree = conf.NewFileTree()
 	Conf.Sync = conf.NewSync()
 	cache.ClearAVCache()
 	t.Cleanup(func() {
@@ -146,6 +147,43 @@ func TestAddAttributeViewBlockAcceptsValidDetachedItem(t *testing.T) {
 	blockValue := parsed.GetBlockValue(itemID)
 	if nil == blockValue || nil == blockValue.Block || !blockValue.IsDetached || "Test" != blockValue.Block.Content {
 		t.Fatalf("unexpected detached block value: %+v", blockValue)
+	}
+}
+
+func TestAddAttributeViewBlocksAcceptsDetachedItemsInBatch(t *testing.T) {
+	setupAttributeViewValidationTest(t)
+
+	avID := "20260811190000-batchav"
+	attrView := av.NewAttributeView(avID)
+	if err := av.SaveAttributeView(attrView); nil != err {
+		t.Fatalf("save attribute view failed: %s", err)
+	}
+
+	const itemCount = 100
+	itemIDs := make([]string, 0, itemCount)
+	srcs := make([]map[string]any, 0, itemCount)
+	for i := 0; i < itemCount; i++ {
+		itemID := ast.NewNodeID()
+		itemIDs = append(itemIDs, itemID)
+		srcs = append(srcs, map[string]any{
+			"itemID":     itemID,
+			"isDetached": true,
+			"content":    "Test",
+		})
+	}
+	if err := AddAttributeViewBlock(nil, srcs, avID, "", "", "", "", false); nil != err {
+		t.Fatalf("add detached attribute view items failed: %s", err)
+	}
+
+	parsed, err := av.ParseAttributeView(avID)
+	if nil != err {
+		t.Fatalf("parse attribute view failed: %s", err)
+	}
+	for _, itemID := range itemIDs {
+		blockValue := parsed.GetBlockValue(itemID)
+		if nil == blockValue || nil == blockValue.Block || !blockValue.IsDetached || "Test" != blockValue.Block.Content {
+			t.Fatalf("unexpected detached block value: %+v", blockValue)
+		}
 	}
 }
 

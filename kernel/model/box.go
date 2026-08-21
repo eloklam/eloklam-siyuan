@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -40,6 +41,7 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/cache"
 	"github.com/siyuan-note/siyuan/kernel/conf"
 	"github.com/siyuan-note/siyuan/kernel/filesys"
+	"github.com/siyuan-note/siyuan/kernel/heif"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/task"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -360,6 +362,10 @@ func (box *Box) Ls(p string) (ret []*FileInfo, totals int, err error) {
 	for _, f := range entries {
 		info, infoErr := f.Info()
 		if nil != infoErr {
+			// 目录枚举后条目可能被并发移动或删除，此时跳过已失效的条目。
+			if errors.Is(infoErr, fs.ErrNotExist) {
+				continue
+			}
 			logging.LogErrorf("read file info failed: %s", infoErr)
 			continue
 		}
@@ -805,35 +811,16 @@ func ClearTempFiles() {
 		util.PushUpdateMsg(msgId, msg, 7000)
 	}()
 
-	bazaarTmp := filepath.Join(util.TempDir, "bazaar")
-	clearTempDir(bazaarTmp, &count, &size)
+	clearTempFiles(&count, &size)
+}
 
-	exportTmp := filepath.Join(util.TempDir, "export")
-	clearTempDir(exportTmp, &count, &size)
-
-	importTmp := filepath.Join(util.TempDir, "import")
-	clearTempDir(importTmp, &count, &size)
-
-	convertTmp := filepath.Join(util.TempDir, "convert")
-	clearTempDir(convertTmp, &count, &size)
-
-	osTmp := filepath.Join(util.TempDir, "os")
-	clearTempDir(osTmp, &count, &size)
-
-	base64Tmp := filepath.Join(util.TempDir, "base64")
-	clearTempDir(base64Tmp, &count, &size)
-
-	installTmp := filepath.Join(util.TempDir, "install")
-	clearTempDir(installTmp, &count, &size)
-
-	thumbnailsTmp := filepath.Join(util.TempDir, "thumbnails")
-	clearTempDir(thumbnailsTmp, &count, &size)
-
-	repoTmp := filepath.Join(util.TempDir, "repo")
-	clearTempDir(repoTmp, &count, &size)
-
-	clipboardTmp := filepath.Join(util.TempDir, "clipboard")
-	clearTempDir(clipboardTmp, &count, &size)
+func clearTempFiles(count *int, size *int64) {
+	heif.ClearMemoryCache("")
+	for _, name := range []string{
+		"assets-cache", "bazaar", "export", "import", "convert", "pandoc", "os", "base64", "install", "thumbnails", "repo", "clipboard",
+	} {
+		clearTempDir(filepath.Join(util.TempDir, name), count, size)
+	}
 }
 
 func clearTempDir(dir string, count *int, size *int64) {

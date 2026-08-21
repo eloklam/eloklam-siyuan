@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -38,6 +38,23 @@ func TestAcquireEncryptedBoxOperationsAllowsEmptyClosedScope(t *testing.T) {
 		t.Fatalf("empty encrypted notebook operation set was rejected: %v", err)
 	}
 	release()
+}
+
+func TestEncryptedBoxOperationAdmissionCanWaitForInitialization(t *testing.T) {
+	boxID := "20260812223000-abcdefg"
+	cleanup := prepareEncryptedBoxLifecycleTest(t, boxID)
+	defer cleanup()
+
+	setEncryptedBoxStateWithAdmission(boxID, EncryptedBoxStateUnlocked, false)
+	if err := AcquireEncryptedBoxOperation(boxID); err == nil {
+		ReleaseEncryptedBoxOperation(boxID)
+		t.Fatal("encrypted notebook admitted an operation before initialization completed")
+	}
+	setEncryptedBoxState(boxID, EncryptedBoxStateUnlocked)
+	if err := AcquireEncryptedBoxOperation(boxID); err != nil {
+		t.Fatalf("initialized encrypted notebook rejected an operation: %v", err)
+	}
+	ReleaseEncryptedBoxOperation(boxID)
 }
 
 func TestAcquireEncryptedBoxOperationsReportsClosedScope(t *testing.T) {
@@ -103,6 +120,71 @@ func TestEncryptedBoxLifecycleWaitsForActiveOperations(t *testing.T) {
 	}
 	if state := GetEncryptedBoxState(boxID); state != EncryptedBoxStateLocked {
 		t.Fatalf("expected Locked state, got %s", state)
+	}
+}
+
+func TestActiveOperationAllowsNestedAssetReadWhileLockWaits(t *testing.T) {
+	boxID := "20260816193000-abcdefg"
+	cleanup := prepareEncryptedBoxLifecycleTest(t, boxID)
+	defer cleanup()
+	originalWorkspaceDir := util.WorkspaceDir
+	util.WorkspaceDir = filepath.Dir(util.DataDir)
+	defer func() {
+		util.WorkspaceDir = originalWorkspaceDir
+	}()
+	setEncryptedBoxState(boxID, EncryptedBoxStateUnlocked)
+
+	dek, err := GetDEKIfUnlocked(boxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diskName := "asset-20260816193001-abcdefg.bin"
+	plaintext := []byte("nested encrypted asset")
+	ciphertext, err := EncryptAsset(boxID, diskName, diskName, dek, plaintext)
+	clear(dek)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetDir := filepath.Join(util.DataDir, boxID, "assets")
+	if err = os.MkdirAll(assetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(assetDir, diskName), ciphertext, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = AcquireEncryptedBoxOperation(boxID); err != nil {
+		t.Fatal(err)
+	}
+	HoldBoxReadLock(boxID)
+	lockDone := make(chan struct{})
+	go func() {
+		beginEncryptedBoxLock(boxID)
+		setEncryptedBoxState(boxID, EncryptedBoxStateLocked)
+		close(lockDone)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for GetEncryptedBoxState(boxID) != EncryptedBoxStateLocking && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if state := GetEncryptedBoxState(boxID); state != EncryptedBoxStateLocking {
+		ReleaseBoxReadLock(boxID)
+		ReleaseEncryptedBoxOperation(boxID)
+		t.Fatalf("expected Locking state, got %s", state)
+	}
+
+	read, readErr := ReadAssetBytesInBox(boxID, "assets/"+diskName)
+	if readErr != nil || !bytes.Equal(read, plaintext) {
+		ReleaseBoxReadLock(boxID)
+		ReleaseEncryptedBoxOperation(boxID)
+		t.Fatalf("nested asset read failed: data=%q err=%v", read, readErr)
+	}
+	ReleaseBoxReadLock(boxID)
+	ReleaseEncryptedBoxOperation(boxID)
+	select {
+	case <-lockDone:
+	case <-time.After(time.Second):
+		t.Fatal("lock transition did not finish after the outer operation ended")
 	}
 }
 

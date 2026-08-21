@@ -2,6 +2,7 @@ import {setPosition} from "../../util/setPosition";
 import {appearanceMenu, fontEvent, limitRecentFontStyleRows} from "./Font";
 import {toolbarKeyToMenu} from "./util";
 import {matchHotKey} from "../util/hotKey";
+import {closeSubElement} from "./subElementLifecycle";
 
 const TABLE_CELL_INLINE_TYPES = ["strong", "em", "u", "s", "mark", "sup", "sub", "kbd", "code"];
 
@@ -22,6 +23,7 @@ export const openTableCellAppearance = (protyle: IProtyle, cellElements: HTMLTab
     }
     window.siyuan.menus.menu.remove();
     protyle.toolbar.element.classList.add("fn__none");
+    closeSubElement(protyle.toolbar);
     protyle.toolbar.subElement.innerHTML = "";
     protyle.toolbar.subElement.style.width = "";
     protyle.toolbar.subElement.style.padding = "";
@@ -34,9 +36,17 @@ export const openTableCellAppearance = (protyle: IProtyle, cellElements: HTMLTab
     protyle.toolbar.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
     protyle.toolbar.subElement.classList.remove("fn__none");
     limitRecentFontStyleRows(appearanceElement);
-    protyle.toolbar.subElementCloseCB = undefined;
     const rect = cells[0].getBoundingClientRect();
-    setPosition(protyle.toolbar.subElement, rect.left, rect.top);
+    const gap = 4;
+    const top = rect.bottom + gap;
+    const availableHeight = Math.max(0, window.innerHeight - top);
+    appearanceElement.style.maxHeight = `${availableHeight}px`;
+    const overflowHeight = Math.max(0, protyle.toolbar.subElement.offsetHeight - availableHeight);
+    if (overflowHeight > 0) {
+        appearanceElement.style.maxHeight = `${Math.max(0, appearanceElement.offsetHeight - overflowHeight)}px`;
+    }
+    setPosition(protyle.toolbar.subElement, rect.left, top);
+    protyle.toolbar.subElement.style.top = `${top}px`;
 };
 
 export const getTableCellTextStyleMenus = (protyle: IProtyle, cellElements: HTMLTableCellElement[],

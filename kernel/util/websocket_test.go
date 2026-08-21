@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,21 @@ import (
 	"testing"
 
 	"github.com/olahol/melody"
+	"github.com/siyuan-note/eventbus"
 )
+
+func TestContextPushMsgIgnoresInvalidContext(t *testing.T) {
+	contexts := []map[string]any{
+		nil,
+		{},
+		{eventbus.CtxPushMsg: nil},
+		{eventbus.CtxPushMsg: "invalid"},
+		{eventbus.CtxPushMsg: eventbus.CtxPushMsgToNone},
+	}
+	for _, context := range contexts {
+		ContextPushMsg(context, "test")
+	}
+}
 
 func TestIsPublishSession(t *testing.T) {
 	tests := []struct {
@@ -72,5 +86,10 @@ func TestSessionsByTypeExcludesPublishSession(t *testing.T) {
 	actual := SessionsByType(sessionType)
 	if len(actual) != 1 || actual[0] != regularSession {
 		t.Fatalf("SessionsByType() returned %d sessions, want only the regular session", len(actual))
+	}
+
+	publishActual := publishSessionsByType(sessionType)
+	if len(publishActual) != 1 || publishActual[0] != publishSession {
+		t.Fatalf("publishSessionsByType() returned %d sessions, want only the publish session", len(publishActual))
 	}
 }

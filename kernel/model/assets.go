@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -47,6 +47,7 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/cache"
 	"github.com/siyuan-note/siyuan/kernel/conf"
 	"github.com/siyuan-note/siyuan/kernel/filesys"
+	"github.com/siyuan-note/siyuan/kernel/heif"
 	"github.com/siyuan-note/siyuan/kernel/search"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -61,6 +62,14 @@ func GetAssetImgSizeInBox(assetPath, boxID string) (width, height int) {
 	data, err := ReadAssetBytesInBox(boxID, assetPath)
 	if err != nil {
 		logging.LogErrorf("get asset [%s] abs path failed: %s", assetPath, err)
+		return
+	}
+	defer clear(data)
+	if heif.IsPath(assetPath) {
+		width, height, err = heif.ImageSize(data)
+		if err != nil {
+			logging.LogErrorf("open asset image [%s] failed: %s", assetPath, err)
+		}
 		return
 	}
 
@@ -82,7 +91,17 @@ func ReadAssetBytesInBox(boxID, relativePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, readErr := os.ReadFile(absPath)
+	var data []byte
+	var readErr error
+	if heif.IsPath(relativePath) {
+		limit := int64(heif.MaxInputBytes)
+		if effectiveBoxID := ExtractBoxIDFromAssetsPath(absPath); effectiveBoxID != "" && IsEncryptedBox(effectiveBoxID) {
+			limit += 2 * 1024 * 1024
+		}
+		data, readErr = heif.ReadFileLimited(absPath, limit)
+	} else {
+		data, readErr = os.ReadFile(absPath)
+	}
 	if readErr != nil {
 		return nil, readErr
 	}
@@ -95,11 +114,16 @@ func ReadAssetBytesInBox(boxID, relativePath string) ([]byte, error) {
 			ReleaseBoxReadLock(effectiveBoxID)
 			return nil, dekErr
 		}
+		defer clear(dek)
 		defer ReleaseBoxReadLock(effectiveBoxID)
 		diskName := filepath.Base(AssetPathWithoutQuery(relativePath))
 		plain, decErr := DecryptAsset(effectiveBoxID, diskName, dek, data)
 		if decErr != nil {
 			return nil, decErr
+		}
+		if heif.IsPath(relativePath) && len(plain) > heif.MaxInputBytes {
+			clear(plain)
+			return nil, heif.ErrInputTooLarge
 		}
 		return plain, nil
 	}
@@ -480,7 +504,8 @@ func validateImageModel(provider *conf.Provider, imageModel *conf.Model) error {
 	if provider == nil || imageModel == nil {
 		return errors.New("image model is not configured")
 	}
-	if provider.Protocol != "" && provider.Protocol != "openai" {
+	if provider.Protocol != "" && provider.Protocol != util.OpenAIProtocolChatCompletions &&
+		provider.Protocol != util.OpenAIProtocolResponses {
 		return fmt.Errorf("unsupported multimodal provider protocol: %s", provider.Protocol)
 	}
 	return nil
@@ -946,15 +971,15 @@ func ResolveDataAssetPath(assetPath string) (relativePath, absPath string, err e
 		return
 	}
 
-	resolvedRoot, evalErr := filepath.EvalSymlinks(assetRoot)
+	resolvedRoot, evalErr := ResolveRealPath(assetRoot)
 	if evalErr != nil {
 		err = fmt.Errorf("resolve assets directory [%s] failed: %w", assetRoot, evalErr)
 		return
 	}
 	if assetDirIndex > 0 {
 		notebookRoot := filepath.Join(util.DataDir, parts[0])
-		resolvedDataDir, dataEvalErr := filepath.EvalSymlinks(util.DataDir)
-		resolvedNotebookRoot, notebookEvalErr := filepath.EvalSymlinks(notebookRoot)
+		resolvedDataDir, dataEvalErr := ResolveRealPath(util.DataDir)
+		resolvedNotebookRoot, notebookEvalErr := ResolveRealPath(notebookRoot)
 		if dataEvalErr != nil || notebookEvalErr != nil ||
 			!gulu.File.IsSubPath(resolvedDataDir, resolvedNotebookRoot) ||
 			!gulu.File.IsSubPath(resolvedNotebookRoot, resolvedRoot) {
@@ -962,7 +987,7 @@ func ResolveDataAssetPath(assetPath string) (relativePath, absPath string, err e
 			return
 		}
 	}
-	resolvedPath, evalErr := filepath.EvalSymlinks(absPath)
+	resolvedPath, evalErr := ResolveRealPath(absPath)
 	if evalErr != nil {
 		err = fmt.Errorf("resolve asset [%s] failed: %w", absPath, evalErr)
 		return
@@ -991,10 +1016,10 @@ func ResolveUnusedDataAssetPath(assetPath string) (relativePath, absPath string,
 }
 
 func unusedAssetsContainPath(relativePath, absPath string, items []*UnusedItem) bool {
-	resolvedPath, _ := filepath.EvalSymlinks(absPath)
+	resolvedPath, _ := ResolveRealPath(absPath)
 	for _, item := range items {
 		if item.AbsPath != "" {
-			resolvedItemPath, evalErr := filepath.EvalSymlinks(item.AbsPath)
+			resolvedItemPath, evalErr := ResolveRealPath(item.AbsPath)
 			samePath, relErr := filepath.Rel(resolvedPath, resolvedItemPath)
 			if resolvedPath != "" && evalErr == nil && relErr == nil && samePath == "." {
 				return true
@@ -1016,6 +1041,45 @@ func AssetPathWithoutQuery(relativePath string) string {
 		relativePath = relativePath[:idx]
 	}
 	return filepath.ToSlash(relativePath)
+}
+
+// HTMLAssetIFrameSrc 返回用于安全渲染 HTML 资源的 IFrame 地址。
+func HTMLAssetIFrameSrc(assetPath string) string {
+	if IsHTMLAssetIFrameSrc(assetPath) {
+		return assetPath
+	}
+	parsed, err := url.Parse(assetPath)
+	if err != nil {
+		return assetPath
+	}
+	query := parsed.Query()
+	query.Set("iframe", "true")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+// IsLocalHTMLAssetPath 判断资源地址是否为本地 HTML 文件。
+func IsLocalHTMLAssetPath(assetPath string) bool {
+	parsed, err := url.Parse(assetPath)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" {
+		return false
+	}
+	assetPath = strings.TrimPrefix(parsed.Path, "/")
+	assetPath = strings.TrimPrefix(assetPath, "./")
+	if !strings.HasPrefix(assetPath, "assets/") {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(assetPath))
+	return ext == ".html" || ext == ".htm"
+}
+
+// IsHTMLAssetIFrameSrc 判断资源地址是否为 HTML 文件 IFrame 渲染地址。
+func IsHTMLAssetIFrameSrc(assetPath string) bool {
+	parsed, err := url.Parse(assetPath)
+	if err != nil || !strings.EqualFold(parsed.Query().Get("iframe"), "true") {
+		return false
+	}
+	return IsLocalHTMLAssetPath(assetPath)
 }
 
 func assetPathAndBox(relativePath, defaultBoxID string) (cleanPath, boxID string, err error) {
@@ -1629,6 +1693,7 @@ func replaceAttributeViewAssetPath(avJSONPath, avID, oldPath, newPath string) (u
 type UnusedItem struct {
 	Item     string    `json:"item"`
 	Name     string    `json:"name"`
+	Path     string    `json:"path,omitempty"`
 	BlockIDs []string  `json:"blockIDs,omitempty"`
 	ModTime  time.Time `json:"-"`
 	AbsPath  string    `json:"-"`
@@ -1639,6 +1704,65 @@ type missingAssetReference struct {
 	rawDest   string
 	dest      string
 	encrypted bool
+}
+
+func lookupAssetPath(assetsPathMap map[string]string, dest string) (resolvedDest, absPath string, found bool) {
+	if absPath, found = assetsPathMap[dest]; found {
+		return dest, absPath, true
+	}
+	if strings.HasSuffix(dest, "/") {
+		return "", "", false
+	}
+
+	resolvedDest = dest + "/"
+	absPath, found = assetsPathMap[resolvedDest]
+	if found {
+		return resolvedDest, absPath, true
+	}
+	return "", "", false
+}
+
+func removeReferencedAssetPaths(assetsPathMap map[string]string, dests map[string]bool) (linkDestFilePaths []string) {
+	var linkDestFolderPaths []string
+	for dest := range dests {
+		if !strings.HasPrefix(dest, "assets/") {
+			continue
+		}
+
+		if idx := strings.Index(dest, "?"); 0 < idx {
+			// `pdf?page` 资源文件链接会被判定为未引用资源 https://github.com/siyuan-note/siyuan/issues/5649
+			dest = dest[:idx]
+		}
+
+		resolvedDest, _, found := lookupAssetPath(assetsPathMap, dest)
+		if !found {
+			continue
+		}
+		if strings.HasSuffix(resolvedDest, "/") {
+			linkDestFolderPaths = append(linkDestFolderPaths, resolvedDest)
+		} else {
+			linkDestFilePaths = append(linkDestFilePaths, resolvedDest)
+		}
+	}
+
+	// 排除文件夹链接
+	var toRemoves []string
+	for asset := range assetsPathMap {
+		for _, linkDestFolder := range linkDestFolderPaths {
+			if strings.HasPrefix(asset, linkDestFolder) {
+				toRemoves = append(toRemoves, asset)
+			}
+		}
+		for _, linkDestPath := range linkDestFilePaths {
+			if strings.HasPrefix(linkDestPath, asset) {
+				toRemoves = append(toRemoves, asset)
+			}
+		}
+	}
+	for _, toRemove := range toRemoves {
+		delete(assetsPathMap, toRemove)
+	}
+	return
 }
 
 func UnusedAssets(sorted bool) (ret []*UnusedItem) {
@@ -1694,44 +1818,7 @@ func UnusedAssets(sorted bool) (ret []*UnusedItem) {
 			}
 		}
 
-		var linkDestFolderPaths, linkDestFilePaths []string
-		for dest := range dests {
-			if !strings.HasPrefix(dest, "assets/") {
-				continue
-			}
-
-			if idx := strings.Index(dest, "?"); 0 < idx {
-				// `pdf?page` 资源文件链接会被判定为未引用资源 https://github.com/siyuan-note/siyuan/issues/5649
-				dest = dest[:idx]
-			}
-
-			if "" == assetsPathMap[dest] {
-				continue
-			}
-			if strings.HasSuffix(dest, "/") {
-				linkDestFolderPaths = append(linkDestFolderPaths, dest)
-			} else {
-				linkDestFilePaths = append(linkDestFilePaths, dest)
-			}
-		}
-
-		// 排除文件夹链接
-		var toRemoves []string
-		for asset := range assetsPathMap {
-			for _, linkDestFolder := range linkDestFolderPaths {
-				if strings.HasPrefix(asset, linkDestFolder) {
-					toRemoves = append(toRemoves, asset)
-				}
-			}
-			for _, linkDestPath := range linkDestFilePaths {
-				if strings.HasPrefix(linkDestPath, asset) {
-					toRemoves = append(toRemoves, asset)
-				}
-			}
-		}
-		for _, toRemove := range toRemoves {
-			delete(assetsPathMap, toRemove)
-		}
+		linkDestFilePaths := removeReferencedAssetPaths(assetsPathMap, dests)
 
 		for _, dest := range linkDestFilePaths {
 			linkDestMap[dest] = true
@@ -1811,7 +1898,7 @@ func UnusedAssets(sorted bool) (ret []*UnusedItem) {
 			}
 		}
 
-		ret = append(ret, &UnusedItem{Item: p, Name: name, ModTime: modTime, AbsPath: assetAbsPath})
+		ret = append(ret, &UnusedItem{Item: p, Name: name, Path: dest, ModTime: modTime, AbsPath: assetAbsPath})
 	}
 
 	if sorted {
@@ -1940,7 +2027,7 @@ func assetReferenceExists(reference missingAssetReference, assetsPathMap map[str
 	if _, _, err := assetPathAndBox(reference.rawDest, reference.boxID); nil != err {
 		return false
 	}
-	if "" != assetsPathMap[reference.dest] {
+	if _, _, found := lookupAssetPath(assetsPathMap, reference.dest); found {
 		return true
 	}
 	if strings.HasPrefix(reference.dest, "assets/.") {
@@ -2383,8 +2470,11 @@ func allAssetAbsPaths() (assetsAbsPathMap map[string]string, err error) {
 			continue
 		}
 		notebookAbsPath := filepath.Join(util.DataDir, notebook.ID)
-		filelock.Walk(notebookAbsPath, func(path string, d fs.DirEntry, err error) error {
-			if notebookAbsPath == path {
+		walkErr := filelock.Walk(notebookAbsPath, func(walkPath string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if notebookAbsPath == walkPath {
 				return nil
 			}
 			if isSkipFile(d.Name()) {
@@ -2394,14 +2484,18 @@ func allAssetAbsPaths() (assetsAbsPathMap map[string]string, err error) {
 				return nil
 			}
 
-			if filelock.IsHidden(path) {
+			if filelock.IsHidden(walkPath) {
 				// 清理资源文件时忽略隐藏文件 Ignore hidden files when cleaning unused assets https://github.com/siyuan-note/siyuan/issues/12172
 				return nil
 			}
 
 			if d.IsDir() && "assets" == d.Name() {
-				filelock.Walk(path, func(assetPath string, d fs.DirEntry, err error) error {
-					if path == assetPath {
+				assetsDirPath := walkPath
+				if nestedWalkErr := filelock.Walk(assetsDirPath, func(assetPath string, d fs.DirEntry, walkErr error) error {
+					if walkErr != nil {
+						return walkErr
+					}
+					if assetsDirPath == assetPath {
 						return nil
 					}
 					if isSkipFile(d.Name()) {
@@ -2410,23 +2504,30 @@ func allAssetAbsPaths() (assetsAbsPathMap map[string]string, err error) {
 						}
 						return nil
 					}
-					relPath := filepath.ToSlash(assetPath)
-					relPath = relPath[strings.Index(relPath, "assets/"):]
-					if d.IsDir() {
-						relPath += "/"
+					relPath, relErr := assetPathMapKey(assetsDirPath, assetPath, d.IsDir())
+					if relErr != nil {
+						return relErr
 					}
 					assetsAbsPathMap[relPath] = assetPath
 					return nil
-				})
+				}); nestedWalkErr != nil {
+					return nestedWalkErr
+				}
 				return filepath.SkipDir
 			}
 			return nil
 		})
+		if walkErr != nil {
+			return nil, fmt.Errorf("walk notebook assets [%s] failed: %w", notebookAbsPath, walkErr)
+		}
 	}
 
 	// 全局 assets
 	dataAssetsAbsPath := util.GetDataAssetsAbsPath()
-	filelock.Walk(dataAssetsAbsPath, func(assetPath string, d fs.DirEntry, err error) error {
+	walkErr := filelock.Walk(dataAssetsAbsPath, func(assetPath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
 		if dataAssetsAbsPath == assetPath {
 			return nil
 		}
@@ -2443,14 +2544,37 @@ func allAssetAbsPaths() (assetsAbsPathMap map[string]string, err error) {
 			return nil
 		}
 
-		relPath := filepath.ToSlash(assetPath)
-		relPath = relPath[strings.Index(relPath, "assets/"):]
-		if d.IsDir() {
-			relPath += "/"
+		relPath, relErr := assetPathMapKey(dataAssetsAbsPath, assetPath, d.IsDir())
+		if relErr != nil {
+			return relErr
 		}
 		assetsAbsPathMap[relPath] = assetPath
 		return nil
 	})
+	if walkErr != nil {
+		if os.IsNotExist(walkErr) {
+			return
+		}
+		return nil, fmt.Errorf("walk global assets [%s] failed: %w", dataAssetsAbsPath, walkErr)
+	}
+	return
+}
+
+func assetPathMapKey(assetsDirPath, assetPath string, isDir bool) (ret string, err error) {
+	relPath, err := filepath.Rel(assetsDirPath, assetPath)
+	if err != nil {
+		return
+	}
+	relPath = filepath.ToSlash(relPath)
+	if relPath == "." || relPath == ".." || strings.HasPrefix(relPath, "../") || path.IsAbs(relPath) {
+		err = fmt.Errorf("asset path [%s] is outside assets directory [%s]", assetPath, assetsDirPath)
+		return
+	}
+
+	ret = path.Join("assets", relPath)
+	if isDir {
+		ret += "/"
+	}
 	return
 }
 

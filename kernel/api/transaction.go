@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -232,6 +232,11 @@ func undoState(c *gin.Context) {
 	}
 
 	canUndo, canRedo, peekMutatedRootIDs := model.GlobalUndoLog.State(rootID)
+	if model.IsReadOnlyRole(model.GetGinContextRole(c)) {
+		// 只读角色（读者、访问者）没有撤销权限，跨文档联动文档 ID 对其无用，
+		// 且可能泄露同一事务中私有文档的 rootID，裁剪为空列表。
+		peekMutatedRootIDs = []string{}
+	}
 	ret.Data = map[string]any{
 		"canUndo":            canUndo,
 		"canRedo":            canRedo,

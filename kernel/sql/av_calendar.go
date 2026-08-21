@@ -9,10 +9,12 @@ import (
 )
 
 func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, query string, depth *int, cachedAttrViews map[string]*av.AttributeView, ignoreRows bool) (ret *av.Calendar) {
-	viewable := attrView.RenderedViewables[view.ID]
-	if nil != viewable {
-		ret = viewable.(*av.Calendar)
-		return
+	if !ignoreRows {
+		viewable := attrView.RenderedViewables[view.ID]
+		if nil != viewable {
+			ret = viewable.(*av.Calendar)
+			return
+		}
 	}
 
 	ret = &av.Calendar{
@@ -28,9 +30,7 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 		ret.NewItemTarget = view.Calendar.NewItemTarget
 		ret.FieldMapping = view.Calendar.FieldMapping
 
-		fields := make([]*av.ViewCalendarCardField, len(view.Calendar.Fields))
-		copy(fields, view.Calendar.Fields)
-		for _, field := range fields {
+		for _, field := range view.Calendar.Fields {
 			key, getErr := attrView.GetKey(field.ID)
 			if nil != getErr {
 				// 找不到字段则在视图中删除（元数据查询场景不写盘）
@@ -73,22 +73,26 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 	filterNotFoundAttrViewItems(cardsValues)
 
 	for cardID, cardValues := range cardsValues {
+		kvByField := map[string]*av.KeyValues{}
+		for _, keyValues := range cardValues {
+			if _, ok := kvByField[keyValues.Key.ID]; !ok { // 同一字段存在多个值时只取第一个
+				kvByField[keyValues.Key.ID] = keyValues
+			}
+		}
+
 		var calendarCard av.CalendarCard
 		calendarCard.ID = cardID
 		for _, field := range ret.Fields {
 			var fieldValue *av.CalendarFieldValue
-			for _, keyValues := range cardValues {
-				if keyValues.Key.ID == field.ID {
-					if 0 < len(keyValues.Values) {
-						fieldValue = &av.CalendarFieldValue{
-							BaseValue: &av.BaseValue{
-								ID:        keyValues.Values[0].ID,
-								Value:     keyValues.Values[0],
-								ValueType: field.Type,
-							},
-						}
+			if keyValues, ok := kvByField[field.ID]; ok {
+				if 0 < len(keyValues.Values) {
+					fieldValue = &av.CalendarFieldValue{
+						BaseValue: &av.BaseValue{
+							ID:        keyValues.Values[0].ID,
+							Value:     keyValues.Values[0],
+							ValueType: field.Type,
+						},
 					}
-					break
 				}
 			}
 			if nil == fieldValue {
@@ -131,7 +135,5 @@ func RenderAttributeViewCalendar(attrView *av.AttributeView, view *av.View, quer
 
 	filterByQuery(query, ret)
 	manualSort(view, ret)
-
-	attrView.RenderedViewables[view.ID] = ret
 	return
 }

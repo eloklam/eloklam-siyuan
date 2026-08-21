@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -389,6 +389,7 @@ func TestRestoreNotebookCryptoConfigFromExistingBackup(t *testing.T) {
 	}
 	Conf = NewAppConf()
 	Conf.NotebookCrypto = conf.NewNotebookCrypto()
+	Conf.Sync = conf.NewSync()
 	defer func() {
 		Conf = originalConf
 		util.DataDir = originalDataDir

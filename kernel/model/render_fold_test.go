@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -89,5 +89,31 @@ func TestCleanRenderDocumentHidesFoldedHeadingChildren(t *testing.T) {
 	}
 	if nil != nodes[0].FirstChild.Next {
 		t.Fatal("document render should omit folded heading children")
+	}
+}
+
+func TestPrepareHeadingChildrenDOMNodesDoesNotMutateSource(t *testing.T) {
+	heading := &ast.Node{Type: ast.NodeHeading, HeadingLevel: 1, ID: "heading"}
+	child := &ast.Node{Type: ast.NodeParagraph, ID: "child"}
+	treenode.SetSelfFolded(heading, true)
+	treenode.SetSelfFolded(child, true)
+	child.SetIALAttr("parent-heading", "original-parent")
+
+	kept := prepareHeadingChildrenDOMNodes(heading, []*ast.Node{child}, false)
+	if 2 != len(kept) || "1" != kept[0].IALAttr("fold") || "1" != kept[1].IALAttr("fold") {
+		t.Fatal("rendered clones should preserve explicit fold attributes")
+	}
+	if "heading" != kept[1].IALAttr("parent-heading") {
+		t.Fatalf("rendered child has unexpected parent heading: %q", kept[1].IALAttr("parent-heading"))
+	}
+
+	removed := prepareHeadingChildrenDOMNodes(heading, []*ast.Node{child}, true)
+	if 2 != len(removed) || "" != removed[0].IALAttr("fold") || "" != removed[1].IALAttr("fold") ||
+		"" != removed[1].IALAttr("parent-heading") {
+		t.Fatal("rendered clones should remove fold and parent-heading attributes")
+	}
+	if "1" != heading.IALAttr("fold") || "1" != child.IALAttr("fold") ||
+		"original-parent" != child.IALAttr("parent-heading") {
+		t.Fatal("heading children rendering mutated the source AST")
 	}
 }

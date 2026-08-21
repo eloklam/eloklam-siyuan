@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -26,13 +26,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/editor"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
 	"github.com/open-spaced-repetition/go-fsrs/v3"
+	"github.com/siyuan-note/siyuan/kernel/av"
 	"github.com/siyuan-note/siyuan/kernel/filesys"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -116,27 +116,33 @@ type Path struct {
 }
 
 type blockRefCheckGroup struct {
-	blockIDs map[string]struct{}
-	rootIDs  map[string]struct{}
+	blockIDs        map[string]struct{}
+	rootIDs         map[string]struct{}
+	deletedBlockIDs map[string]struct{}
+	deletedRootIDs  map[string]struct{}
 }
 
 func newBlockRefCheckGroup() *blockRefCheckGroup {
 	return &blockRefCheckGroup{
-		blockIDs: map[string]struct{}{},
-		rootIDs:  map[string]struct{}{},
+		blockIDs:        map[string]struct{}{},
+		rootIDs:         map[string]struct{}{},
+		deletedBlockIDs: map[string]struct{}{},
+		deletedRootIDs:  map[string]struct{}{},
 	}
 }
 
-// CheckBlockRef 保留原有调用语义。
+// CheckBlockRef 检查将被删除的块是否被引用或绑定到仍存在的数据库。
 func CheckBlockRef(ids []string) bool {
-	ret, _ := CheckBlockRefInBox(ids, nil, "")
+	ret, _ := CheckBlockRefInBox(ids, nil, ids, "")
 	return ret
 }
 
-// CheckBlockRefInBox 检查块及其容器后代是否被引用。
-func CheckBlockRefInBox(ids, exactIDs []string, boxID string) (ret bool, err error) {
+// CheckBlockRefInBox 检查受影响块的引用，并检查实际删除块的数据库绑定。
+func CheckBlockRefInBox(ids, exactIDs, deletedIDs []string, boxID string) (ret bool, err error) {
 	sql.FlushQueue()
-	ids = gulu.Str.RemoveDuplicatedElem(ids)
+	ids = filterNonEmptyBlockRefCheckIDs(ids)
+	exactIDs = filterNonEmptyBlockRefCheckIDs(exactIDs)
+	deletedIDs = filterNonEmptyBlockRefCheckIDs(deletedIDs)
 	if 1 > len(ids) {
 		return
 	}
@@ -156,13 +162,24 @@ func CheckBlockRefInBox(ids, exactIDs []string, boxID string) (ret bool, err err
 	for _, id := range exactIDs {
 		exactIDSet[id] = struct{}{}
 	}
+	deletedIDSet := map[string]struct{}{}
+	for _, id := range deletedIDs {
+		deletedIDSet[id] = struct{}{}
+	}
 	selectedByRoot := map[string]map[string]map[string]struct{}{}
+	deletedByRoot := map[string]map[string]map[string]struct{}{}
 	for _, bt := range bts {
 		if "d" == bt.Type && bt.ID == bt.RootID {
 			group.rootIDs[bt.ID] = struct{}{}
+			if _, deleted := deletedIDSet[bt.ID]; deleted {
+				group.deletedRootIDs[bt.ID] = struct{}{}
+			}
 			continue
 		}
 		group.blockIDs[bt.ID] = struct{}{}
+		if _, deleted := deletedIDSet[bt.ID]; deleted {
+			group.deletedBlockIDs[bt.ID] = struct{}{}
+		}
 		if _, exact := exactIDSet[bt.ID]; exact {
 			continue
 		}
@@ -173,29 +190,79 @@ func CheckBlockRefInBox(ids, exactIDs []string, boxID string) (ret bool, err err
 			selectedByRoot[bt.BoxID][bt.RootID] = map[string]struct{}{}
 		}
 		selectedByRoot[bt.BoxID][bt.RootID][bt.ID] = struct{}{}
+		if _, deleted := deletedIDSet[bt.ID]; deleted {
+			if nil == deletedByRoot[bt.BoxID] {
+				deletedByRoot[bt.BoxID] = map[string]map[string]struct{}{}
+			}
+			if nil == deletedByRoot[bt.BoxID][bt.RootID] {
+				deletedByRoot[bt.BoxID][bt.RootID] = map[string]struct{}{}
+			}
+			deletedByRoot[bt.BoxID][bt.RootID][bt.ID] = struct{}{}
+		}
 	}
 
 	// blocktrees 的父子关系用于展开列表、引述、超级块等容器后代。
 	for treeBoxID, selectedRoots := range selectedByRoot {
 		for rootID, selected := range selectedRoots {
+			deleted := deletedByRoot[treeBoxID][rootID]
 			rootTrees := treenode.GetBlockTreesByRootIDInBox(rootID, treeBoxID)
-			byID := map[string]*treenode.BlockTree{}
-			for _, bt := range rootTrees {
-				byID[bt.ID] = bt
-			}
-			for _, bt := range rootTrees {
-				current := bt
-				for nil != current && "" != current.ParentID {
-					if _, ok := selected[current.ParentID]; ok {
-						group.blockIDs[bt.ID] = struct{}{}
-						break
-					}
-					current = byID[current.ParentID]
-				}
-			}
+			expandBlockRefCheckDescendants(group, selected, deleted, rootTrees)
 		}
 	}
 	return existBlockRefGroup(group)
+}
+
+func expandBlockRefCheckDescendants(group *blockRefCheckGroup, selected, deleted map[string]struct{},
+	rootTrees []*treenode.BlockTree) {
+	byID := map[string]*treenode.BlockTree{}
+	for _, bt := range rootTrees {
+		if nil == bt || "" == strings.TrimSpace(bt.ID) {
+			continue
+		}
+		byID[bt.ID] = bt
+	}
+	for _, bt := range rootTrees {
+		if nil == bt || "" == strings.TrimSpace(bt.ID) {
+			continue
+		}
+		current := bt
+		affectedBySelected := false
+		affectedByDeleted := false
+		for nil != current && "" != current.ParentID {
+			if _, ok := selected[current.ParentID]; ok {
+				affectedBySelected = true
+			}
+			if _, ok := deleted[current.ParentID]; ok {
+				affectedByDeleted = true
+			}
+			if affectedBySelected && affectedByDeleted {
+				break
+			}
+			current = byID[current.ParentID]
+		}
+		if affectedBySelected {
+			group.blockIDs[bt.ID] = struct{}{}
+		}
+		if affectedByDeleted {
+			group.deletedBlockIDs[bt.ID] = struct{}{}
+		}
+	}
+}
+
+func filterNonEmptyBlockRefCheckIDs(ids []string) (ret []string) {
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if "" == id {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ret = append(ret, id)
+	}
+	return
 }
 
 // CheckDocsRef 检查文档删除时会递归移除的全部文档。
@@ -211,10 +278,12 @@ func CheckDocsRef(paths []string) (ret bool, err error) {
 	for docPath, box := range pathsBoxes {
 		rootID := util.GetTreeID(docPath)
 		group.rootIDs[rootID] = struct{}{}
+		group.deletedRootIDs[rootID] = struct{}{}
 		childrenDir := path.Join(path.Dir(docPath), rootID)
 		for _, bt := range treenode.GetBlockTreesByPathPrefix(box.ID, childrenDir) {
 			if bt.ID == bt.RootID {
 				group.rootIDs[bt.RootID] = struct{}{}
+				group.deletedRootIDs[bt.RootID] = struct{}{}
 			}
 		}
 	}
@@ -231,6 +300,7 @@ func CheckNotebookRef(boxID string) (ret bool, err error) {
 	group := newBlockRefCheckGroup()
 	for _, rootID := range treenode.GetRootBlockIDsByBoxID(boxID) {
 		group.rootIDs[rootID] = struct{}{}
+		group.deletedRootIDs[rootID] = struct{}{}
 	}
 	return existBlockRefGroup(group)
 }
@@ -244,7 +314,75 @@ func existBlockRefGroup(group *blockRefCheckGroup) (ret bool, err error) {
 	for id := range group.rootIDs {
 		rootIDs = append(rootIDs, id)
 	}
-	return sql.ExistRefByDefIDs(blockIDs, rootIDs, blockIDs, rootIDs)
+	if ret, err = sql.ExistRefByDefIDs(blockIDs, rootIDs, blockIDs, rootIDs); nil != err || ret {
+		return
+	}
+	return existBoundBlockGroup(group)
+}
+
+func existBoundBlockGroup(group *blockRefCheckGroup) (ret bool, err error) {
+	deletedBlockIDs := make([]string, 0, len(group.deletedBlockIDs))
+	for id := range group.deletedBlockIDs {
+		deletedBlockIDs = append(deletedBlockIDs, id)
+	}
+	deletedRootIDs := make([]string, 0, len(group.deletedRootIDs))
+	for id := range group.deletedRootIDs {
+		deletedRootIDs = append(deletedRootIDs, id)
+	}
+	boundAVIDs, err := sql.QueryBoundBlockAVIDs(deletedBlockIDs, deletedRootIDs)
+	if nil != err || 0 == len(boundAVIDs) {
+		return false, err
+	}
+
+	avIDSet := map[string]struct{}{}
+	for _, avIDs := range boundAVIDs {
+		for _, avID := range avIDs {
+			avIDSet[avID] = struct{}{}
+		}
+	}
+	avIDs := make([]string, 0, len(avIDSet))
+	for avID := range avIDSet {
+		avIDs = append(avIDs, avID)
+	}
+	avBlockRels, err := av.GetBlockRelsByAVIDs(avIDs)
+	if nil != err {
+		return false, err
+	}
+	avBlockIDSet := map[string]struct{}{}
+	for _, avIDs := range boundAVIDs {
+		for _, avID := range avIDs {
+			for _, blockID := range avBlockRels[avID] {
+				avBlockIDSet[blockID] = struct{}{}
+			}
+		}
+	}
+	avBlockIDs := make([]string, 0, len(avBlockIDSet))
+	for id := range avBlockIDSet {
+		avBlockIDs = append(avBlockIDs, id)
+	}
+	return hasSurvivingAttributeViewBlock(group, boundAVIDs, avBlockRels, treenode.GetBlockTrees(avBlockIDs)), nil
+}
+
+func hasSurvivingAttributeViewBlock(group *blockRefCheckGroup, boundAVIDs, avBlockRels map[string][]string,
+	blockTrees map[string]*treenode.BlockTree) bool {
+	for _, avIDs := range boundAVIDs {
+		for _, avID := range avIDs {
+			for _, blockID := range avBlockRels[avID] {
+				bt := blockTrees[blockID]
+				if nil == bt {
+					continue
+				}
+				if _, deleted := group.deletedBlockIDs[bt.ID]; deleted {
+					continue
+				}
+				if _, deleted := group.deletedRootIDs[bt.RootID]; deleted {
+					continue
+				}
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type BlockTreeInfo struct {
@@ -844,9 +982,20 @@ func GetHeadingChildrenDOM(id string, removeFoldAttr bool) (ret string) {
 		return
 	}
 
-	nodes := append([]*ast.Node{}, heading)
 	children := treenode.HeadingChildren(heading)
-	nodes = append(nodes, children...)
+	nodes := prepareHeadingChildrenDOMNodes(heading, children, removeFoldAttr)
+
+	luteEngine := util.NewLute()
+	ret = renderBlockDOMByNodes(nodes, luteEngine)
+	return
+}
+
+func prepareHeadingChildrenDOMNodes(heading *ast.Node, children []*ast.Node, removeFoldAttr bool) (ret []*ast.Node) {
+	ret = append(ret, heading)
+	ret = append(ret, children...)
+	ret = cleanRenderNodes(ret, false)
+	heading = ret[0]
+	children = ret[1:]
 
 	for _, child := range children {
 		ast.Walk(child, func(n *ast.Node, entering bool) ast.WalkStatus {
@@ -864,7 +1013,7 @@ func GetHeadingChildrenDOM(id string, removeFoldAttr bool) (ret string) {
 		if removeFoldAttr {
 			child.RemoveIALAttr("parent-heading")
 		} else {
-			child.SetIALAttr("parent-heading", id)
+			child.SetIALAttr("parent-heading", heading.ID)
 		}
 	}
 
@@ -872,50 +1021,117 @@ func GetHeadingChildrenDOM(id string, removeFoldAttr bool) (ret string) {
 		heading.RemoveIALAttr("fold")
 		heading.RemoveIALAttr("heading-fold")
 	}
-
-	luteEngine := util.NewLute()
-	ret = renderCleanBlockDOMByNodes(nodes, luteEngine)
 	return
 }
 
 func GetHeadingLevelTransaction(id string, level int) (transaction *Transaction, err error) {
-	tree, err := LoadTreeByBlockID(id)
+	return GetHeadingLevelBatchTransaction([]string{id}, level)
+}
+
+func GetHeadingLevelBatchTransaction(ids []string, level int) (transaction *Transaction, err error) {
+	if len(ids) == 0 || level < 1 || 6 < level {
+		return
+	}
+
+	tree, err := LoadTreeByBlockID(ids[0])
 	if err != nil {
 		return
 	}
 
-	node := treenode.GetNodeInTree(tree, id)
-	if nil == node {
-		err = fmt.Errorf(Conf.Language(15), id)
+	selectedHeadings, valid, missingID := headingLevelSelection(tree, ids)
+	if "" != missingID {
+		err = fmt.Errorf(Conf.Language(15), missingID)
+		return
+	}
+	if !valid || len(selectedHeadings) == 0 {
 		return
 	}
 
-	if ast.NodeHeading != node.Type {
-		return
-	}
-
-	hLevel := node.HeadingLevel
+	hLevel := selectedHeadings[0].HeadingLevel
 	if hLevel == level {
 		return
 	}
 
 	diff := level - hLevel
-	var children, childrenHeadings []*ast.Node
-	children = append(children, node)
-	children = append(children, treenode.HeadingChildren(node)...)
-	for _, c := range children {
-		ccH := c.ChildrenByType(ast.NodeHeading)
-		childrenHeadings = append(childrenHeadings, ccH...)
-	}
+	childrenHeadings := collectHeadingLevelNodes(tree.Root, selectedHeadings)
 	fillBlockRefCount(childrenHeadings, tree.Box)
 
+	var foldedHeadings []*ast.Node
+	for _, heading := range selectedHeadings {
+		if treenode.IsSelfFolded(heading) {
+			foldedHeadings = append(foldedHeadings, heading)
+		}
+	}
+
+	transaction = buildHeadingLevelTransaction(childrenHeadings, foldedHeadings, diff)
+	return
+}
+
+func headingLevelSelection(tree *parse.Tree, ids []string) (ret []*ast.Node, valid bool, missingID string) {
+	if nil == tree || nil == tree.Root || len(ids) == 0 {
+		return
+	}
+
+	selectedIDs := map[string]struct{}{}
+	var parent *ast.Node
+	headingLevel := 0
+	for _, id := range ids {
+		if _, ok := selectedIDs[id]; ok {
+			continue
+		}
+		selectedIDs[id] = struct{}{}
+
+		heading := treenode.GetNodeInTree(tree, id)
+		if nil == heading {
+			return nil, false, id
+		}
+		if ast.NodeHeading != heading.Type {
+			return nil, false, ""
+		}
+		if len(ret) == 0 {
+			parent = heading.Parent
+			headingLevel = heading.HeadingLevel
+		} else if heading.Parent != parent || heading.HeadingLevel != headingLevel {
+			return nil, false, ""
+		}
+		ret = append(ret, heading)
+	}
+	valid = 0 < len(ret)
+	return
+}
+
+func collectHeadingLevelNodes(root *ast.Node, selectedHeadings []*ast.Node) (ret []*ast.Node) {
+	selectedNodes := map[*ast.Node]struct{}{}
+	for _, heading := range selectedHeadings {
+		selectedNodes[heading] = struct{}{}
+		for _, child := range treenode.HeadingChildren(heading) {
+			for _, childHeading := range child.ChildrenByType(ast.NodeHeading) {
+				selectedNodes[childHeading] = struct{}{}
+			}
+		}
+	}
+
+	ast.Walk(root, func(node *ast.Node, entering bool) ast.WalkStatus {
+		if !entering {
+			return ast.WalkContinue
+		}
+		if _, ok := selectedNodes[node]; ok {
+			ret = append(ret, node)
+		}
+		return ast.WalkContinue
+	})
+	return
+}
+
+func buildHeadingLevelTransaction(headings, foldedHeadings []*ast.Node, diff int) (transaction *Transaction) {
 	transaction = &Transaction{}
-	if treenode.IsSelfFolded(node) {
-		unfoldHeading(node, node)
+	for _, heading := range foldedHeadings {
+		treenode.SetSelfFolded(heading, false)
+		transaction.DoOperations = append(transaction.DoOperations, &Operation{Action: "unfoldHeading", ID: heading.ID})
 	}
 
 	luteEngine := util.NewLute()
-	for _, c := range childrenHeadings {
+	for _, c := range headings {
 		op := &Operation{}
 		op.ID = c.ID
 		op.Action = "update"
@@ -934,6 +1150,9 @@ func GetHeadingLevelTransaction(id string, level int) (transaction *Transaction,
 		op.Action = "update"
 		op.Data = luteEngine.RenderNodeBlockDOM(cleanRenderNode(c, false))
 		transaction.DoOperations = append(transaction.DoOperations, op)
+	}
+	for _, heading := range foldedHeadings {
+		transaction.UndoOperations = append(transaction.UndoOperations, &Operation{Action: "foldHeading", ID: heading.ID})
 	}
 	return
 }
@@ -1071,6 +1290,13 @@ func resolveEmbedContent(n *ast.Node, luteEngine *lute.Lute) {
 // loadTreeForBlockDOM 按指定 box 加载树，空 box 不回退搜索已打开的加密笔记本。
 func loadTreeForBlockDOM(id, boxID string) *parse.Tree {
 	bt := treenode.GetBlockTreeInBox(id, boxID)
+	if nil == bt {
+		block := sql.GetBlockInBox(id, boxID)
+		if nil == block {
+			return nil
+		}
+		bt = treenode.GetBlockTreeInBox(block.RootID, boxID)
+	}
 	if nil == bt {
 		return nil
 	}
@@ -1320,6 +1546,51 @@ type ChildBlock struct {
 	Markdown string `json:"markdown,omitempty"`
 }
 
+const maxOrderedListNumber = 999999999
+
+// GetOrderedListContinueStartInBox 返回同一父级中最近前置有序列表的续编起始编号。
+func GetOrderedListContinueStartInBox(id, boxID string) (start int, found bool) {
+	tree := loadTreeForBlockDOM(id, boxID)
+	if nil == tree {
+		return
+	}
+	return getOrderedListContinueStartFromTree(id, tree)
+}
+
+func getOrderedListContinueStartFromTree(id string, tree *parse.Tree) (start int, found bool) {
+	node := treenode.GetNodeInTree(tree, id)
+	if nil == node || ast.NodeList != node.Type || nil == node.ListData || 1 != node.ListData.Typ {
+		return
+	}
+
+	itemCount := 0
+	for item := node.FirstChild; nil != item; item = item.Next {
+		if ast.NodeListItem == item.Type {
+			itemCount++
+		}
+	}
+	if 1 > itemCount {
+		return
+	}
+
+	for previous := node.Previous; nil != previous; previous = previous.Previous {
+		if ast.NodeList != previous.Type || nil == previous.ListData || 1 != previous.ListData.Typ {
+			continue
+		}
+		for item := previous.LastChild; nil != item; item = item.Previous {
+			if ast.NodeListItem != item.Type || nil == item.ListData {
+				continue
+			}
+			if 0 > item.ListData.Num || item.ListData.Num > maxOrderedListNumber-itemCount {
+				return
+			}
+			return item.ListData.Num + 1, true
+		}
+		return
+	}
+	return
+}
+
 func GetChildBlocks(id string) (ret []*ChildBlock) {
 	return GetChildBlocksInBox(id, "")
 }
@@ -1514,26 +1785,7 @@ func getEmbeddedBlock(trees map[string]*parse.Tree, sqlBlock *sql.Block, heading
 		return
 	}
 
-	var nodes []*ast.Node
-	// headingMode: 0=显示标题与下方的块，1=仅显示标题，2=仅显示标题下方的块
-	if ast.NodeHeading == def.Type {
-		if 1 == headingMode {
-			// 仅显示标题
-			nodes = append(nodes, def)
-		} else if 2 == headingMode {
-			// 仅显示标题下方的块（去除标题）
-			if !treenode.IsSelfFolded(def) {
-				nodes = append(nodes, treenode.HeadingChildren(def)...)
-			}
-		} else {
-			// 0: 显示标题与下方的块
-			nodes = append(nodes, def)
-			nodes = append(nodes, treenode.HeadingChildren(def)...)
-		}
-	} else {
-		// 非标题块，直接添加
-		nodes = append(nodes, def)
-	}
+	nodes := embeddedBlockNodes(def, headingMode)
 
 	var b *treenode.BlockTree
 	if IsEncryptedBox(sqlBlock.Box) {
@@ -1579,6 +1831,30 @@ func getEmbeddedBlock(trees map[string]*parse.Tree, sqlBlock *sql.Block, heading
 	if 1 > len(blockPaths) {
 		blockPaths = []*BlockPath{}
 	}
+	return
+}
+
+func embeddedBlockNodes(def *ast.Node, headingMode int) (ret []*ast.Node) {
+	if nil == def {
+		return
+	}
+	if ast.NodeHeading != def.Type {
+		return []*ast.Node{def}
+	}
+
+	// headingMode：0 表示显示标题与下方的块，1 表示仅显示标题，2 表示仅显示标题下方的块。
+	if 1 == headingMode {
+		return []*ast.Node{def}
+	}
+	if 2 == headingMode {
+		if !treenode.IsSelfFolded(def) {
+			ret = append(ret, treenode.HeadingChildren(def)...)
+		}
+		return
+	}
+
+	ret = append(ret, def)
+	ret = append(ret, treenode.HeadingChildren(def)...)
 	return
 }
 

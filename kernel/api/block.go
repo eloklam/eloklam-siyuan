@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -69,6 +69,13 @@ func checkBlockRef(c *gin.Context) {
 				return
 			}
 		}
+		var deletedIDs []string
+		if _, exists := arg["deletedIDs"]; exists {
+			deletedIDs, parsed = parseBlockRefStringArray(arg, "deletedIDs", ret, false)
+			if !parsed {
+				return
+			}
+		}
 		for _, id := range ids {
 			if util.InvalidIDPattern(id, ret) {
 				return
@@ -88,6 +95,16 @@ func checkBlockRef(c *gin.Context) {
 				return
 			}
 		}
+		for _, id := range deletedIDs {
+			if util.InvalidIDPattern(id, ret) {
+				return
+			}
+			if _, exists := idSet[id]; !exists {
+				ret.Code = -1
+				ret.Msg = "Field [deletedIDs] should be a subset of field [ids]"
+				return
+			}
+		}
 		notebook, valid := util.ParseJsonArg[string]("notebook", arg, ret, false, false)
 		if !valid {
 			return
@@ -100,8 +117,9 @@ func checkBlockRef(c *gin.Context) {
 		}
 		ids = filterBlockIDsByPublishAccess(c, ids, notebook)
 		exactIDs = filterBlockIDsByPublishAccess(c, exactIDs, notebook)
+		deletedIDs = filterBlockIDsByPublishAccess(c, deletedIDs, notebook)
 		var err error
-		ret.Data, err = model.CheckBlockRefInBox(ids, exactIDs, notebook)
+		ret.Data, err = model.CheckBlockRefInBox(ids, exactIDs, deletedIDs, notebook)
 		if err != nil {
 			ret.Code = -1
 			ret.Msg = err.Error()
@@ -449,10 +467,19 @@ func getHeadingLevelTransaction(c *gin.Context) {
 		return
 	}
 
-	id := arg["id"].(string)
 	level := int(arg["level"].(float64))
 
-	transaction, err := model.GetHeadingLevelTransaction(id, level)
+	var ids []string
+	if idsArg, ok := arg["ids"].([]any); ok {
+		for _, id := range idsArg {
+			ids = append(ids, id.(string))
+		}
+		ids = gulu.Str.RemoveDuplicatedElem(ids)
+	} else {
+		ids = []string{arg["id"].(string)}
+	}
+
+	transaction, err := model.GetHeadingLevelBatchTransaction(ids, level)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
@@ -652,7 +679,9 @@ func getDocInfo(c *gin.Context) {
 	}
 	if nil == info {
 		ret.Code = -1
-		if err != nil && !errors.Is(err, model.ErrTreeNotFound) {
+		if errors.Is(err, model.ErrIndexing) {
+			ret.Msg = model.Conf.Language(56)
+		} else if err != nil && !errors.Is(err, model.ErrTreeNotFound) {
 			ret.Msg = err.Error()
 		} else {
 			ret.Msg = fmt.Sprintf(model.Conf.Language(15), id)
@@ -770,7 +799,14 @@ func getTreeStat(c *gin.Context) {
 		return
 	}
 
-	id := arg["id"].(string)
+	var id string
+	var includeEmbed bool
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("id", &id, true, true),
+		util.BindJsonArg("includeEmbed", &includeEmbed, false, false),
+	) || util.InvalidIDPattern(id, ret) {
+		return
+	}
 	boxID := encryptedNotebookFromArg(arg)
 	if !holdBlockRequest(c, ret, boxID) {
 		return
@@ -782,10 +818,29 @@ func getTreeStat(c *gin.Context) {
 		}
 		return
 	}
-	ret.Data = map[string]any{
-		"reqId": arg["reqId"],
-		"stat":  filesys.StatTree(id),
+
+	var accessChecker model.EmbedBlockAccessChecker
+	if model.IsReadOnlyRoleContext(c) {
+		publishAccess := model.GetPublishAccess()
+		accessChecker = func(blockID string) bool {
+			return model.CheckBlockIdAccessableByPublishAccessInBox(c, publishAccess, blockID, boxID)
+		}
 	}
+	stat := model.GetDocumentStat(c.Request.Context(), id, boxID, includeEmbed, accessChecker)
+	data := map[string]any{
+		"reqId":         arg["reqId"],
+		"stat":          nil,
+		"containsEmbed": false,
+	}
+	if nil != stat {
+		data["stat"] = stat.Stat
+		data["containsEmbed"] = stat.ContainsEmbed
+		if includeEmbed {
+			data["statWithEmbed"] = stat.StatWithEmbed
+			data["embedStat"] = stat.EmbedStat
+		}
+	}
+	ret.Data = data
 }
 
 func getDOMText(c *gin.Context) {
@@ -1120,7 +1175,20 @@ func getBlockInfo(c *gin.Context) {
 	if !holdBlockRequest(c, ret, boxID) {
 		return
 	}
-	if !checkBlockPublishAccessInBox(c, id, boxID, ret) {
+	blockTree, publishAccessRequired, publishMetadataVisible, publishAccessible := getBlockInfoPublishAccess(c, id, boxID)
+	if !publishAccessible {
+		ret.Code = -1
+		ret.Msg = fmt.Sprintf(model.Conf.Language(15), id)
+		return
+	}
+	if publishAccessRequired && !publishMetadataVisible {
+		ret.Data = map[string]any{
+			"rootID":                blockTree.RootID,
+			"rootTitle":             "",
+			"rootTitleEmpty":        true,
+			"rootIcon":              "",
+			"publishAccessRequired": true,
+		}
 		return
 	}
 
@@ -1165,6 +1233,26 @@ func getBlockInfo(c *gin.Context) {
 		return
 	}
 
+	root, err := model.GetBlock(block.RootID, tree)
+	if errors.Is(err, model.ErrIndexing) {
+		ret.Code = 3
+		ret.Data = model.Conf.Language(56)
+		return
+	}
+	rootTitle := root.IAL["title"]
+	rootTitle = html.UnescapeString(rootTitle)
+	icon := html.UnescapeString(root.IAL["icon"])
+	if publishAccessRequired {
+		ret.Data = map[string]any{
+			"rootID":                block.RootID,
+			"rootTitle":             rootTitle,
+			"rootTitleEmpty":        root.IAL[model.NodeAttrTitleEmpty] == "true",
+			"rootIcon":              icon,
+			"publishAccessRequired": true,
+		}
+		return
+	}
+
 	var rootChildID string
 	b := block
 	for range 128 {
@@ -1179,15 +1267,6 @@ func getBlockInfo(c *gin.Context) {
 		}
 	}
 
-	root, err := model.GetBlock(block.RootID, tree)
-	if errors.Is(err, model.ErrIndexing) {
-		ret.Code = 3
-		ret.Data = model.Conf.Language(56)
-		return
-	}
-	rootTitle := root.IAL["title"]
-	rootTitle = html.UnescapeString(rootTitle)
-	icon := html.UnescapeString(root.IAL["icon"])
 	ret.Data = map[string]any{
 		"box":            block.Box,
 		"path":           block.Path,
@@ -1197,6 +1276,25 @@ func getBlockInfo(c *gin.Context) {
 		"rootChildID":    rootChildID,
 		"rootIcon":       icon,
 	}
+}
+
+func getBlockInfoPublishAccess(c *gin.Context, id, boxID string) (blockTree *treenode.BlockTree, passwordRequired, metadataVisible, accessible bool) {
+	if !model.IsReadOnlyRoleContext(c) {
+		return nil, false, true, true
+	}
+
+	blockTree = treenode.GetBlockTreeInBox(id, boxID)
+	publishAccess := model.GetPublishAccess()
+	switch model.GetBlockTreePublishAccessStatus(c, publishAccess, blockTree) {
+	case model.PublishAccessAllowed:
+		return blockTree, false, true, true
+	case model.PublishAccessPasswordRequired:
+		metadataVisible = model.CheckBlockTreeDiscoverableByPublishAccess(publishAccess, blockTree)
+		if metadataVisible || blockTree.ID == blockTree.RootID {
+			return blockTree, true, metadataVisible, true
+		}
+	}
+	return blockTree, false, false, false
 }
 
 func checkBlockPublishAccess(c *gin.Context, id string, ret *gulu.Result) bool {
@@ -1274,6 +1372,33 @@ func getBlockDOM(c *gin.Context) {
 	ret.Data = map[string]string{
 		"id":  id,
 		"dom": dom,
+	}
+}
+
+func getOrderedListContinueStart(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var id string
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", &id, true, true)) {
+		return
+	}
+	if util.InvalidIDPattern(id, ret) {
+		return
+	}
+	boxID := encryptedNotebookFromArg(arg)
+	if !holdBlockRequest(c, ret, boxID) {
+		return
+	}
+	start, found := model.GetOrderedListContinueStartInBox(id, boxID)
+	ret.Data = map[string]any{
+		"start": start,
+		"found": found,
 	}
 }
 

@@ -7,7 +7,7 @@
 		"id": "20211226115423-d5z1joq",
 		"title": "請從這裡開始",
 		"type": "doc",
-		"updated": "20260803165036"
+		"updated": "20260810212846"
 	},
 	"Children": [
 		{
@@ -544,7 +544,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20240508002718-crdzma4",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -559,7 +559,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260729215152-391u28a",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -633,7 +633,7 @@
 					},
 					"Properties": {
 						"id": "20260729215152-19tti1a",
-						"updated": "20260729215152"
+						"updated": "20260809232000"
 					},
 					"Children": [
 						{
@@ -641,7 +641,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20240508002746-isdsr0z",
-								"updated": "20240508002735"
+								"updated": "20260809232000"
 							},
 							"Children": [
 								{
@@ -649,7 +649,7 @@
 									"TextMarkType": "block-ref",
 									"TextMarkBlockRefID": "20221016213639-1nag9jj",
 									"TextMarkBlockRefSubtype": "d",
-									"TextMarkTextContent": "通過標題列表概述"
+									"TextMarkTextContent": "標題與列表混合排版"
 								}
 							]
 						}
@@ -859,7 +859,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260729215152-14hvur5",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -874,7 +874,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260729215152-3cv0rde",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -1031,6 +1031,37 @@
 							]
 						}
 					]
+				},
+				{
+					"ID": "20260729215152-1y01uqw",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20260729215152-1y01uqw",
+						"updated": "20260809170000"
+					},
+					"Children": [
+						{
+							"ID": "20240508003148-xls4rzt",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20240508003148-xls4rzt",
+								"updated": "20260809170000"
+							},
+							"Children": [
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "block-ref",
+									"TextMarkBlockRefID": "20211226122707-8cr09co",
+									"TextMarkBlockRefSubtype": "d",
+									"TextMarkTextContent": "資料歷史"
+								}
+							]
+						}
+					]
 				}
 			]
 		},
@@ -1040,7 +1071,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260729215152-kkbvslx",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -1055,7 +1086,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260729215152-3b6xqth",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -1253,7 +1284,7 @@
 					},
 					"Properties": {
 						"id": "20260729215152-3oh0kvd",
-						"updated": "20260729215152"
+						"updated": "20260809232000"
 					},
 					"Children": [
 						{
@@ -1261,7 +1292,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20240508003148-9rsuky2",
-								"updated": "20240508003206"
+								"updated": "20260809232000"
 							},
 							"Children": [
 								{
@@ -1269,7 +1300,7 @@
 									"TextMarkType": "block-ref",
 									"TextMarkBlockRefID": "20211226122728-cnqf7rz",
 									"TextMarkBlockRefSubtype": "d",
-									"TextMarkTextContent": "超連結"
+									"TextMarkTextContent": "區塊超連結"
 								}
 							]
 						}
@@ -1283,12 +1314,12 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260729215152-irh2bda",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "學習與回顧"
+					"Data": "學習與人工智能"
 				}
 			]
 		},
@@ -1298,40 +1329,9 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260729215152-26gutzj",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
-				{
-					"ID": "20260729215152-1y01uqw",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20260729215152-1y01uqw",
-						"updated": "20260729215152"
-					},
-					"Children": [
-						{
-							"ID": "20240508003148-xls4rzt",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20240508003148-xls4rzt",
-								"updated": "20240508003206"
-							},
-							"Children": [
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "block-ref",
-									"TextMarkBlockRefID": "20211226122707-8cr09co",
-									"TextMarkBlockRefSubtype": "d",
-									"TextMarkTextContent": "資料歷史"
-								}
-							]
-						}
-					]
-				},
 				{
 					"ID": "20260729215152-3plqgxh",
 					"Type": "NodeListItem",
@@ -1552,7 +1552,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260729215152-3ap0gw3",
-				"updated": "20260729225925"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -1567,7 +1567,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260729215152-2w9opfh",
-				"updated": "20260729215152"
+				"updated": "20260809232000"
 			},
 			"Children": [
 				{
@@ -1596,6 +1596,37 @@
 									"TextMarkBlockRefID": "20211226122523-rl8356a",
 									"TextMarkBlockRefSubtype": "d",
 									"TextMarkTextContent": "在瀏覽器上使用"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20260804193501-oidcli2",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20260804193501-oidcli2",
+						"updated": "20260804194000"
+					},
+					"Children": [
+						{
+							"ID": "20260804193505-oidcp02",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260804193505-oidcp02",
+								"updated": "20260804194000"
+							},
+							"Children": [
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "block-ref",
+									"TextMarkBlockRefID": "20260804190001-oidctw1",
+									"TextMarkBlockRefSubtype": "d",
+									"TextMarkTextContent": "OIDC 登入"
 								}
 							]
 						}
@@ -1703,7 +1734,7 @@
 					},
 					"Properties": {
 						"id": "20260729215152-2jojwdu",
-						"updated": "20260729215152"
+						"updated": "20260809232000"
 					},
 					"Children": [
 						{
@@ -1711,7 +1742,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20240508003148-rxddyw1",
-								"updated": "20240508003206"
+								"updated": "20260809232000"
 							},
 							"Children": [
 								{
@@ -1719,7 +1750,7 @@
 									"TextMarkType": "block-ref",
 									"TextMarkBlockRefID": "20230104151953-48hwkwf",
 									"TextMarkBlockRefSubtype": "d",
-									"TextMarkTextContent": "分享文檔"
+									"TextMarkTextContent": "分享文檔到社區"
 								}
 							]
 						}
@@ -1813,6 +1844,37 @@
 									"TextMarkBlockRefID": "20260614104322-shrqj15",
 									"TextMarkBlockRefSubtype": "d",
 									"TextMarkTextContent": "網路代理"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20260804233312-sectwli",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20260804233312-sectwli",
+						"updated": "20260804233500"
+					},
+					"Children": [
+						{
+							"ID": "20260804233313-sectwpa",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260804233313-sectwpa",
+								"updated": "20260804233500"
+							},
+							"Children": [
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "block-ref",
+									"TextMarkBlockRefID": "20260804185001-secvr02",
+									"TextMarkBlockRefSubtype": "d",
+									"TextMarkTextContent": "金鑰和變數"
 								}
 							]
 						}
@@ -2098,7 +2160,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20240508003351-4zwl9vb",
-				"updated": "20260729215152"
+				"updated": "20260810212846"
 			},
 			"Children": [
 				{
@@ -2116,7 +2178,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260729215152-205syf5",
-				"updated": "20260729215152"
+				"updated": "20260810212846"
 			},
 			"Children": [
 				{
@@ -2145,37 +2207,6 @@
 									"TextMarkBlockRefID": "20230805232903-erdoerp",
 									"TextMarkBlockRefSubtype": "d",
 									"TextMarkTextContent": "對接第三方雲端存儲"
-								}
-							]
-						}
-					]
-				},
-				{
-					"ID": "20260729215152-14aqmma",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20260729215152-14aqmma",
-						"updated": "20260729215152"
-					},
-					"Children": [
-						{
-							"ID": "20240508003403-bxu9xxq",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20240508003403-bxu9xxq",
-								"updated": "20240508003416"
-							},
-							"Children": [
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "block-ref",
-									"TextMarkBlockRefID": "20230805232920-5fdco36",
-									"TextMarkBlockRefSubtype": "d",
-									"TextMarkTextContent": "搜索資源文件內容"
 								}
 							]
 						}

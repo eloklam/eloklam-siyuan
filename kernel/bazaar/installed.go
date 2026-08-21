@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -65,6 +65,15 @@ func ReadInstalledPackageDirs(basePath string) ([]os.DirEntry, error) {
 
 // SetInstalledPackageMetadata 设置本地集市包的通用元数据
 func SetInstalledPackageMetadata(pkg *Package, installPath, baseURLPath, pkgType string) bool {
+	clearBazaarPackageRating(pkg)
+	if pkg.InvalidReason != "" {
+		pkg.PreferredName = pkg.Name
+		pkg.Installed = true
+		pkg.InstallTime, pkg.UpdateTime = getPackageTimes(pkgType, pkg.Name, installPath)
+		pkg.HInstallDate = time.UnixMilli(pkg.InstallTime).Format("2006-01-02")
+		return true
+	}
+
 	// 展示信息
 	pkg.IconURL = baseURLPath + "icon.png"
 	pkg.PreviewURL = baseURLPath + "preview.png"
@@ -144,6 +153,11 @@ func isBelowRequiredAppVersion(pkg *Package) bool {
 		return true
 	}
 	return false
+}
+
+// IsBelowRequiredAppVersion 判断集市包要求的最低应用版本是否高于当前版本。
+func IsBelowRequiredAppVersion(pkg *Package) bool {
+	return isBelowRequiredAppVersion(pkg)
 }
 
 // BazaarInfo 集市的持久化信息

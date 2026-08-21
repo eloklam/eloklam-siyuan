@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -450,7 +450,7 @@ func Export2Liandi(id string) (err error) {
 			".md", 3, 1, 1,
 			"#", "#",
 			"", "",
-			false, false, nil, true, false)
+			false, false, nil, true, false, nil)
 		result := gulu.Ret.NewResult()
 		request := httpclient.NewCloudRequest30s()
 		request = request.
@@ -573,7 +573,7 @@ func exportLockedByBlockID(id string) bool {
 
 // withExportReadLockByBlockID 由 blockID 反查 boxID，若属于加密笔记本则全程持读锁执行 fn。
 // 持锁期间 LockBox（自动锁定）会阻塞等待，避免操作中途清 DEK/删导出目录导致部分明文写出。
-// 普通笔记本或块树不存在时直接执行 fn。嵌套调用安全：sync.RWMutex.RLock 可重入。
+// 准入租约先于读锁取得，确保嵌套资源读取期间不会出现等待中的写锁。
 func withExportReadLockByBlockID(id string, fn func() error) error {
 	bt := getExportBlockTree(id)
 	if nil == bt || !IsEncryptedBox(bt.BoxID) {
@@ -582,11 +582,17 @@ func withExportReadLockByBlockID(id string, fn func() error) error {
 	if !IsBoxUnlocked(bt.BoxID) {
 		return errors.New(Conf.Language(314))
 	}
-	HoldBoxReadLock(bt.BoxID)
-	defer ReleaseBoxReadLock(bt.BoxID)
-	if _, dekErr := GetDEKIfUnlocked(bt.BoxID); dekErr != nil {
+	if err := AcquireEncryptedBoxOperation(bt.BoxID); err != nil {
 		return errors.New(Conf.Language(314))
 	}
+	defer ReleaseEncryptedBoxOperation(bt.BoxID)
+	HoldBoxReadLock(bt.BoxID)
+	defer ReleaseBoxReadLock(bt.BoxID)
+	dek, dekErr := GetDEKIfUnlocked(bt.BoxID)
+	if dekErr != nil {
+		return errors.New(Conf.Language(314))
+	}
+	clear(dek)
 	return fn()
 }
 
@@ -598,6 +604,25 @@ func ExportNotebookSY(id string) (zipPath string) {
 	}
 	zipPath = exportBoxSYZip(id)
 	return
+}
+
+// ExportNotebooksSY 将多个笔记本打包到同一个可批量导入的 .sy.zip 中。
+func ExportNotebooksSY(ids []string) (zipPath string) {
+	return exportNotebooksSYBundle(ids)
+}
+
+func exportNotebooksBaseName(boxes []*Box) string {
+	if len(boxes) < 1 {
+		return "notebooks"
+	}
+	name := util.FilterFileName(boxes[0].Name)
+	if name == "" {
+		name = boxes[0].ID
+	}
+	if len(boxes) > 1 {
+		name += "-" + strconv.Itoa(len(boxes))
+	}
+	return name
 }
 
 func ExportSYs(ids []string) (zipPath string) {
@@ -1019,7 +1044,7 @@ func ExportPreview(id string, fillCSSVar bool) (retStdHTML string) {
 	return
 }
 
-func ExportDocx(id, savePath string, removeAssets, merge bool) (fullPath string, err error) {
+func ExportDocx(id, savePath string, removeAssets, merge bool, mergeHeadingOptions ...MergeHeadingOptions) (fullPath string, err error) {
 	err = withExportReadLockByBlockID(id, func() error {
 		pandocRuntime := util.GetPandocRuntime()
 		if !util.IsValidPandocBin(pandocRuntime.BinPath) {
@@ -1042,7 +1067,7 @@ func ExportDocx(id, savePath string, removeAssets, merge bool) (fullPath string,
 			return mkdirErr
 		}
 		defer os.RemoveAll(tmpDir)
-		name, content := ExportMarkdownHTML(id, tmpDir, true, merge)
+		name, content := ExportMarkdownHTML(id, tmpDir, true, merge, mergeHeadingOptions...)
 		content = strings.ReplaceAll(content, "  \n", "<br>\n")
 
 		tmpDocxPath := filepath.Join(tmpDir, name+".docx")
@@ -1099,7 +1124,7 @@ func ExportDocx(id, savePath string, removeAssets, merge bool) (fullPath string,
 	return
 }
 
-func ExportMarkdownHTML(id, savePath string, docx, merge bool) (name, dom string) {
+func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptions ...MergeHeadingOptions) (name, dom string) {
 	if exportErr := withExportReadLockByBlockID(id, func() error {
 		bt := getExportBlockTree(id)
 		if nil == bt {
@@ -1110,7 +1135,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool) (name, dom string
 
 		if merge {
 			var mergeErr error
-			tree, mergeErr = mergeSubDocs(tree)
+			tree, mergeErr = mergeSubDocs(tree, mergeHeadingOptionsOrDefault(mergeHeadingOptions), Conf.Export.AddTitle)
 			if nil != mergeErr {
 				logging.LogErrorf("merge sub docs failed: %s", mergeErr)
 				return nil
@@ -1280,7 +1305,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool) (name, dom string
 	return
 }
 
-func ExportHTML(id, savePath string, pdf, keepFold, merge bool) (name, dom string, node *ast.Node) {
+func ExportHTML(id, savePath string, pdf, keepFold, merge bool, mergeHeadingOptions ...MergeHeadingOptions) (name, dom string, node *ast.Node) {
 	if exportErr := withExportReadLockByBlockID(id, func() error {
 		savePath = strings.TrimSpace(savePath)
 
@@ -1297,7 +1322,7 @@ func ExportHTML(id, savePath string, pdf, keepFold, merge bool) (name, dom strin
 
 		if merge {
 			var mergeErr error
-			tree, mergeErr = mergeSubDocs(tree)
+			tree, mergeErr = mergeSubDocs(tree, mergeHeadingOptionsOrDefault(mergeHeadingOptions), Conf.Export.AddTitle)
 			if nil != mergeErr {
 				logging.LogErrorf("merge sub docs failed: %s", mergeErr)
 				return nil
@@ -1430,6 +1455,8 @@ func ExportHTML(id, savePath string, pdf, keepFold, merge bool) (name, dom strin
 
 		if pdf {
 			processIFrame(tree)
+		} else {
+			processHTMLFileIFrame(tree)
 		}
 
 		luteEngine := NewLute()
@@ -1502,26 +1529,38 @@ func applyHeadingNumbersForExport(tree *parse.Tree, bt *treenode.BlockTree, merg
 func materializeHeadingNumbers(tree *parse.Tree, numbers map[string]string) {
 	for _, heading := range collectOutlineHeadings(tree) {
 		if number := numbers[heading.ID]; "" != number {
-			heading.PrependChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(number + " ")})
+			heading.PrependChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(headingNumberPrefix(number))})
 		}
 	}
 }
 
 func processIFrame(tree *parse.Tree) {
 	// 导出 PDF/Word 时 IFrame 块使用超链接 https://github.com/siyuan-note/siyuan/issues/4035
+	processIFrameWithFilter(tree, nil)
+}
+
+func processHTMLFileIFrame(tree *parse.Tree) {
+	// 导出 HTML 时将 HTML 文件组件转换为链接。
+	processIFrameWithFilter(tree, func(src string) bool {
+		return IsLocalHTMLAssetPath(src)
+	})
+}
+
+func processIFrameWithFilter(tree *parse.Tree, filter func(src string) bool) {
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering || ast.NodeIFrame != n.Type {
 			return ast.WalkContinue
 		}
 
+		src := treenode.GetNodeSrcTokens(n)
+		if filter != nil && !filter(src) {
+			return ast.WalkContinue
+		}
 		n.Type = ast.NodeParagraph
-		index := bytes.Index(n.Tokens, []byte("src=\""))
-		if 0 > index {
+		if src == "" {
 			n.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: n.Tokens})
 		} else {
-			src := n.Tokens[index+len("src=\""):]
-			src = src[:bytes.Index(src, []byte("\""))]
-			src = html.UnescapeHTML(src)
+			src := html.UnescapeHTML([]byte(src))
 			link := &ast.Node{Type: ast.NodeLink}
 			link.AppendChild(&ast.Node{Type: ast.NodeOpenBracket})
 			link.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: src})
@@ -1535,7 +1574,7 @@ func processIFrame(tree *parse.Tree) {
 	})
 }
 
-func ProcessPDF(id, p string, merge, removeAssets, watermark bool) (err error) {
+func ProcessPDF(id, p string, merge, removeAssets, watermark bool, mergeHeadingOptions ...MergeHeadingOptions) (err error) {
 	err = withExportReadLockByBlockID(id, func() error {
 		tree, _ := LoadTreeByBlockID(id)
 		if nil == tree {
@@ -1545,7 +1584,7 @@ func ProcessPDF(id, p string, merge, removeAssets, watermark bool) (err error) {
 
 		if merge {
 			var mergeErr error
-			tree, mergeErr = mergeSubDocs(tree)
+			tree, mergeErr = mergeSubDocs(tree, mergeHeadingOptionsOrDefault(mergeHeadingOptions), Conf.Export.AddTitle)
 			if nil != mergeErr {
 				logging.LogErrorf("merge sub docs failed: %s", mergeErr)
 				return nil
@@ -1776,7 +1815,7 @@ func processPDFBookmarks(pdfCtx *model.Context, headings []*ast.Node, headingNum
 
 func headingTitleWithNumber(title, headingID string, headingNumbers map[string]string) string {
 	if number := headingNumbers[headingID]; "" != number {
-		return number + " " + title
+		return headingNumberPrefix(number) + title
 	}
 	return title
 }
@@ -1906,10 +1945,11 @@ func processPDFLinkEmbedAssets(pdfCtx *model.Context, assetDests []string, boxID
 			continue
 		}
 
-		lx := link.Rect.LL.X + link.Rect.Width()
-		ly := link.Rect.LL.Y + link.Rect.Height()/2
-		w := link.Rect.Height() / 2
-		h := link.Rect.Height() / 2
+		// 附件注解放在前端预留的链接尾部空间内。
+		lx := link.Rect.LL.X + link.Rect.Width() - link.Rect.Height()
+		ly := link.Rect.LL.Y
+		w := link.Rect.Height()
+		h := link.Rect.Height()
 
 		d := types.Dict(
 			map[string]types.Object{
@@ -1924,7 +1964,7 @@ func processPDFLinkEmbedAssets(pdfCtx *model.Context, assetDests []string, boxID
 				"C":            types.NewNumberArray(0.5, 0.0, 0.5),
 				"CA":           types.Float(0.95),
 				"CreationDate": now,
-				"Name":         types.Name("FileAttachment"),
+				"Name":         types.Name("Paperclip"),
 				"FS":           *ir,
 				"NM":           types.StringLiteral(""),
 			},
@@ -2056,7 +2096,7 @@ func ExportStdMarkdown(id string, assetsDestSpace2Underscore, fillCSSVar, adjust
 			".md", Conf.Export.BlockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 			Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 			Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-			Conf.Export.AddTitle, Conf.Export.InlineMemo, defBlockIDs, true, fillCSSVar)
+			Conf.Export.AddTitle, Conf.Export.InlineMemo, defBlockIDs, true, fillCSSVar, nil)
 		return nil
 	}); exportErr != nil {
 		logging.LogErrorf("export std markdown [%s] failed: %s", id, exportErr)
@@ -2148,62 +2188,56 @@ func ExportNotebookMarkdownWithOptions(boxID string, opts *ExportOptions) (zipPa
 	return ExportNotebookMarkdown(boxID)
 }
 
+// ExportNotebooksMarkdownWithOptions 在一次导出中保留多个笔记本的目录边界和跨笔记本引用。
+func ExportNotebooksMarkdownWithOptions(boxIDs []string, opts *ExportOptions) (zipPath string) {
+	restore := applyExportOptions(opts)
+	defer restore()
+	return ExportNotebooksMarkdown(boxIDs)
+}
+
 // ParseExportOptions 从 JSON 请求参数中解析导出选项，未传入的字段保持 nil（沿用全局配置）#17031。
 func ParseExportOptions(arg map[string]any) (opts *ExportOptions) {
 	opts = &ExportOptions{}
 	// 通用部分
 	if nil != arg["addTitle"] {
-		v := arg["addTitle"].(bool)
-		opts.AddTitle = &v
+		opts.AddTitle = new(arg["addTitle"].(bool))
 	}
 	if nil != arg["inlineMemo"] {
-		v := arg["inlineMemo"].(bool)
-		opts.InlineMemo = &v
+		opts.InlineMemo = new(arg["inlineMemo"].(bool))
 	}
 	if nil != arg["blockRefMode"] {
-		v := int(arg["blockRefMode"].(float64))
-		opts.BlockRefMode = &v
+		opts.BlockRefMode = new(int(arg["blockRefMode"].(float64)))
 	}
 	if nil != arg["blockEmbedMode"] {
-		v := int(arg["blockEmbedMode"].(float64))
-		opts.BlockEmbedMode = &v
+		opts.BlockEmbedMode = new(int(arg["blockEmbedMode"].(float64)))
 	}
 	if nil != arg["fileAnnotationRefMode"] {
-		v := int(arg["fileAnnotationRefMode"].(float64))
-		opts.FileAnnotationRefMode = &v
+		opts.FileAnnotationRefMode = new(int(arg["fileAnnotationRefMode"].(float64)))
 	}
 	if nil != arg["blockRefTextLeft"] {
-		v := arg["blockRefTextLeft"].(string)
-		opts.BlockRefTextLeft = &v
+		opts.BlockRefTextLeft = new(arg["blockRefTextLeft"].(string))
 	}
 	if nil != arg["blockRefTextRight"] {
-		v := arg["blockRefTextRight"].(string)
-		opts.BlockRefTextRight = &v
+		opts.BlockRefTextRight = new(arg["blockRefTextRight"].(string))
 	}
 	if nil != arg["tagOpenMarker"] {
-		v := arg["tagOpenMarker"].(string)
-		opts.TagOpenMarker = &v
+		opts.TagOpenMarker = new(arg["tagOpenMarker"].(string))
 	}
 	if nil != arg["tagCloseMarker"] {
-		v := arg["tagCloseMarker"].(string)
-		opts.TagCloseMarker = &v
+		opts.TagCloseMarker = new(arg["tagCloseMarker"].(string))
 	}
 	// Markdown 专属部分
 	if nil != arg["includeSubDocs"] {
-		v := arg["includeSubDocs"].(bool)
-		opts.IncludeSubDocs = &v
+		opts.IncludeSubDocs = new(arg["includeSubDocs"].(bool))
 	}
 	if nil != arg["includeRelatedDocs"] {
-		v := arg["includeRelatedDocs"].(bool)
-		opts.IncludeRelatedDocs = &v
+		opts.IncludeRelatedDocs = new(arg["includeRelatedDocs"].(bool))
 	}
 	if nil != arg["markdownYFM"] {
-		v := arg["markdownYFM"].(bool)
-		opts.MarkdownYFM = &v
+		opts.MarkdownYFM = new(arg["markdownYFM"].(bool))
 	}
 	if nil != arg["removeAssetsID"] {
-		v := arg["removeAssetsID"].(bool)
-		opts.RemoveAssetsID = &v
+		opts.RemoveAssetsID = new(arg["removeAssetsID"].(bool))
 	}
 	return
 }
@@ -2275,6 +2309,90 @@ func ExportNotebookMarkdown(boxID string) (zipPath string) {
 	defBlockIDs, docPaths := prepareExportTrees(docPaths, boxID)
 	zipPath = exportPandocConvertZip(boxID, box.Name, docPaths, defBlockIDs, "", "", ".md")
 	return
+}
+
+func ExportNotebooksMarkdown(boxIDs []string) (zipPath string) {
+	boxIDs = gulu.Str.RemoveDuplicatedElem(boxIDs)
+	if len(boxIDs) < 1 {
+		return
+	}
+
+	util.PushEndlessProgress(Conf.Language(65))
+	defer util.ClearPushProgress(100)
+
+	var boxes []*Box
+	trees := map[string]*parse.Tree{}
+	defBlockIDs := []string{}
+	for _, boxID := range boxIDs {
+		box := Conf.Box(boxID)
+		if nil == box || IsEncryptedBox(boxID) {
+			return
+		}
+		boxes = append(boxes, box)
+		for _, docFile := range box.ListFiles("/") {
+			if docFile.path == boxDocPath(boxID) {
+				continue
+			}
+			rootID := util.GetTreeID(docFile.path)
+			tree, err := LoadTreeByBlockIDInExactBox(rootID, boxID)
+			if nil != err {
+				continue
+			}
+			exportRefTrees(tree, &defBlockIDs, trees)
+		}
+	}
+	if len(trees) < 1 {
+		return
+	}
+
+	boxPaths := exportNotebookMarkdownPaths(boxes, trees)
+	rootIDs := make([]string, 0, len(trees))
+	for rootID := range trees {
+		rootIDs = append(rootIDs, "/"+rootID+".sy")
+	}
+	sort.Strings(rootIDs)
+	zipPath = exportPandocConvertZip0("", exportNotebooksBaseName(boxes), rootIDs, defBlockIDs, "", "", ".md", boxPaths)
+	return
+}
+
+func exportNotebookMarkdownPaths(boxes []*Box, trees map[string]*parse.Tree) map[string]string {
+	ret := map[string]string{}
+	used := map[string]struct{}{}
+	addBox := func(boxID, name string) {
+		name = util.FilterFileName(name)
+		if name == "" {
+			name = boxID
+		}
+		candidate := name
+		if _, ok := used[strings.ToLower(candidate)]; ok {
+			candidate = name + "-" + boxID
+		}
+		for index := 2; ; index++ {
+			if _, ok := used[strings.ToLower(candidate)]; !ok {
+				break
+			}
+			candidate = name + "-" + boxID + "-" + strconv.Itoa(index)
+		}
+		used[strings.ToLower(candidate)] = struct{}{}
+		ret[boxID] = candidate
+	}
+	for _, box := range boxes {
+		addBox(box.ID, box.Name)
+	}
+	var relatedBoxIDs []string
+	for _, tree := range trees {
+		if _, ok := ret[tree.Box]; !ok {
+			relatedBoxIDs = append(relatedBoxIDs, tree.Box)
+		}
+	}
+	relatedBoxIDs = gulu.Str.RemoveDuplicatedElem(relatedBoxIDs)
+	sort.Strings(relatedBoxIDs)
+	for _, boxID := range relatedBoxIDs {
+		if box := Conf.Box(boxID); nil != box {
+			addBox(boxID, box.Name)
+		}
+	}
+	return ret
 }
 
 func yfm(docIAL map[string]string) string {
@@ -2486,9 +2604,11 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 	// 按文件夹结构复制选择的树
 	// 注意：tree 已被 filesys.LoadTree 透明解密成明文，这里序列化为明文 JSON 写盘
 	// （不可 filelock.ReadFile 直接读盘，加密笔记本的磁盘 .sy 是密文）。
+	portableAssetOptions := assetReferenceRewriteOptions{rewriteUnmapped: true}
 	total := len(trees) + len(refTrees)
 	for _, tree := range trees {
 		if encrypted {
+			rewriteTreeAssetReferences(tree, portableAssetOptions)
 			removeFlashcardAttrs(tree)
 		}
 		writePath := strings.TrimPrefix(tree.Path, rootDirPath)
@@ -2511,6 +2631,7 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 	// 引用树放在导出文件夹根路径下
 	for treeID, tree := range refTrees {
 		if IsEncryptedBox(tree.Box) {
+			rewriteTreeAssetReferences(tree, portableAssetOptions)
 			removeFlashcardAttrs(tree)
 		}
 		writePath := filepath.Join(exportDir, treeID+".sy")
@@ -2559,7 +2680,7 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 				srcPath, _ = GetAssetAbsPathInBox(asset, tree.Box)
 			}
 			if "" == srcPath {
-				srcPath = assetPathMap[cleanAsset]
+				_, srcPath, _ = lookupAssetPath(assetPathMap, cleanAsset)
 			}
 			if "" == srcPath {
 				logging.LogWarnf("get asset [%s] abs path failed", asset)
@@ -2758,6 +2879,13 @@ func exportAv(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap
 		logging.LogErrorf("read attribute view [%s] failed: %s", avID, readErr)
 		return
 	}
+	if boxID != "" && avData != nil {
+		avData, readErr = rewriteAttributeViewDataAssetReferences(avData, assetReferenceRewriteOptions{rewriteUnmapped: true})
+		if readErr != nil {
+			logging.LogErrorf("rewrite exported attribute view assets [%s] failed: %s", avID, readErr)
+			return
+		}
+	}
 	if avData != nil {
 		if mkdirErr := os.MkdirAll(exportStorageAvDir, 0755); mkdirErr != nil {
 			logging.LogErrorf("create export av folder [%s] failed: %s", exportStorageAvDir, mkdirErr)
@@ -2780,46 +2908,43 @@ func exportAv(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap
 		return
 	}
 
-	for _, keyValues := range attrView.KeyValues {
-		switch keyValues.Key.Type {
-		case av.KeyTypeMAsset: // 导出资源文件列 https://github.com/siyuan-note/siyuan/issues/9919
-			for _, value := range keyValues.Values {
-				for _, asset := range value.MAsset {
-					if !util.IsAssetLinkDest([]byte(asset.Content), false) {
-						continue
-					}
-
-					destPath := filepath.Join(exportFolder, AssetPathWithoutQuery(asset.Content))
-					srcPath := ""
-					if boxID != "" {
-						srcPath, _ = GetAssetAbsPathInBox(asset.Content, boxID)
-					}
-					if "" == srcPath {
-						srcPath = assetPathMap[AssetPathWithoutQuery(asset.Content)]
-					}
-					if "" == srcPath {
-						logging.LogWarnf("get asset [%s] abs path failed", asset.Content)
-						continue
-					}
-
-					if copyErr := copyAssetDecryptIfEncrypted(srcPath, destPath); nil != copyErr {
-						logging.LogErrorf("copy asset failed: %s", copyErr)
-					}
-				}
-			}
-		}
-	}
+	copyExportAttributeViewAssets(attrView, boxID, exportFolder, assetPathMap)
 
 	// 级联导出关联列关联的数据库
-	exportRelationAvs(avID, boxID, exportStorageAvDir)
+	exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder, assetPathMap)
 }
 
-func exportRelationAvs(avID, boxID, exportStorageAvDir string) {
+func copyExportAttributeViewAssets(attrView *av.AttributeView, boxID, exportFolder string, assetPathMap map[string]string) {
+	// 导出资源文件列和指向本地资源的 URL 列 https://github.com/siyuan-note/siyuan/issues/9919
+	for _, assetPath := range getAttributeViewAssetsLinkDests(attrView, false, nil) {
+		destPath := filepath.Join(exportFolder, AssetPathWithoutQuery(assetPath))
+		srcPath := ""
+		if boxID != "" {
+			srcPath, _ = GetAssetAbsPathInBox(assetPath, boxID)
+		}
+		if "" == srcPath {
+			_, srcPath, _ = lookupAssetPath(assetPathMap, AssetPathWithoutQuery(assetPath))
+		}
+		if "" == srcPath {
+			logging.LogWarnf("get asset [%s] abs path failed", assetPath)
+			continue
+		}
+
+		if copyErr := copyAssetDecryptIfEncrypted(srcPath, destPath); nil != copyErr {
+			logging.LogErrorf("copy asset failed: %s", copyErr)
+		}
+	}
+}
+
+func exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap map[string]string) {
 	avIDs := hashset.New()
 	walkRelationAvs(avID, boxID, avIDs)
 
 	for _, v := range avIDs.Values() {
 		relAvID := v.(string)
+		if relAvID == avID {
+			continue
+		}
 		var relAvData []byte
 		var readErr error
 		if boxID != "" {
@@ -2831,12 +2956,33 @@ func exportRelationAvs(avID, boxID, exportStorageAvDir string) {
 			logging.LogErrorf("read relation attribute view [%s] failed: %s", relAvID, readErr)
 			continue
 		}
+		if boxID != "" && relAvData != nil {
+			relAvData, readErr = rewriteAttributeViewDataAssetReferences(relAvData,
+				assetReferenceRewriteOptions{rewriteUnmapped: true})
+			if readErr != nil {
+				logging.LogErrorf("rewrite exported relation attribute view assets [%s] failed: %s", relAvID, readErr)
+				continue
+			}
+		}
 		if relAvData == nil {
 			continue
 		}
 		if writeErr := os.WriteFile(filepath.Join(exportStorageAvDir, relAvID+".json"), relAvData, 0644); writeErr != nil {
 			logging.LogErrorf("write av json failed: %s", writeErr)
 		}
+
+		var attrView *av.AttributeView
+		var parseErr error
+		if boxID != "" {
+			attrView, parseErr = av.ParseAttributeViewInBox(relAvID, boxID)
+		} else {
+			attrView, parseErr = av.ParseAttributeView(relAvID)
+		}
+		if parseErr != nil {
+			logging.LogErrorf("parse relation attribute view [%s] failed: %s", relAvID, parseErr)
+			continue
+		}
+		copyExportAttributeViewAssets(attrView, boxID, exportFolder, assetPathMap)
 	}
 }
 
@@ -2881,7 +3027,7 @@ func ExportMarkdownContent(id string, refMode, embedMode int, addYfm, fillCSSVar
 			".md", refMode, embedMode, Conf.Export.FileAnnotationRefMode,
 			Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 			Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-			addTitle, Conf.Export.InlineMemo, nil, true, fillCSSVar)
+			addTitle, Conf.Export.InlineMemo, nil, true, fillCSSVar, nil)
 		docIAL := parse.IAL2Map(tree.Root.KramdownIAL)
 		if addYfm {
 			exportedMd = yfm(docIAL) + exportedMd
@@ -2894,7 +3040,8 @@ func ExportMarkdownContent(id string, refMode, embedMode int, addYfm, fillCSSVar
 	return
 }
 
-func exportMarkdownContent(rootID, ext string, exportRefMode int, defBlockIDs []string, singleFile bool) (tree *parse.Tree, exportedMd string, isEmpty bool) {
+func exportMarkdownContent(rootID, ext string, exportRefMode int, defBlockIDs []string, singleFile bool,
+	boxPaths map[string]string) (tree *parse.Tree, exportedMd string, isEmpty bool) {
 	tree, err := LoadTreeByBlockID(rootID)
 	if err != nil {
 		logging.LogErrorf("load tree by block id [%s] failed: %s", rootID, err)
@@ -2920,7 +3067,7 @@ func exportMarkdownContent(rootID, ext string, exportRefMode int, defBlockIDs []
 		ext, exportRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, Conf.Export.InlineMemo, defBlockIDs, singleFile, false)
+		Conf.Export.AddTitle, Conf.Export.InlineMemo, defBlockIDs, singleFile, false, boxPaths)
 	docIAL := parse.IAL2Map(tree.Root.KramdownIAL)
 	if Conf.Export.MarkdownYFM {
 		// 导出 Markdown 时在文档头添加 YFM 开关 https://github.com/siyuan-note/siyuan/issues/7727
@@ -2932,7 +3079,7 @@ func exportMarkdownContent(rootID, ext string, exportRefMode int, defBlockIDs []
 func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string, assetsDestSpace2Underscore, adjustHeadingLv, imgTag bool,
 	ext string, blockRefMode, blockEmbedMode, fileAnnotationRefMode int,
 	tagOpenMarker, tagCloseMarker string, blockRefTextLeft, blockRefTextRight string,
-	addTitle, inlineMemo bool, defBlockIDs []string, singleFile, fillCSSVar bool) (ret string) {
+	addTitle, inlineMemo bool, defBlockIDs []string, singleFile, fillCSSVar bool, boxPaths map[string]string) (ret string) {
 	tree = exportTree(tree, false, false, false,
 		blockRefMode, blockEmbedMode, fileAnnotationRefMode,
 		tagOpenMarker, tagCloseMarker,
@@ -2975,7 +3122,8 @@ func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string,
 		})
 	}
 
-	currentDocDir := path.Dir(tree.HPath)
+	currentDocPath := exportMarkdownHPath(tree.Box, tree.HPath, boxPaths)
+	currentDocDir := path.Dir(currentDocPath)
 	currentDocDir = util.FilterFilePath(currentDocDir)
 
 	var unlinks []*ast.Node
@@ -3021,8 +3169,11 @@ func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string,
 				if gulu.Str.Contains(defID, defBlockIDs) {
 					var href string
 					bt := getExportBlockTreeInBox(defID, tree.Box)
+					if len(boxPaths) > 0 {
+						bt = getExportBlockTree(defID)
+					}
 					if nil != bt {
-						href += bt.HPath + ext
+						href = exportMarkdownHPath(bt.BoxID, bt.HPath+ext, boxPaths)
 						if "d" != bt.Type {
 							href += "#" + defID
 						}
@@ -3031,21 +3182,7 @@ func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string,
 						}
 					}
 
-					sameDir := path.Dir(href) == currentDocDir
-					if strings.HasPrefix(href, "#") {
-						sameDir = true
-					}
-					href = util.FilterFilePath(href)
-					if !sameDir {
-						var relErr error
-						href, relErr = filepath.Rel(currentDocDir, href)
-						if nil != relErr {
-							logging.LogWarnf("get relative path from [%s] to [%s] failed: %s", currentDocDir, href, relErr)
-						}
-						href = filepath.ToSlash(href)
-					} else {
-						href = strings.TrimPrefix(href, currentDocDir+"/")
-					}
+					href = exportMarkdownRelativePath(currentDocDir, href)
 					blockRefLink := &ast.Node{Type: ast.NodeTextMark, TextMarkType: "a", TextMarkTextContent: linkText, TextMarkAHref: href}
 					blockRefLink.KramdownIAL = n.KramdownIAL
 					n.InsertBefore(blockRefLink)
@@ -3068,6 +3205,27 @@ func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string,
 	renderer := render.NewProtyleExportMdRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	ret = gulu.Str.FromBytes(renderer.Render())
 	return
+}
+
+func exportMarkdownHPath(boxID, hPath string, boxPaths map[string]string) string {
+	if boxPath := boxPaths[boxID]; boxPath != "" {
+		return path.Join("/", boxPath, strings.TrimPrefix(hPath, "/"))
+	}
+	return hPath
+}
+
+func exportMarkdownRelativePath(currentDocDir, href string) string {
+	sameDir := path.Dir(href) == currentDocDir || strings.HasPrefix(href, "#")
+	href = util.FilterFilePath(href)
+	if sameDir {
+		return strings.TrimPrefix(href, currentDocDir+"/")
+	}
+	relative, err := filepath.Rel(currentDocDir, href)
+	if nil != err {
+		logging.LogWarnf("get relative path from [%s] to [%s] failed: %s", currentDocDir, href, err)
+		return href
+	}
+	return filepath.ToSlash(relative)
 }
 
 func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
@@ -4066,6 +4224,11 @@ func processFileAnnotationRef(refID string, n *ast.Node, fileAnnotationRefMode i
 }
 
 func exportPandocConvertZip(boxID, baseFolderName string, docPaths, defBlockIDs []string, pandocFrom, pandocTo, ext string) (zipPath string) {
+	return exportPandocConvertZip0(boxID, baseFolderName, docPaths, defBlockIDs, pandocFrom, pandocTo, ext, nil)
+}
+
+func exportPandocConvertZip0(boxID, baseFolderName string, docPaths, defBlockIDs []string, pandocFrom, pandocTo, ext string,
+	boxPaths map[string]string) (zipPath string) {
 	defer util.ClearPushProgress(100)
 
 	dir, name := path.Split(baseFolderName)
@@ -4118,17 +4281,17 @@ func exportPandocConvertZip(boxID, baseFolderName string, docPaths, defBlockIDs 
 	luteEngine.SetExportNormalizeTaskListMarker(true)
 	for i, p := range docPaths {
 		rootID := util.GetTreeID(p)
-		tree, md, isEmpty := exportMarkdownContent(rootID, ext, exportRefMode, defBlockIDs, false)
+		tree, md, isEmpty := exportMarkdownContent(rootID, ext, exportRefMode, defBlockIDs, false, boxPaths)
 		if nil == tree {
 			continue
 		}
-		hPath := tree.HPath
+		hPath := exportMarkdownHPath(tree.Box, tree.HPath, boxPaths)
 		dir, name = path.Split(hPath)
 		dir = util.FilterFilePath(dir) // 导出文档时未移除不支持的文件名符号 https://github.com/siyuan-note/siyuan/issues/4590
 		name = util.FilterFileName(name)
 		hPath = path.Join(dir, name)
 		p = hPath + ext
-		if 1 == len(docPaths) {
+		if 1 == len(docPaths) && len(boxPaths) < 1 {
 			// 如果仅导出单个文档则使用文档标题作为文件名，不使用父路径 https://github.com/siyuan-note/siyuan/issues/13635#issuecomment-3794560233
 			p = name + ext
 		}
@@ -4181,7 +4344,7 @@ func exportPandocConvertZip(boxID, baseFolderName string, docPaths, defBlockIDs 
 				srcPath, _ = GetAssetAbsPathInBox(spaceDecodedOldAsset, treeBoxID)
 			}
 			if "" == srcPath {
-				srcPath = assetsPathMap[AssetPathWithoutQuery(spaceDecodedOldAsset)]
+				_, srcPath, _ = lookupAssetPath(assetsPathMap, AssetPathWithoutQuery(spaceDecodedOldAsset))
 			}
 			if "" == srcPath {
 				logging.LogWarnf("get asset [%s] abs path failed", spaceDecodedOldAsset)
@@ -4369,6 +4532,19 @@ func prepareExportTrees(docPaths []string, boxIDs ...string) (defBlockIDs []stri
 	return
 }
 
+func loadExportRelatedTree(blockID, sourceBoxID string) (ret *parse.Tree, err error) {
+	var block *treenode.BlockTree
+	if IsEncryptedBox(sourceBoxID) {
+		block = treenode.GetBlockTreeInExactBox(blockID, sourceBoxID)
+	} else {
+		block = treenode.GetBlockTree(blockID)
+	}
+	if nil == block || !IsSameCryptoBoundary(sourceBoxID, block.BoxID) {
+		return nil, ErrTreeNotFound
+	}
+	return LoadTreeByBlockIDInExactBox(block.RootID, block.BoxID)
+}
+
 func exportRefTrees(tree *parse.Tree, defBlockIDs *[]string, retTrees map[string]*parse.Tree) {
 	if nil != retTrees[tree.ID] {
 		return
@@ -4385,12 +4561,7 @@ func exportRefTrees(tree *parse.Tree, defBlockIDs *[]string, retTrees map[string
 			if "" == defID {
 				return ast.WalkContinue
 			}
-			defBlock := treenode.GetBlockTreeInBox(defID, tree.Box)
-			if nil == defBlock {
-				return ast.WalkSkipChildren
-			}
-
-			defTree, err := LoadTreeByBlockIDInExactBox(defBlock.RootID, tree.Box)
+			defTree, err := loadExportRelatedTree(defID, tree.Box)
 			if err != nil {
 				return ast.WalkSkipChildren
 			}
@@ -4405,12 +4576,7 @@ func exportRefTrees(tree *parse.Tree, defBlockIDs *[]string, retTrees map[string
 			if "" == defID {
 				return ast.WalkContinue
 			}
-			defBlock := treenode.GetBlockTreeInBox(defID, tree.Box)
-			if nil == defBlock {
-				return ast.WalkSkipChildren
-			}
-
-			defTree, err := LoadTreeByBlockIDInExactBox(defBlock.RootID, tree.Box)
+			defTree, err := loadExportRelatedTree(defID, tree.Box)
 			if err != nil {
 				return ast.WalkSkipChildren
 			}
@@ -4454,12 +4620,7 @@ func exportRefTrees(tree *parse.Tree, defBlockIDs *[]string, retTrees map[string
 					continue
 				}
 
-				defBlock := getExportBlockTreeInBox(blockID, tree.Box)
-				if nil == defBlock {
-					continue
-				}
-
-				defTree, err := LoadTreeByBlockIDInExactBox(defBlock.RootID, tree.Box)
+				defTree, err := loadExportRelatedTree(blockID, tree.Box)
 				if err != nil {
 					continue
 				}

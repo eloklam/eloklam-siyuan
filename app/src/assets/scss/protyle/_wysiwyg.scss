@@ -559,13 +559,20 @@
       table {
         max-height: 50vh;
         overflow: auto;
+        border-radius: var(--b3-table-border-radius-top-left) var(--b3-table-border-radius-top-right) var(--b3-table-border-radius-bottom-right) var(--b3-table-border-radius-bottom-left);
+        box-shadow: inset 0 -1px 0 var(--b3-theme-surface-lighter);
+
+        &::-webkit-scrollbar-track:vertical,
+        &::-webkit-scrollbar-corner {
+          background-color: var(--b3-parent-background);
+        }
       }
 
       thead {
         position: sticky;
-        top: 1px;
+        top: 0;
         z-index: 2;
-        box-shadow: 0 -1px 0 var(--b3-border-color) inset, 0 -1px 0 0 var(--b3-border-color);
+        box-shadow: 0 -1px 0 var(--b3-border-color) inset;
         background-color: var(--b3-parent-background);
 
         th {
@@ -840,7 +847,6 @@
 
       .protyle-action__language {
         opacity: .86;
-        user-select: none;
       }
 
       .protyle-action__copy,
@@ -877,6 +883,28 @@
   }
 }
 
+body[data-format-painter] .protyle-wysiwyg[data-readonly="false"] {
+  cursor: text;
+}
+
+.protyle-format-painter__cursor {
+  position: fixed;
+  z-index: 9;
+  top: 0;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--b3-theme-on-background);
+  pointer-events: none;
+  will-change: transform;
+
+  svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+  }
+}
+
 // 在思源中，不论只读模式还是预览点击图片都可以进行预览
 .protyle .img > span:nth-child(2) {
   cursor: pointer;
@@ -885,8 +913,8 @@
 // 导出 html 不需要编辑样式
 .protyle-wysiwyg[data-readonly="false"] {
   &[contenteditable="true"] [data-node-id].table {
-    padding-right: 20px;
-    padding-bottom: 20px;
+    padding-right: 30px;
+    padding-bottom: 30px;
   }
 
   caption {

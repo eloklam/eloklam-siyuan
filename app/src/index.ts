@@ -40,6 +40,7 @@ import {loadPlugins, reloadPlugin} from "./plugin/loader";
 import "./assets/scss/base.scss";
 import {reloadEmoji} from "./emoji";
 import {processIOSPurchaseResponse} from "./util/iOSPurchase";
+import {updateServerAddresses} from "./config/tabs/accessRuntime";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
 /// #endif
@@ -48,11 +49,12 @@ import {Files} from "./layout/dock/Files";
 import {Tag} from "./layout/dock/Tag";
 import {appearanceConfigApi} from "./config/tabs/appearanceRuntime";
 import {renderSnippet} from "./config/util/snippets";
-import {refreshThemeStyle, setBodyHighlight} from "./util/assets";
+import {refreshThemeStyle, reloadInlineStyles, setBodyHighlight} from "./util/assets";
 import {reloadSync} from "./util/reloadSync";
 import {setTitle} from "./util/processTitle";
 import {ensureUILayout} from "./util/ensureUILayout";
 import {applyEntryVisibility} from "./config/entryVisibility/runtime";
+import {removeBlockPanelEditors} from "./block/panelRemoval";
 
 export class App {
     public plugins: import("./plugin").Plugin[] = [];
@@ -82,6 +84,9 @@ export class App {
                             break;
                         case "setAppearance":
                             appearanceConfigApi.apply(data.data);
+                            break;
+                        case "reloadInlineStyles":
+                            void reloadInlineStyles();
                             break;
                         case "setEntryVisibility":
                             applyEntryVisibility(data.data);
@@ -122,6 +127,9 @@ export class App {
                             break;
                         case "setConf":
                             window.siyuan.config = data.data;
+                            break;
+                        case "setServerAddrs":
+                            updateServerAddresses(data.data);
                             break;
                         case "setPublish":
                             window.siyuan.config.publish = data.data;
@@ -171,6 +179,7 @@ export class App {
                             break;
                         case "closeBox":
                         case "removeBox":
+                            removeBlockPanelEditors({notebookId: data.data.box});
                             getAllTabs().forEach((tab) => {
                                 if (tab.headElement) {
                                     const initTab = tab.headElement.getAttribute("data-initdata");
@@ -184,6 +193,7 @@ export class App {
                             });
                             break;
                         case "removeDoc":
+                            removeBlockPanelEditors({rootIDs: data.data.ids});
                             getAllTabs().forEach((tab) => {
                                 if (tab.headElement) {
                                     const initTab = tab.headElement.getAttribute("data-initdata");
@@ -228,6 +238,13 @@ export class App {
                             const fileDock = getDockByType("file");
                             if (fileDock) {
                                 (fileDock.data.file as Files).onFiletreeSortChanged(data.data);
+                            }
+                            break;
+                        }
+                        case "docSortModeChanged": {
+                            const fileDock = getDockByType("file");
+                            if (fileDock) {
+                                (fileDock.data.file as Files).onDocSortModeChanged(data.data);
                             }
                             break;
                         }

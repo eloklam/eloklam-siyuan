@@ -22,6 +22,7 @@ import {
     getAVSelectedItemInfos,
     getAVSelectedItemPoints,
     getAVSelectedItems,
+    getAvBodyData,
     resetAVRowSelect,
     updateAVRowSelect
 } from "./virtualScroll";
@@ -34,7 +35,7 @@ import {previewAttrViewImages} from "../../preview/image";
 import {openEmojiPanel, unicode2Emoji} from "../../../emoji";
 import * as dayjs from "dayjs";
 import {openCalcMenu} from "./calc";
-import {avRender, getGroupFoldTip} from "./render";
+import {avRender, initUnfoldedGroupTables, setAVGroupFolded as setGroupFolded} from "./render";
 import {addView, openViewMenu} from "./view";
 import {isOnlyMeta, writeText} from "../../util/compatibility";
 import {selectAVItemRange, setAVItemAnchor} from "./rangeSelect";
@@ -63,6 +64,9 @@ import {getAVTemplateInteractiveElement, isAVTemplateLink} from "./attributeValu
 import {isMobile} from "../../../util/functions";
 import {getAVCurrentViewID} from "./viewVisibility";
 import {formatAVItemLinks, genAVItemLink} from "./itemLink";
+/// #if MOBILE
+import {activeBlur} from "../../../mobile/util/keyboardToolbar";
+/// #endif
 
 const isDetachedDatabaseCell = (cellElement: HTMLElement) => {
     return cellElement.dataset.detached === "true" || !cellElement.querySelector(".av__celltext--ref");
@@ -96,47 +100,67 @@ const getPrimaryRowInfo = (blockElement: HTMLElement, rowElement?: HTMLElement, 
     };
 };
 
-const unbindDatabaseRow = (protyle: IProtyle, blockElement: HTMLElement, rowID: string,
-                           primaryInfo: NonNullable<ReturnType<typeof getPrimaryRowInfo>>) => {
-    if (primaryInfo.cellElement) {
-        updateCellsValue(protyle, blockElement, {content: primaryInfo.content}, [primaryInfo.cellElement]);
-        return;
+const unbindDatabaseRows = async (protyle: IProtyle, blockElement: HTMLElement, rows: Array<{
+    rowID: string,
+    primaryInfo: NonNullable<ReturnType<typeof getPrimaryRowInfo>>,
+}>) => {
+    const doOperations: IOperation[] = [];
+    const undoOperations: IOperation[] = [];
+    for (const row of rows) {
+        const primaryInfo = row.primaryInfo;
+        if (primaryInfo.isDetached) {
+            continue;
+        }
+        if (primaryInfo.cellElement) {
+            const operations = await updateCellsValue(protyle, blockElement, {content: primaryInfo.content},
+                [primaryInfo.cellElement], undefined, undefined, true);
+            doOperations.push(...operations.doOperations);
+            undoOperations.push(...operations.undoOperations);
+            continue;
+        }
+        if (!primaryInfo.fieldID || !primaryInfo.valueID) {
+            continue;
+        }
+        const value: IAVCellValue = {
+            type: "block",
+            id: primaryInfo.valueID,
+            isDetached: true,
+            block: {
+                content: primaryInfo.content,
+            },
+        };
+        doOperations.push({
+            action: "updateAttrViewCell",
+            id: primaryInfo.valueID,
+            avID: blockElement.dataset.avId,
+            keyID: primaryInfo.fieldID,
+            rowID: row.rowID,
+            data: value,
+        });
+        undoOperations.push({
+            action: "updateAttrViewCell",
+            id: primaryInfo.valueID,
+            avID: blockElement.dataset.avId,
+            keyID: primaryInfo.fieldID,
+            rowID: row.rowID,
+            data: primaryInfo.value,
+        });
     }
-    if (!primaryInfo.fieldID || !primaryInfo.valueID) {
+    if (doOperations.length === 0) {
         return;
     }
     const newUpdated = dayjs().format("YYYYMMDDHHmmss");
-    const value: IAVCellValue = {
-        type: "block",
-        id: primaryInfo.valueID,
-        isDetached: true,
-        block: {
-            content: primaryInfo.content,
-        },
-    };
-    transaction(protyle, [{
-        action: "updateAttrViewCell",
-        id: primaryInfo.valueID,
-        avID: blockElement.dataset.avId,
-        keyID: primaryInfo.fieldID,
-        rowID,
-        data: value,
-    }, {
+    doOperations.push({
         action: "doUpdateUpdated",
         id: blockElement.dataset.nodeId,
         data: newUpdated,
-    }], [{
-        action: "updateAttrViewCell",
-        id: primaryInfo.valueID,
-        avID: blockElement.dataset.avId,
-        keyID: primaryInfo.fieldID,
-        rowID,
-        data: primaryInfo.value,
-    }, {
+    });
+    undoOperations.push({
         action: "doUpdateUpdated",
         id: blockElement.dataset.nodeId,
         data: blockElement.getAttribute("updated"),
-    }]);
+    });
+    transaction(protyle, doOperations, undoOperations);
     blockElement.setAttribute("updated", newUpdated);
 };
 
@@ -173,12 +197,6 @@ const updateDatabaseRow = (protyle: IProtyle, target: HTMLElement) => {
     cellElement.classList.add("av__cell--select");
     addDragFill(cellElement);
     hintRef(textElement.textContent.trim(), protyle, "av");
-};
-
-const setGroupFolded = (foldElement: HTMLElement, folded: boolean) => {
-    foldElement.firstElementChild.classList.toggle("av__group-arrow--open", !folded);
-    foldElement.parentElement.nextElementSibling.classList.toggle("fn__none", folded);
-    foldElement.setAttribute("aria-label", getGroupFoldTip(folded));
 };
 
 const getAVEditFieldMenuItems = (protyle: IProtyle, blockElement: HTMLElement): IMenu[] => {
@@ -276,6 +294,9 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
     const blockElement = hasClosestBlock(event.target);
     if (!blockElement) {
         return false;
+    }
+    if (hasClosestByClassName(event.target, "av__title")) {
+        clearSelect(["av"], blockElement);
     }
 
     const viewType = blockElement.getAttribute("data-av-type") as TAVView;
@@ -437,7 +458,9 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             return true;
         } else if (type === "av-add-bottom" && !protyle.disabled) {
             const bodyElement = hasClosestByClassName(target, "av__body");
-            const previousID = (bodyElement && bodyElement.querySelector(".av__row--util")?.previousElementSibling?.getAttribute("data-id")) ||
+            const bodyData = bodyElement ? getAvBodyData(bodyElement) as IAVTable : undefined;
+            const previousID = bodyData?.rows?.[bodyData.rows.length - 1]?.id ||
+                (bodyElement && bodyElement.querySelector(".av__row--util")?.previousElementSibling?.getAttribute("data-id")) ||
                 target.previousElementSibling?.getAttribute("data-id") || undefined;
             const groupID = bodyElement ? bodyElement.getAttribute("data-group-id") : "";
             const templateID = blockElement.querySelector<HTMLElement>(".av__header")?.dataset.defaultTemplateId;
@@ -572,6 +595,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                 Object.keys(undoData).forEach((groupID) => {
                     doData[groupID] = folded;
                 });
+                initUnfoldedGroupTables(blockElement, protyle);
                 updateGroupFoldedStates(blockElement, doData);
                 clearTimeout(foldTimeout);
                 transaction(protyle, [{
@@ -590,6 +614,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             } else {
                 target.setAttribute("data-processed", "true");
                 setGroupFolded(target, isOpen);
+                initUnfoldedGroupTables(blockElement, protyle);
                 updateGroupFoldedStates(blockElement, {[target.dataset.id]: isOpen});
                 clearTimeout(foldTimeout);
                 foldTimeout = window.setTimeout(() => {
@@ -637,6 +662,9 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.stopPropagation();
             return true;
         } else if (target.classList.contains("item") && target.parentElement.classList.contains("layout-tab-bar")) {
+            /// #if MOBILE
+            activeBlur();
+            /// #endif
             if (target.classList.contains("item--focus")) {
                 openViewMenu({protyle, blockElement, element: target});
             } else if (protyle.options.action.includes(Constants.CB_GET_HISTORY)) {
@@ -998,7 +1026,7 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undef
     copyMenu.push({
         id: "duplicate",
         iconHTML: "",
-        label: window.siyuan.languages.duplicate,
+        label: window.siyuan.languages.duplicateCopy,
         click: () => {
             duplicateRows(blockElement, protyle, selectedItemInfos.map(item => item.itemID));
         }
@@ -1165,21 +1193,23 @@ ${window.siyuan.languages[avType === "table" ? "insertRowAfter" : "insertItemAft
                 }
             });
             menu.addSeparator({id: "separator_2"});
-            if (!primaryRows[0].isDetached) {
-                menu.addItem({
-                    id: "unbindBlock",
-                    label: window.siyuan.languages.unbindBlock,
-                    icon: "iconLinkOff",
-                    click() {
-                        unbindDatabaseRow(
-                            protyle,
-                            blockElement,
-                            selectedItemInfos[0].itemID,
-                            primaryRows[0]
-                        );
-                    }
-                });
-            }
+        }
+        if (hasBlock) {
+            menu.addItem({
+                id: "unbindBlock",
+                label: window.siyuan.languages.unbindBlock,
+                icon: "iconLinkOff",
+                click() {
+                    unbindDatabaseRows(
+                        protyle,
+                        blockElement,
+                        selectedItemInfos.map((item, index) => ({
+                            rowID: item.itemID,
+                            primaryInfo: primaryRows[index],
+                        }))
+                    );
+                }
+            });
         }
         menu.addItem({
             id: "delete",
@@ -1375,19 +1405,30 @@ export const duplicateCompletely = (protyle: IProtyle, nodeElement: HTMLElement)
         if (visibleViewIDs) {
             cloneElement.setAttribute(Constants.CUSTOM_SY_AV_VISIBLE_VIEWS, visibleViewIDs);
         }
+        cloneElement.setAttribute("data-av-type", nodeElement.getAttribute("data-av-type") || "table");
+        const blockDOM = cloneElement.outerHTML;
+        cloneElement.setAttribute("data-render", "true");
         nodeElement.after(cloneElement);
-        avRender(cloneElement, protyle, () => {
-            focusBlock(cloneElement);
-            scrollCenter(protyle);
-        });
+        // 首次渲染需等待插入事务完成，内核才能通过新块 ID 解析复制的载体视图。
         transaction(protyle, [{
             action: "insert",
-            data: cloneElement.outerHTML,
+            data: blockDOM,
             id: response.data.blockID,
             previousID: nodeElement.dataset.nodeId,
         }], [{
             action: "delete",
             id: response.data.blockID,
-        }]);
+        }], {
+            callback: () => {
+                cloneElement.removeAttribute("data-render");
+                if (!cloneElement.isConnected) {
+                    return;
+                }
+                avRender(cloneElement, protyle, () => {
+                    focusBlock(cloneElement);
+                    scrollCenter(protyle);
+                });
+            }
+        });
     });
 };

@@ -39,6 +39,19 @@ export interface ICrossBlockSiblingListItemMergeContext {
     trailingEndListItemElements: HTMLElement[];
 }
 
+export const getCrossBlockEndAction = (startType: string, endType: string, endFullySelected: boolean,
+                                       endFolded: boolean): "merge" | "delete" | undefined => {
+    if (endFolded) {
+        return;
+    }
+    if (["NodeParagraph", "NodeHeading"].includes(startType) && startType === endType) {
+        return "merge";
+    }
+    if (["NodeParagraph", "NodeHeading"].includes(endType) && endFullySelected) {
+        return "delete";
+    }
+};
+
 export const getCrossBlockSiblingListItemMergeContext = (editorElement: HTMLElement,
                                                           startElement: HTMLElement,
                                                           endElement: HTMLElement):
@@ -267,6 +280,38 @@ export const getBlockRefCheckElementChain = (element: HTMLElement, topElement: H
         currentElement = currentElement.parentElement;
     }
     return elements;
+};
+
+export const getDeletedBlockElements = (removedElements: HTMLElement[], retainedElements: HTMLElement[]) => {
+    const elementsByID = new Map<string, HTMLElement>();
+    const expansionStopIDs = new Set<string>();
+    removedElements.forEach(item => {
+        [item, ...Array.from(item.querySelectorAll<HTMLElement>("[data-node-id]"))].forEach(element => {
+            let currentElement: HTMLElement | null = element;
+            while (currentElement && !currentElement.classList.contains("protyle-wysiwyg__embed")) {
+                currentElement = currentElement.parentElement;
+            }
+            if (currentElement) {
+                return;
+            }
+            if (retainedElements.some(retainedElement =>
+                retainedElement === element || retainedElement.contains(element))) {
+                return;
+            }
+            const id = element.getAttribute("data-node-id");
+            if (!id) {
+                return;
+            }
+            elementsByID.set(id, element);
+            if (retainedElements.some(retainedElement => element.contains(retainedElement))) {
+                expansionStopIDs.add(id);
+            }
+        });
+    });
+    return {
+        elements: Array.from(elementsByID.values()),
+        expansionStopIDs,
+    };
 };
 
 export const getCrossBlockMergeRemoveElement = (editorElement: HTMLElement, startElement: HTMLElement,

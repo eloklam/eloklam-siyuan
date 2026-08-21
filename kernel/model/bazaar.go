@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/88250/gulu"
@@ -45,22 +46,39 @@ type UpdatedPackage struct {
 	Available *bazaar.Package `json:"available"`
 }
 
+func isValidPackageName(packageName string) bool {
+	return bazaar.IsValidPackageName(packageName)
+}
+
 func getPackageInstallPath(pkgType, packageName string) (string, string, error) {
+	// 校验包名必须是合法的目录名，不能包含路径分隔符或 ..，防止路径遍历
+	// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-wr4w-7vjm-mmx3
+	if !isValidPackageName(packageName) {
+		return "", "", errors.New("invalid package name")
+	}
+
+	var baseDir, jsonFileName string
 	switch pkgType {
 	case "plugins":
-		return filepath.Join(util.DataDir, "plugins", packageName), "plugin.json", nil
+		baseDir, jsonFileName = filepath.Join(util.DataDir, "plugins"), "plugin.json"
 	case "themes":
-		return filepath.Join(util.ThemesPath, packageName), "theme.json", nil
+		baseDir, jsonFileName = util.ThemesPath, "theme.json"
 	case "icons":
-		return filepath.Join(util.IconsPath, packageName), "icon.json", nil
+		baseDir, jsonFileName = util.IconsPath, "icon.json"
 	case "templates":
-		return filepath.Join(util.DataDir, "templates", packageName), "template.json", nil
+		baseDir, jsonFileName = filepath.Join(util.DataDir, "templates"), "template.json"
 	case "widgets":
-		return filepath.Join(util.DataDir, "widgets", packageName), "widget.json", nil
+		baseDir, jsonFileName = filepath.Join(util.DataDir, "widgets"), "widget.json"
 	default:
 		logging.LogErrorf("invalid package type: %s", pkgType)
 		return "", "", errors.New("invalid package type")
 	}
+
+	installPath := filepath.Join(baseDir, packageName)
+	if !gulu.File.IsSubPath(baseDir, installPath) {
+		return "", "", errors.New("invalid package name")
+	}
+	return installPath, jsonFileName, nil
 }
 
 // installMeta 记录安装前后的状态，供安装后处理使用
@@ -80,6 +98,20 @@ type ThemeInstallOptions struct {
 	ModeOS bool
 }
 
+// LocalBazaarPackageInstallResult 描述本地集市包的识别和安装结果。
+type LocalBazaarPackageInstallResult struct {
+	PackageType   string `json:"packageType"`
+	PackageName   string `json:"packageName"`
+	MinAppVersion string `json:"minAppVersion,omitempty"`
+	Updated       bool   `json:"updated"`
+}
+
+var (
+	ErrLocalBazaarPackageExists       = errors.New("marketplace package already exists")
+	ErrLocalBazaarPackageIncompatible = errors.New("marketplace package is incompatible")
+	localBazaarInstallLock            sync.Mutex
+)
+
 // updatePackages 更新一组集市包；同类型批量更新时，安装后处理只执行一次
 func updatePackages(packages []*UpdatedPackage, pkgType string, successCount, failedCount *int, planned int) {
 	items := make([]batchInstallItem, 0, len(packages))
@@ -96,7 +128,7 @@ func updatePackages(packages []*UpdatedPackage, pkgType string, successCount, fa
 		*successCount++
 		util.PushEndlessProgress(fmt.Sprintf(Conf.language(236), *successCount+*failedCount, planned, pkg.Name))
 	}
-	finishInstall(pkgType, items, nil)
+	finishInstall(pkgType, items, nil, true)
 }
 
 // filterUpdatableBazaarPackages 过滤出允许更新的集市包
@@ -196,6 +228,9 @@ func getUpdatedPackages(pkgType, frontend string) (updatedPackages []*UpdatedPac
 func buildUpdatedPackages(installedPackages []*bazaar.Package, bazaarPackagesMap map[string]*bazaar.Package) (updatedPackages []*UpdatedPackage) {
 	updatedPackages = []*UpdatedPackage{}
 	for _, installed := range installedPackages {
+		if installed.InvalidReason != "" {
+			continue
+		}
 		online := bazaarPackagesMap[installed.Name]
 		if online == nil || 0 <= semver.Compare("v"+installed.Version, "v"+online.Version) {
 			continue
@@ -210,6 +245,26 @@ func buildUpdatedPackages(installedPackages []*bazaar.Package, bazaarPackagesMap
 		})
 	}
 	return
+}
+
+func packageDirContainsFile(dirPath string) (bool, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			return true, nil
+		}
+		containsFile, readErr := packageDirContainsFile(filepath.Join(dirPath, entry.Name()))
+		if readErr != nil {
+			return false, readErr
+		}
+		if containsFile {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // GetInstalledPackageInfos 获取本地集市包信息，并返回路径相关字段供调用方复用
@@ -265,9 +320,35 @@ func GetInstalledPackageInfos(pkgType string) (installedPackageInfos []installed
 
 	for _, dir := range dirs {
 		dirName := dir.Name()
-		pkg, parseErr := bazaar.ParsePackageJSON(filepath.Join(basePath, dirName, jsonFileName))
-		if nil != parseErr || nil == pkg {
+		installPath := filepath.Join(basePath, dirName)
+		if strings.HasPrefix(dirName, ".siyuan-package-install-") {
 			continue
+		}
+		pkg, parseErr := bazaar.ParsePackageJSON(filepath.Join(installPath, jsonFileName))
+		if nil != parseErr || nil == pkg {
+			if pkgType == "templates" && errors.Is(parseErr, os.ErrNotExist) {
+				continue
+			}
+			reason := bazaar.PackageInvalidReasonInvalidManifest
+			if errors.Is(parseErr, os.ErrNotExist) {
+				containsFile, readErr := packageDirContainsFile(installPath)
+				if readErr == nil && !containsFile {
+					continue
+				}
+				reason = bazaar.PackageInvalidReasonMissingManifest
+			}
+			installedPackageInfos = append(installedPackageInfos, installedPackageInfo{
+				Pkg:     &bazaar.Package{Name: dirName, InvalidReason: reason},
+				DirName: dirName,
+			})
+			continue
+		}
+		if !bazaar.IsValidInstalledPackage(pkg, dirName) {
+			reason := bazaar.PackageInvalidReasonInvalidManifest
+			if pkg.Name != dirName {
+				reason = bazaar.PackageInvalidReasonNameMismatch
+			}
+			pkg = &bazaar.Package{Name: dirName, InvalidReason: reason}
 		}
 		installedPackageInfos = append(installedPackageInfos, installedPackageInfo{Pkg: pkg, DirName: dirName})
 	}
@@ -319,18 +400,19 @@ func getInstalledPackages0(pkgType, frontend, keyword string) (installedPackages
 		petals = getPetals()
 	}
 	for _, pkg := range installedPackages {
+		if pkg.InvalidReason != "" {
+			continue
+		}
 		switch pkgType {
 		case "plugins":
-			installedIncompatible := bazaar.IsIncompatiblePlugin(pkg, frontend)
-			pkg.InstalledIncompatible = &installedIncompatible
+			pkg.InstalledIncompatible = new(bazaar.IsIncompatiblePlugin(pkg, frontend))
 			petal := getPetalByName(pkg.Name, petals)
 			if nil != petal {
-				enabled := petal.Enabled
-				pkg.Enabled = &enabled
+				pkg.Enabled = new(petal.Enabled)
+				pkg.UserDisabledInPublish = new(petal.UserDisabledInPublish)
 			}
 		case "themes":
-			installedIncompatible := bazaar.IsIncompatibleTheme(pkg, frontend)
-			pkg.InstalledIncompatible = &installedIncompatible
+			pkg.InstalledIncompatible = new(bazaar.IsIncompatibleTheme(pkg, frontend))
 			pkg.Current = pkg.Name == Conf.Appearance.ThemeDark || pkg.Name == Conf.Appearance.ThemeLight
 		case "icons":
 			pkg.Current = pkg.Name == Conf.Appearance.Icon
@@ -361,6 +443,9 @@ func GetInstalledPackageSize(pkgType, packageName string) (size int64, hSize str
 // 在线集市不可用时仍返回本地信息，避免网络问题阻断已下载包详情。
 func GetBazaarPackageDetail(pkgType, packageName, frontend string) (installed, available *bazaar.Package) {
 	for _, pkg := range GetInstalledPackages(pkgType, frontend, "") {
+		if pkg.InvalidReason != "" {
+			continue
+		}
 		if pkg.Name == packageName {
 			installed = pkg
 			break
@@ -392,6 +477,9 @@ func GetBazaarPackages(pkgType, frontend, keyword string) (bazaarPackages []*baz
 	}
 	installedMap := make(map[string]*bazaar.Package, len(installedInfos))
 	for _, info := range installedInfos {
+		if info.Pkg.InvalidReason != "" {
+			continue
+		}
 		installedMap[info.Pkg.Name] = info.Pkg
 	}
 	for _, pkg := range bazaarPackages {
@@ -436,7 +524,8 @@ func installBazaarPackage(pkgType, repoURL, repoHash, packageName string) (meta 
 // finishInstall 集市包安装后的处理（刷新外观、推送插件重载等）；批量更新时同类型只执行一次
 //
 //   - themeOptions：仅在新安装主题（meta.update 为 false）时写入外观；批量覆盖更新不会用到
-func finishInstall(pkgType string, items []batchInstallItem, themeOptions *ThemeInstallOptions) {
+//   - applyNewAppearance：控制新安装图标是否自动应用；本地安装不自动应用
+func finishInstall(pkgType string, items []batchInstallItem, themeOptions *ThemeInstallOptions, applyNewAppearance bool) {
 	if 1 > len(items) {
 		return
 	}
@@ -498,7 +587,7 @@ func finishInstall(pkgType string, items []batchInstallItem, themeOptions *Theme
 		util.BroadcastByType("main", "setAppearance", 0, "", Conf.Appearance)
 	case "icons":
 		for _, item := range items {
-			if !item.meta.update {
+			if !item.meta.update && applyNewAppearance {
 				// 新安装图标时才自动切换
 				Conf.Appearance.Icon = item.name
 				Conf.Save()
@@ -515,8 +604,53 @@ func InstallBazaarPackage(pkgType, repoURL, repoHash, packageName string, themeO
 	if err != nil {
 		return err
 	}
-	finishInstall(pkgType, []batchInstallItem{{name: packageName, meta: meta}}, themeOptions)
+	finishInstall(pkgType, []batchInstallItem{{name: packageName, meta: meta}}, themeOptions, true)
 	return nil
+}
+
+// InstallLocalBazaarPackage 安装上传的本地集市包。
+func InstallLocalBazaarPackage(archivePath, frontend string, overwrite bool) (result *LocalBazaarPackageInstallResult, err error) {
+	pkgType, pkg, sourcePath, cleanup, err := bazaar.ExtractLocalPackage(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	result = &LocalBazaarPackageInstallResult{
+		PackageType:   pkgType,
+		PackageName:   pkg.Name,
+		MinAppVersion: pkg.MinAppVersion,
+	}
+	installPath, _, err := getPackageInstallPath(pkgType, pkg.Name)
+	if err != nil {
+		return result, err
+	}
+	if (pkgType == "themes" && isBuiltInTheme(pkg.Name)) || (pkgType == "icons" && isBuiltInIcon(pkg.Name)) {
+		return result, errors.New("built-in marketplace package cannot be overwritten")
+	}
+	if bazaar.IsBelowRequiredAppVersion(pkg) {
+		return result, fmt.Errorf("%w: SiYuan %s or later is required", ErrLocalBazaarPackageIncompatible, pkg.MinAppVersion)
+	}
+	if (pkgType == "plugins" && bazaar.IsIncompatiblePlugin(pkg, frontend)) ||
+		(pkgType == "themes" && bazaar.IsIncompatibleTheme(pkg, frontend)) {
+		return result, ErrLocalBazaarPackageIncompatible
+	}
+
+	localBazaarInstallLock.Lock()
+	defer localBazaarInstallLock.Unlock()
+	_, statErr := os.Lstat(installPath)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return result, statErr
+	}
+	result.Updated = statErr == nil
+	if result.Updated && !overwrite {
+		return result, ErrLocalBazaarPackageExists
+	}
+	if err = bazaar.InstallLocalPackage(sourcePath, installPath, pkgType, pkg.Name, result.Updated); err != nil {
+		return result, fmt.Errorf(Conf.Language(46), pkg.Name, err)
+	}
+	finishInstall(pkgType, []batchInstallItem{{name: pkg.Name, meta: installMeta{update: result.Updated}}}, nil, false)
+	return result, nil
 }
 
 // UpdateBazaarPackage 使用在线集市数据更新本地集市包
@@ -540,8 +674,21 @@ func UpdateBazaarPackage(pkgType, packageName, frontend string) error {
 	return errors.New("marketplace package update not found")
 }
 
+func getPackageUninstallPath(pkgType, packageName string) (installPath string, err error) {
+	installedInfos, basePath, _, err := GetInstalledPackageInfos(pkgType)
+	if err != nil {
+		return "", err
+	}
+	for _, info := range installedInfos {
+		if info.Pkg.Name == packageName {
+			return filepath.Join(basePath, info.DirName), nil
+		}
+	}
+	return "", errors.New("installed package not found")
+}
+
 func UninstallPackage(pkgType, packageName string) error {
-	installPath, _, err := getPackageInstallPath(pkgType, packageName)
+	installPath, err := getPackageUninstallPath(pkgType, packageName)
 	if err != nil {
 		return err
 	}
@@ -583,10 +730,10 @@ func UninstallPackage(pkgType, packageName string) error {
 
 // isBuiltInTheme 通过包名或目录名判断是否为内置主题
 func isBuiltInTheme(name string) bool {
-	return "daylight" == name || "midnight" == name
+	return strings.EqualFold("daylight", name) || strings.EqualFold("midnight", name)
 }
 
 // isBuiltInIcon 通过包名或目录名判断是否为内置图标
 func isBuiltInIcon(name string) bool {
-	return "litheness" == name
+	return strings.EqualFold("litheness", name)
 }

@@ -24,6 +24,14 @@
   }
 
   &__outer {
+    --b3-pdf-background1: var(--b3-pdf-background1-light);
+    --b3-pdf-background2: var(--b3-pdf-background2-light);
+    --b3-pdf-background3: var(--b3-pdf-background3-light);
+    --b3-pdf-background4: var(--b3-pdf-background4-light);
+    --b3-pdf-background5: var(--b3-pdf-background5-light);
+    --b3-pdf-background6: var(--b3-pdf-background6-light);
+    --b3-pdf-background7: var(--b3-pdf-background7-light);
+
     user-select: text;
     overflow: hidden;
     width: 100%;
@@ -77,6 +85,64 @@
       &:last-child {
         border-top-right-radius: var(--b3-border-radius);
         border-bottom-right-radius: var(--b3-border-radius);
+      }
+    }
+
+    &[data-mode="rect"] > div {
+      cursor: move;
+    }
+
+    &--selected > div {
+      z-index: 2;
+    }
+
+    &--dragging > div {
+      cursor: grabbing;
+    }
+
+    &-resize {
+      position: absolute;
+      z-index: 3;
+      width: 10px;
+      height: 10px;
+      box-sizing: border-box;
+      border: 2px solid var(--pdf-annotation-color);
+      border-radius: 50%;
+      background-color: var(--b3-theme-surface);
+      pointer-events: auto;
+
+      &--nw {
+        top: 0;
+        left: 0;
+        transform: translate(-50%, -50%);
+      }
+
+      &--ne {
+        top: 0;
+        right: 0;
+        transform: translate(50%, -50%);
+      }
+
+      &--sw {
+        bottom: 0;
+        left: 0;
+        transform: translate(-50%, 50%);
+      }
+
+      &--se {
+        right: 0;
+        bottom: 0;
+        transform: translate(50%, 50%);
+      }
+
+      &[data-direction="nw"],
+      &[data-direction="se"] {
+        cursor: nwse-resize;
+      }
+
+      &[data-direction="ne"],
+      &[data-direction="sw"] {
+        cursor: nesw-resize;
       }
     }
 

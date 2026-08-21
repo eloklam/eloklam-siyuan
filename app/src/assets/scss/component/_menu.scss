@@ -82,7 +82,7 @@
 
       &__item {
         border-bottom: .5px solid var(--b3-theme-background-light);
-        line-height: 42px;
+        line-height: 36px;
         background-color: var(--b3-theme-background);
         text-decoration: none;
         border-radius: 0;
@@ -117,6 +117,7 @@
         height: 48.5px;
 
         & > .b3-menu__label {
+          align-self: center;
           line-height: 32.5px;
         }
       }
@@ -128,18 +129,18 @@
       }
 
       &__label {
-        font-size: 18px;
+        font-size: 16px;
         white-space: break-spaces;
-        line-height: 26px;
-        margin: 8px 0;
+        line-height: 24px;
+        margin: 6px 0;
         // 移动端面包屑过长
         word-wrap: break-word;
       }
 
       &__icon {
-        height: 22px;
-        width: 22px;
-        margin: 0 16px 0 8px;
+        height: 18px;
+        width: 18px;
+        margin: 0 12px 0 8px;
 
         &--arrow {
           width: 12px;
@@ -182,8 +183,8 @@
   &--sheet {
     top: auto;
     bottom: 0;
-    left: 8px;
-    right: 8px;
+    left: 0;
+    right: 0;
     width: auto;
     height: auto;
     max-height: 90vh;
@@ -197,11 +198,19 @@
 
     .b3-menu {
       &__title {
+        background-color: var(--b3-theme-surface);
+        border-bottom: 0;
         box-sizing: border-box;
+        color: var(--b3-theme-on-surface-light);
         height: 56px;
-        padding-top: 8px;
+        padding: 8px 16px 0;
         position: relative;
         touch-action: none;
+
+        & > .b3-menu__icon,
+        & > .b3-menu__label {
+          color: var(--b3-theme-on-surface-light);
+        }
 
         &::before {
           position: absolute;
@@ -214,17 +223,31 @@
           content: "";
           opacity: .45;
         }
+
+        &--root {
+          height: 16px;
+          padding: 0;
+
+          & > .b3-menu__icon,
+          & > .b3-menu__label {
+            display: none;
+          }
+        }
       }
 
       &__items {
         min-height: 0;
-        overscroll-behavior: contain;
       }
 
       &__submenu {
         top: 56px;
         left: 100%;
       }
+    }
+
+    & > .b3-menu__items,
+    & .b3-menu__submenu {
+      overscroll-behavior: contain;
     }
 
     & .b3-menu__submenu .b3-menu__submenu {
@@ -241,7 +264,7 @@
     transition: opacity 150ms linear;
 
     &--open {
-      opacity: .4;
+      opacity: .2;
       pointer-events: auto;
     }
   }
@@ -284,7 +307,7 @@
       background-color: var(--b3-theme-background);
       border: 0;
       border-radius: 0;
-      line-height: 42px;
+      line-height: 36px;
       margin: 0;
 
       &:not(.fn__none) ~ .b3-menu__item:not(.fn__none) {
@@ -297,17 +320,17 @@
     }
 
     .b3-menu__label {
-      font-size: 18px;
-      line-height: 26px;
-      margin: 8px 0;
+      font-size: 16px;
+      line-height: 24px;
+      margin: 6px 0;
       white-space: break-spaces;
       word-wrap: break-word;
     }
 
     .b3-menu__icon {
-      height: 22px;
-      margin: 0 16px 0 8px;
-      width: 22px;
+      height: 18px;
+      margin: 0 12px 0 8px;
+      width: 18px;
     }
   }
 
@@ -475,6 +498,20 @@
     flex-shrink: 0;
     color: var(--b3-menu-icon-color);
     font-variant-emoji: emoji;
+
+    &--custom {
+      align-items: center;
+      display: flex;
+      justify-content: center;
+      overflow: hidden;
+
+      & > svg {
+        display: block;
+        height: 100% !important;
+        margin: 0 !important;
+        width: 100% !important;
+      }
+    }
 
     &--small {
       margin: 0 0 0 8px;

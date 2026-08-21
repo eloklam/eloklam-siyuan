@@ -16,6 +16,7 @@ import {
     genEmojiImageHTML,
     getIconSearchText,
     getIconValueKind,
+    getNetworkIconName,
     normalizeNetworkIconURL,
     normalizeRecentIconValue,
     parseBase64Image,
@@ -23,13 +24,25 @@ import {
 } from "./iconValue";
 import {showMessage} from "../dialog/message";
 import {escapeAttr, escapeHtml} from "../util/escape";
+import {
+    collectEmojiMatches,
+    getActiveEmojiCategory,
+    getEmojiItemMap,
+    getEmojiPanelResizeAction,
+    getEmojiVirtualChunks,
+    getRandomEmojiCategories,
+    groupCustomEmojiItems,
+    type TEmojiPanelPageMode,
+    type TRandomEmojiScope,
+} from "./panel";
 
-export const getRandomEmoji = () => {
-    const emojis = window.siyuan.emojis[getRandom(0, window.siyuan.emojis.length - 1)];
-    if (typeof emojis.items[getRandom(0, emojis.items.length - 1)] === "undefined") {
-        return "1f600";
+export const getRandomEmoji = (scope: TRandomEmojiScope = "all") => {
+    const categories = getRandomEmojiCategories(window.siyuan.emojis, scope);
+    if (categories.length === 0) {
+        return scope === "all" ? "1f600" : "";
     }
-    return emojis.items[getRandom(0, emojis.items.length - 1)].unicode;
+    const category = categories[getRandom(0, categories.length - 1)];
+    return category.items[getRandom(0, category.items.length - 1)].unicode;
 };
 
 export const unicode2Emoji = (unicode: string, className = "", needSpan = false, lazy = false) => {
@@ -68,41 +81,6 @@ const genEmojiButton = (unicode: string, label: string, lazy = false) => {
 ${unicode2Emoji(unicode, "", false, lazy)}</button>`;
 };
 
-export const lazyLoadEmoji = (element: HTMLElement) => {
-    const emojiIntersectionObserver = new IntersectionObserver((entries) => {
-        entries.forEach((entrie: IntersectionObserverEntry & { target: HTMLImageElement }) => {
-            const index = entrie.target.getAttribute("data-index");
-            if ((typeof entrie.isIntersecting === "undefined" ? entrie.intersectionRatio !== 0 : entrie.isIntersecting) && index) {
-                let html = "";
-                window.siyuan.emojis[parseInt(index)].items.forEach(emoji => {
-                    html += genEmojiButton(emoji.unicode, getEmojiDesc(emoji));
-                });
-                entrie.target.innerHTML = html;
-                entrie.target.removeAttribute("data-index");
-                entrie.target.style.minHeight = "";
-            }
-        });
-    });
-    element.querySelectorAll(".emojis__content").forEach((panelElement) => {
-        emojiIntersectionObserver.observe(panelElement);
-    });
-};
-
-export const lazyLoadEmojiImg = (element: Element) => {
-    const emojiIntersectionObserver = new IntersectionObserver((entries) => {
-        entries.forEach((entrie: IntersectionObserverEntry & { target: HTMLImageElement }) => {
-            const src = entrie.target.getAttribute("data-src");
-            if ((typeof entrie.isIntersecting === "undefined" ? entrie.intersectionRatio !== 0 : entrie.isIntersecting) && src) {
-                entrie.target.src = src;
-                entrie.target.removeAttribute("data-src");
-            }
-        });
-    });
-    element.querySelectorAll("img").forEach((panelElement) => {
-        emojiIntersectionObserver.observe(panelElement);
-    });
-};
-
 const isEmojiMatched = (emoji: IEmojiItem, key: string) => {
     const lowerKey = key.toLowerCase();
     return unicode2Emoji(emoji.unicode) === key ||
@@ -112,73 +90,36 @@ const isEmojiMatched = (emoji: IEmojiItem, key: string) => {
         emoji.description_ja_jp.toLowerCase().includes(lowerKey);
 };
 
-export const filterEmoji = (key = "", max?: number, hideCustom = false, options?: {
+type TEmojiPanelOptions = {
     targetID?: string,
     hideDynamic?: boolean,
-}) => {
+    hideCustom?: boolean,
+};
+
+const emojiCategoryIcons: Record<string, string> = {
+    custom: "1f527",
+    people: "1f60d",
+    nature: "1f433",
+    food: "1f96a",
+    activity: "1f3a8",
+    travel: "1f3dd-fe0f",
+    objects: "1f52e",
+    symbols: "267e-fe0f",
+    flags: "1f6a9",
+};
+
+const emojiItemHTMLCache = new WeakMap<IEmojiItem, string>();
+
+const genEmojiSection = (title: string, content: string, groupName?: string, categoryID?: string) => {
+    const groupAttribute = typeof groupName === "string" ? ` data-group="${escapeAttr(escapeHtml(groupName))}"` : "";
+    const categoryAttribute = categoryID ? ` data-category="${escapeAttr(categoryID)}"` : "";
+    const titleHTML = title ? `<div class="emojis__title">${escapeHtml(title)}</div>` : "";
+    return `<div class="emojis__section"${groupAttribute}${categoryAttribute}>${titleHTML}<div class="emojis__content">${content}</div></div>`;
+};
+
+const getRecentEmojiButtons = (key: string, options: TEmojiPanelOptions) => {
+    const recentEmojiMap = getEmojiItemMap(window.siyuan.emojis, options.hideCustom);
     let html = "";
-    const recentEmojiMap = new Map<string, IEmojiItem>();
-    if (key) {
-        html = `<div class="emojis__title">${window.siyuan.languages.emoji}</div><div class="emojis__content">`;
-    }
-    let maxCount = 0;
-    let keyHTML = "";
-    const customStore: IEmojiItem[] = [];
-    window.siyuan.emojis.forEach((category, index) => {
-        if (hideCustom && category.id === "custom") {
-            return;
-        }
-        if (!key) {
-            html += `<div class="emojis__title" data-type="${index + 1}">${getEmojiTitle(index)}</div><div style="min-height:${index === 0 ? "30px" : "300px"}" class="emojis__content"${index > 1 ? ' data-index="' + index + '"' : ""}>`;
-        }
-        if (category.items.length === 0 && index === 0 && !key) {
-            html += `<div style="margin-left: 4px">${window.siyuan.languages.setEmojiTip}</div>`;
-        }
-
-        category.items.forEach(emoji => {
-            recentEmojiMap.set(emoji.unicode, emoji);
-            if (key) {
-                if (max && maxCount > max) {
-                    return;
-                }
-                if (isEmojiMatched(emoji, key)) {
-                    if (category.id === "custom") {
-                        customStore.push(emoji);
-                    } else {
-                        keyHTML += genEmojiButton(emoji.unicode, getEmojiDesc(emoji), true);
-                    }
-                    maxCount++;
-                }
-            } else if (index < 2) {
-                html += genEmojiButton(emoji.unicode, getEmojiDesc(emoji), true);
-            }
-        });
-        if (!key) {
-            html += "</div>";
-        }
-    });
-    if (key) {
-        customStore.sort((a, b) => {
-            const aKeywords = a.keywords.split("/");
-            const bKeywords = b.keywords.split("/");
-            if (aKeywords[aKeywords.length - 1].toLowerCase().indexOf(key.toLowerCase()) < bKeywords[bKeywords.length - 1].toLowerCase().indexOf(key.toLowerCase())) {
-                return -1;
-            }
-            return 0;
-        }).sort((a, b) => {
-            const aKeywords = a.keywords.split("/");
-            const bKeywords = b.keywords.split("/");
-            if (aKeywords[aKeywords.length - 1].toLowerCase().indexOf(key.toLowerCase()) === bKeywords[bKeywords.length - 1].toLowerCase().indexOf(key.toLowerCase()) && aKeywords[aKeywords.length - 1].length < bKeywords[bKeywords.length - 1].length) {
-                return -1;
-            }
-            return 0;
-        }).forEach(item => {
-            html += genEmojiButton(item.unicode, getEmojiDesc(item), true);
-        });
-        html = html + keyHTML + "</div>";
-    }
-
-    let recentItemsHTML = "";
     const renderedRecentValues = new Set<string>();
     window.siyuan.config.editor.emoji.forEach((value) => {
         const recentValue = normalizeRecentIconValue(value);
@@ -189,7 +130,7 @@ export const filterEmoji = (key = "", max?: number, hideCustom = false, options?
         const emoji = recentEmojiMap.get(recentValue);
         if (emoji) {
             if (!key || isEmojiMatched(emoji, key)) {
-                recentItemsHTML += genEmojiButton(emoji.unicode, getEmojiDesc(emoji), true);
+                html += genEmojiButton(emoji.unicode, getEmojiDesc(emoji), true);
             }
             return;
         }
@@ -203,15 +144,643 @@ export const filterEmoji = (key = "", max?: number, hideCustom = false, options?
         }
         const displayValue = bindDynamicIconTarget(recentValue, options?.targetID);
         const label = kind === "dynamic" ? window.siyuan.languages.dynamicIcon : recentValue;
-        recentItemsHTML += genEmojiButton(displayValue, label, true);
+        html += genEmojiButton(displayValue, label, true);
     });
-    const recentHTML = recentItemsHTML ?
-        `<div class="emojis__title" data-type="0">${window.siyuan.languages.recentEmoji}</div><div class="emojis__content">${recentItemsHTML}</div>` : "";
+    return html;
+};
 
-    if (recentHTML + html === "") {
-        return `<div class="emojis__title">${window.siyuan.languages.emptyContent}</div>`;
+const genEmojiSearchHTML = (key: string, max: number | undefined, options: TEmojiPanelOptions) => {
+    const {customItems, builtInItems} = collectEmojiMatches(
+        window.siyuan.emojis,
+        (item) => isEmojiMatched(item, key),
+        max,
+        options.hideCustom,
+    );
+    customItems.sort((a, b) => {
+        const lowerKey = key.toLowerCase();
+        const aName = a.keywords.split("/").pop().toLowerCase();
+        const bName = b.keywords.split("/").pop().toLowerCase();
+        const positionDiff = aName.indexOf(lowerKey) - bName.indexOf(lowerKey);
+        return positionDiff || aName.length - bName.length;
+    });
+    const resultHTML = [...customItems, ...builtInItems]
+        .map((item) => genEmojiButton(item.unicode, getEmojiDesc(item), true)).join("");
+    const recentHTML = getRecentEmojiButtons(key, options);
+    if (!recentHTML && !resultHTML) {
+        return `<div class="emojis__section"><div class="emojis__title">${window.siyuan.languages.emptyContent}</div></div>`;
     }
-    return recentHTML + html;
+    return (recentHTML ? genEmojiSection(window.siyuan.languages.recentEmoji, recentHTML) : "") +
+        (resultHTML ? genEmojiSection(window.siyuan.languages.emoji, resultHTML) : "");
+};
+
+export const genEmojiCategoryButtons = (hideCustom = false) => {
+    const categories = [{
+        id: "recent",
+        unicode: "1f552",
+        title: window.siyuan.languages.recentEmoji,
+    }];
+    window.siyuan.emojis.forEach((category, index) => {
+        if (hideCustom && category.id === "custom") {
+            return;
+        }
+        categories.push({
+            id: category.id,
+            unicode: emojiCategoryIcons[category.id] || "2753",
+            title: getEmojiTitle(index),
+        });
+    });
+    return categories.map((category) =>
+        `<button data-type="${escapeAttr(category.id)}" class="emojis__type ariaLabel" aria-label="${escapeAttr(escapeHtml(category.title))}">${unicode2Emoji(category.unicode)}</button>`
+    ).join("");
+};
+
+export class EmojiPanelController {
+    private categoryID = "";
+    private imageObserver?: IntersectionObserver;
+    private virtualObserver?: IntersectionObserver;
+    private selectionObserver?: IntersectionObserver;
+    private resizeObserver: ResizeObserver;
+    private active = true;
+    private pageMode: TEmojiPanelPageMode = "";
+    private searchMode = false;
+    private scrollFrame = 0;
+    private virtualTimer = 0;
+    private virtualKey = 0;
+    private columnCount = 10;
+    private selectedUnicode = "";
+    private categoryOffsets: {id: string, top: number}[] = [];
+    private builtInChunkOffsets: {element: HTMLElement, categoryID: string, top: number, bottom: number}[] = [];
+    private virtualItems = new Map<string, IEmojiItem[]>();
+    private virtualQueue = new Map<HTMLElement, boolean>();
+    private visibleChunks = new Set<HTMLElement>();
+
+    constructor(private panelElement: HTMLElement, private typeElement: HTMLElement, private options: TEmojiPanelOptions) {
+        this.panelElement.addEventListener("scroll", this.handleScroll, {passive: true});
+        this.resizeObserver = new ResizeObserver(() => {
+            if (!this.active || this.pageMode === "search" || this.panelElement.clientWidth === 0) {
+                return;
+            }
+            const columnCount = this.getColumnCount();
+            const resizeAction = getEmojiPanelResizeAction(this.pageMode, this.columnCount, columnCount);
+            if (resizeAction === "render") {
+                if (this.pageMode === "custom") {
+                    this.renderCustomPage();
+                } else {
+                    this.renderCommonPage(this.categoryID);
+                }
+            } else if (resizeAction === "refresh") {
+                this.updateCategoryOffsets();
+                this.updateBuiltInChunkOffsets();
+                this.renderVisibleBuiltInChunks(this.categoryID);
+                this.ensureCurrentSelection();
+            }
+        });
+        this.resizeObserver.observe(this.panelElement);
+    }
+
+    public setOptions(options: TEmojiPanelOptions) {
+        this.options = options;
+    }
+
+    public renderInitial() {
+        const recentHTML = getRecentEmojiButtons("", this.options);
+        const firstBuiltIn = window.siyuan.emojis.find((category) => category.id !== "custom");
+        this.renderCommonPage(recentHTML ? "recent" : firstBuiltIn?.id || "recent", recentHTML);
+    }
+
+    public renderCategory(categoryID: string) {
+        const category = window.siyuan.emojis.find((item) => item.id === categoryID);
+        if (categoryID !== "recent" && (!category || (this.options.hideCustom && category.id === "custom"))) {
+            this.renderInitial();
+            return;
+        }
+
+        if (category?.id === "custom") {
+            if (!this.searchMode && this.pageMode === "custom") {
+                this.panelElement.scrollTop = 0;
+                this.ensureCurrentSelection();
+                return;
+            }
+            this.renderCustomPage();
+            return;
+        }
+
+        if (category?.id !== "custom") {
+            const targetElement = this.getCategoryElement(categoryID);
+            if (!this.searchMode && this.pageMode === "common" && targetElement) {
+                this.categoryID = categoryID;
+                this.updateCurrentType();
+                this.scrollToCategory(targetElement);
+                return;
+            }
+            this.renderCommonPage(categoryID);
+        }
+    }
+
+    public renderSearch(key: string, max?: number) {
+        if (!key) {
+            if (this.categoryID) {
+                this.renderCategory(this.categoryID);
+            } else {
+                this.renderInitial();
+            }
+            return;
+        }
+        this.disconnectObservers();
+        this.resetVirtualState();
+        this.pageMode = "search";
+        this.searchMode = true;
+        this.panelElement.innerHTML = genEmojiSearchHTML(key, max, this.options);
+        this.panelElement.scrollTop = 0;
+        this.typeElement.classList.add("fn__none");
+        this.observeImages(this.panelElement);
+        this.selectFirst();
+    }
+
+    public loadMoreEmojis(direction: "previous" | "next" = "next") {
+        if (this.searchMode || (this.pageMode !== "common" && this.pageMode !== "custom")) {
+            return false;
+        }
+        const chunks = Array.from(this.panelElement.querySelectorAll<HTMLElement>(".emojis__chunk"));
+        const currentChunk = this.panelElement.querySelector(".emojis__item--current")?.closest<HTMLElement>(".emojis__chunk");
+        const currentIndex = currentChunk ? chunks.indexOf(currentChunk) : -1;
+        const adjacentChunk = direction === "previous" ? chunks[currentIndex - 1] : chunks[currentIndex + 1];
+        if (!adjacentChunk || adjacentChunk.childElementCount > 0) {
+            return false;
+        }
+        this.renderVirtualChunk(adjacentChunk);
+        return true;
+    }
+
+    public moveSelection(key: string) {
+        const nextElement = moveEmojiSelection(
+            this.panelElement,
+            key,
+            (direction) => this.loadMoreEmojis(direction),
+        );
+        if (nextElement) {
+            this.selectedUnicode = nextElement.dataset.unicode || "";
+        }
+        return nextElement;
+    }
+
+    public deactivate() {
+        this.active = false;
+        this.disconnectObservers();
+        this.resizeObserver.disconnect();
+    }
+
+    public activate() {
+        this.active = true;
+        this.resizeObserver.observe(this.panelElement);
+        if (!this.categoryID || this.panelElement.childElementCount === 0) {
+            this.renderInitial();
+            return;
+        }
+        this.observeImages(this.panelElement);
+        if (this.pageMode === "common") {
+            this.updateCategoryOffsets();
+            this.updateBuiltInChunkOffsets();
+            this.renderVisibleBuiltInChunks(this.categoryID);
+        }
+        if (this.pageMode === "custom") {
+            this.observeVirtualChunks();
+        }
+        this.ensureCurrentSelection();
+    }
+
+    public destroy() {
+        this.deactivate();
+        this.resetVirtualState();
+        this.panelElement.removeEventListener("scroll", this.handleScroll);
+        if (this.scrollFrame) {
+            cancelAnimationFrame(this.scrollFrame);
+        }
+    }
+
+    public getCurrentElement() {
+        return this.ensureCurrentSelection();
+    }
+
+    private renderCommonPage(categoryID: string, recentHTML = getRecentEmojiButtons("", this.options)) {
+        this.disconnectObservers();
+        this.resetVirtualState();
+        this.pageMode = "common";
+        this.searchMode = false;
+        this.columnCount = this.getColumnCount();
+        const sections: string[] = [];
+        if (recentHTML) {
+            sections.push(genEmojiSection(window.siyuan.languages.recentEmoji, recentHTML, undefined, "recent"));
+        }
+        window.siyuan.emojis.forEach((item, index) => {
+            if (item.id === "custom") {
+                return;
+            }
+            sections.push(this.genVirtualSection(getEmojiTitle(index), item.items, undefined, item.id));
+        });
+        this.panelElement.innerHTML = sections.join("") ||
+            `<div class="emojis__section"><div class="emojis__title">${window.siyuan.languages.emptyContent}</div></div>`;
+        this.panelElement.scrollTop = 0;
+        this.updateCategoryOffsets();
+        this.updateBuiltInChunkOffsets();
+        this.categoryID = this.getCategoryElement(categoryID)?.dataset.category ||
+            this.panelElement.querySelector<HTMLElement>(".emojis__section[data-category]")?.dataset.category || "recent";
+        this.typeElement.classList.remove("fn__none");
+        this.updateCurrentType();
+        this.observeImages(this.panelElement);
+        const targetElement = this.getCategoryElement(this.categoryID);
+        if (targetElement) {
+            this.scrollToCategory(targetElement);
+        } else {
+            this.selectFirst();
+        }
+        this.renderVisibleBuiltInChunks(this.categoryID);
+    }
+
+    private renderCustomPage() {
+        this.disconnectObservers();
+        this.resetVirtualState();
+        this.pageMode = "custom";
+        this.searchMode = false;
+        this.categoryID = "custom";
+        this.columnCount = this.getColumnCount();
+        const category = window.siyuan.emojis.find((item) => item.id === "custom");
+        if (!category || category.items.length === 0) {
+            this.panelElement.innerHTML = `<div class="emojis__section"><div class="emojis__title">${window.siyuan.languages.setEmojiTip}</div></div>`;
+        } else {
+            this.panelElement.innerHTML = groupCustomEmojiItems(category.items)
+                .map((group) => this.genVirtualSection(group.name, group.items, group.name)).join("");
+        }
+        this.panelElement.scrollTop = 0;
+        this.typeElement.classList.remove("fn__none");
+        this.updateCurrentType();
+        const firstChunk = this.panelElement.querySelector<HTMLElement>(".emojis__chunk");
+        if (firstChunk) {
+            this.renderVirtualChunk(firstChunk);
+            this.selectElement(firstChunk.querySelector(".emojis__item"));
+        }
+        this.observeVirtualChunks();
+    }
+
+    private genVirtualSection(title: string, items: IEmojiItem[], groupName?: string, categoryID?: string) {
+        const groupAttribute = typeof groupName === "string" ? ` data-group="${escapeAttr(escapeHtml(groupName))}"` : "";
+        const categoryAttribute = categoryID ? ` data-category="${escapeAttr(categoryID)}"` : "";
+        const titleHTML = title ? `<div class="emojis__title">${escapeHtml(title)}</div>` : "";
+        const chunksHTML = getEmojiVirtualChunks(items, this.columnCount).map((chunk) => {
+            const key = (++this.virtualKey).toString();
+            this.virtualItems.set(key, chunk);
+            const height = Math.ceil(chunk.length / this.columnCount) * 34;
+            return `<div class="emojis__content emojis__chunk" data-virtual-key="${key}" style="height:${height}px"></div>`;
+        }).join("");
+        return `<div class="emojis__section"${groupAttribute}${categoryAttribute}>${titleHTML}<div class="emojis__chunks">${chunksHTML}</div></div>`;
+    }
+
+    private getCategoryElement(categoryID: string) {
+        return Array.from(this.panelElement.querySelectorAll<HTMLElement>(".emojis__section[data-category]"))
+            .find((item) => item.dataset.category === categoryID);
+    }
+
+    private scrollToCategory(targetElement: HTMLElement) {
+        const firstChunk = targetElement.querySelector<HTMLElement>(".emojis__chunk");
+        if (firstChunk) {
+            this.renderVirtualChunk(firstChunk);
+        }
+        this.selectElement(targetElement.querySelector(".emojis__item"));
+        const categoryOffset = this.categoryOffsets.find((item) => item.id === targetElement.dataset.category);
+        if (categoryOffset) {
+            this.panelElement.scrollTop = categoryOffset.top;
+        }
+    }
+
+    private updateCategoryOffsets() {
+        const panelTop = this.panelElement.getBoundingClientRect().top;
+        this.categoryOffsets = Array.from(this.panelElement.querySelectorAll<HTMLElement>(".emojis__section[data-category]"))
+            .map((item) => ({
+                id: item.dataset.category || "",
+                top: item.getBoundingClientRect().top - panelTop + this.panelElement.scrollTop,
+            }));
+    }
+
+    private updateBuiltInChunkOffsets() {
+        const panelTop = this.panelElement.getBoundingClientRect().top;
+        const scrollTop = this.panelElement.scrollTop;
+        this.builtInChunkOffsets = Array.from(this.panelElement.querySelectorAll<HTMLElement>(".emojis__chunk"))
+            .map((element) => {
+                const rect = element.getBoundingClientRect();
+                const top = rect.top - panelTop + scrollTop;
+                const categoryID = element.closest<HTMLElement>(".emojis__section")?.dataset.category || "";
+                return {element, categoryID, top, bottom: top + rect.height};
+            });
+    }
+
+    private getColumnCount() {
+        if (this.panelElement.clientWidth === 0) {
+            return this.columnCount;
+        }
+        return Math.max(1, Math.floor(Math.max(34, this.panelElement.clientWidth - 12) / 34));
+    }
+
+    private observeVirtualChunks() {
+        this.virtualObserver?.disconnect();
+        this.selectionObserver?.disconnect();
+        this.visibleChunks.clear();
+        const chunks = this.panelElement.querySelectorAll<HTMLElement>(".emojis__chunk");
+        if (chunks.length === 0) {
+            this.virtualObserver = undefined;
+            this.selectionObserver = undefined;
+            return;
+        }
+        this.virtualObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    this.queueVirtualChunk(entry.target as HTMLElement, false);
+                }
+            });
+        }, {root: this.panelElement, rootMargin: "200% 0px"});
+        chunks.forEach((item) => this.virtualObserver.observe(item));
+        this.selectionObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                const element = entry.target as HTMLElement;
+                if (entry.isIntersecting) {
+                    this.visibleChunks.add(element);
+                    this.queueVirtualChunk(element, true);
+                } else {
+                    this.visibleChunks.delete(element);
+                }
+            });
+            this.syncVisibleSelection();
+        }, {root: this.panelElement});
+        chunks.forEach((item) => this.selectionObserver.observe(item));
+    }
+
+    private queueVirtualChunk(element: HTMLElement, priority: boolean) {
+        if (element.childElementCount > 0) {
+            this.virtualQueue.delete(element);
+            return;
+        }
+        this.virtualQueue.set(element, priority || this.virtualQueue.get(element) === true);
+        if (!this.virtualTimer) {
+            this.virtualTimer = window.setTimeout(() => this.flushVirtualQueue());
+        }
+    }
+
+    private flushVirtualQueue() {
+        this.virtualTimer = 0;
+        const queuedItems = Array.from(this.virtualQueue.entries());
+        const nextItem = queuedItems.find((item) => item[1]) || queuedItems[0];
+        if (!nextItem) {
+            return;
+        }
+        const [element] = nextItem;
+        this.virtualQueue.delete(element);
+        if (element.isConnected && this.panelElement.contains(element)) {
+            this.renderVirtualChunk(element);
+        }
+        if (this.virtualQueue.size > 0) {
+            this.virtualTimer = window.setTimeout(() => this.flushVirtualQueue());
+        }
+    }
+
+    private renderVirtualChunk(element: HTMLElement) {
+        if (element.childElementCount > 0) {
+            return;
+        }
+        const items = this.virtualItems.get(element.dataset.virtualKey);
+        if (!items) {
+            return;
+        }
+        element.innerHTML = items.map((item) => this.getItemHTML(item)).join("");
+        this.observeImages(element);
+        this.restoreVirtualSelection(element);
+    }
+
+    private getItemHTML(item: IEmojiItem) {
+        let html = emojiItemHTMLCache.get(item);
+        if (!html) {
+            html = genEmojiButton(item.unicode, getEmojiDesc(item), true);
+            emojiItemHTMLCache.set(item, html);
+        }
+        return html;
+    }
+
+    private restoreVirtualSelection(element: HTMLElement) {
+        if (!this.visibleChunks.has(element)) {
+            return;
+        }
+        const currentElement = this.panelElement.querySelector<HTMLElement>(".emojis__item--current");
+        const currentChunk = currentElement?.closest<HTMLElement>(".emojis__chunk");
+        const currentCategoryID = currentElement?.closest<HTMLElement>(".emojis__section")?.dataset.category;
+        if (currentElement && ((currentChunk && this.visibleChunks.has(currentChunk)) ||
+            (!currentChunk && this.pageMode === "common" && currentCategoryID === this.categoryID))) {
+            return;
+        }
+        const selectedElement = Array.from(element.querySelectorAll<HTMLElement>(".emojis__item"))
+            .find((item) => item.dataset.unicode === this.selectedUnicode);
+        if (selectedElement) {
+            this.selectElement(selectedElement);
+            return;
+        }
+        this.selectElement(element.querySelector(".emojis__item"));
+    }
+
+    private ensureCurrentSelection() {
+        const currentElement = this.panelElement.querySelector<HTMLElement>(".emojis__item--current");
+        const currentChunk = currentElement?.closest<HTMLElement>(".emojis__chunk");
+        const currentCategoryID = currentElement?.closest<HTMLElement>(".emojis__section")?.dataset.category;
+        if (currentElement && ((currentChunk && this.visibleChunks.has(currentChunk)) ||
+            (!currentChunk && (this.pageMode !== "common" || currentCategoryID === this.categoryID)))) {
+            return currentElement;
+        }
+        const categoryElement = this.pageMode === "common" ? this.getCategoryElement(this.categoryID) : undefined;
+        const visibleChunk = this.pageMode === "common" ? this.renderVisibleBuiltInChunks(this.categoryID) :
+            Array.from(this.visibleChunks).find((item) => item.childElementCount > 0);
+        if (visibleChunk) {
+            this.renderVirtualChunk(visibleChunk);
+        }
+        const firstCategoryChunk = categoryElement?.querySelector<HTMLElement>(".emojis__chunk");
+        if (!visibleChunk && firstCategoryChunk) {
+            this.renderVirtualChunk(firstCategoryChunk);
+        }
+        const nextElement = visibleChunk?.querySelector<HTMLElement>(".emojis__item") ||
+            firstCategoryChunk?.querySelector<HTMLElement>(".emojis__item") ||
+            categoryElement?.querySelector<HTMLElement>(".emojis__item") ||
+            this.panelElement.querySelector<HTMLElement>(".emojis__item");
+        this.selectElement(nextElement);
+        return nextElement;
+    }
+
+    private syncVisibleSelection() {
+        const currentElement = this.panelElement.querySelector<HTMLElement>(".emojis__item--current");
+        const currentChunk = currentElement?.closest<HTMLElement>(".emojis__chunk");
+        if (currentChunk && this.visibleChunks.has(currentChunk)) {
+            return;
+        }
+        const visibleChunk = Array.from(this.visibleChunks).find((item) => item.childElementCount > 0);
+        if (visibleChunk) {
+            this.selectElement(visibleChunk.querySelector(".emojis__item"));
+        }
+    }
+
+    private renderVisibleBuiltInChunks(categoryID: string) {
+        const viewportTop = this.panelElement.scrollTop;
+        const viewportBottom = viewportTop + this.panelElement.clientHeight;
+        let firstVisibleChunk: HTMLElement | undefined;
+        let categoryChunk: HTMLElement | undefined;
+        this.builtInChunkOffsets.forEach((item) => {
+            if (item.bottom <= viewportTop || item.top >= viewportBottom) {
+                return;
+            }
+            firstVisibleChunk ||= item.element;
+            if (item.categoryID === categoryID) {
+                categoryChunk ||= item.element;
+            }
+            this.renderVirtualChunk(item.element);
+        });
+        return categoryChunk || firstVisibleChunk;
+    }
+
+    private selectElement(element?: HTMLElement | null) {
+        if (!element) {
+            return;
+        }
+        this.panelElement.querySelector(".emojis__item--current")?.classList.remove("emojis__item--current");
+        element.classList.add("emojis__item--current");
+        this.selectedUnicode = element.dataset.unicode || "";
+    }
+
+    private resetVirtualState() {
+        this.categoryOffsets = [];
+        this.builtInChunkOffsets = [];
+        this.virtualItems.clear();
+        this.virtualQueue.clear();
+        this.visibleChunks.clear();
+        this.virtualKey = 0;
+        this.selectedUnicode = "";
+    }
+
+    private handleScroll = () => {
+        if (this.searchMode || this.categoryID === "custom") {
+            return;
+        }
+        if (this.scrollFrame) {
+            return;
+        }
+        this.scrollFrame = requestAnimationFrame(() => {
+            this.scrollFrame = 0;
+            if (this.categoryOffsets.length === 0) {
+                return;
+            }
+            const categoryID = getActiveEmojiCategory(
+                this.categoryOffsets,
+                this.panelElement.scrollTop,
+                this.panelElement.scrollTop + this.panelElement.clientHeight >= this.panelElement.scrollHeight - 1,
+            );
+            if (categoryID) {
+                this.renderVisibleBuiltInChunks(categoryID);
+            }
+            if (categoryID && categoryID !== this.categoryID) {
+                this.categoryID = categoryID;
+                this.updateCurrentType();
+            }
+        });
+    };
+
+    private selectFirst() {
+        this.selectElement(this.panelElement.querySelector(".emojis__item"));
+    }
+
+    private updateCurrentType() {
+        this.typeElement.querySelectorAll(".emojis__type").forEach((item: HTMLElement) => {
+            item.classList.toggle("emojis__type--current", item.dataset.type === this.categoryID);
+        });
+    }
+
+    private observeImages(element: Element) {
+        if (!this.imageObserver) {
+            this.imageObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) {
+                        return;
+                    }
+                    const imageElement = entry.target as HTMLImageElement;
+                    const src = imageElement.dataset.src;
+                    if (src) {
+                        imageElement.src = src;
+                        imageElement.removeAttribute("data-src");
+                    }
+                    this.imageObserver?.unobserve(imageElement);
+                });
+            }, {root: this.panelElement, rootMargin: "64px"});
+        }
+        element.querySelectorAll("img[data-src]").forEach((item) => this.imageObserver.observe(item));
+    }
+
+    private disconnectObservers() {
+        this.virtualObserver?.disconnect();
+        this.virtualObserver = undefined;
+        this.selectionObserver?.disconnect();
+        this.selectionObserver = undefined;
+        this.imageObserver?.disconnect();
+        this.imageObserver = undefined;
+        if (this.virtualTimer) {
+            clearTimeout(this.virtualTimer);
+            this.virtualTimer = 0;
+        }
+        this.virtualQueue.clear();
+        this.visibleChunks.clear();
+    }
+}
+
+export const moveEmojiSelection = (
+    panelElement: HTMLElement,
+    key: string,
+    loadMore?: (direction: "previous" | "next") => boolean,
+) => {
+    let items = Array.from(panelElement.querySelectorAll<HTMLElement>(".emojis__item"));
+    const currentElement = panelElement.querySelector<HTMLElement>(".emojis__item--current") || items[0];
+    if (!currentElement || !key.startsWith("Arrow")) {
+        return;
+    }
+    let currentIndex = items.indexOf(currentElement);
+    const columnCount = Math.max(1, Math.floor(currentElement.parentElement.clientWidth / 34));
+    const currentContent = currentElement.closest<HTMLElement>(".emojis__content");
+    const contentItems = currentContent ? Array.from(currentContent.querySelectorAll<HTMLElement>(".emojis__item")) : items;
+    const contentIndex = contentItems.indexOf(currentElement);
+    const direction = (key === "ArrowLeft" && contentIndex === 0) ||
+        (key === "ArrowUp" && contentIndex < columnCount) ? "previous" :
+        (key === "ArrowRight" && contentIndex === contentItems.length - 1) ||
+        (key === "ArrowDown" && contentIndex + columnCount >= contentItems.length) ? "next" : undefined;
+    if (direction) {
+        if (loadMore?.(direction)) {
+            items = Array.from(panelElement.querySelectorAll<HTMLElement>(".emojis__item"));
+            currentIndex = items.indexOf(currentElement);
+        }
+    }
+    let nextIndex = currentIndex;
+    if (key === "ArrowLeft") {
+        nextIndex--;
+    } else if (key === "ArrowRight") {
+        nextIndex++;
+    } else if (key === "ArrowUp") {
+        nextIndex -= columnCount;
+    } else if (key === "ArrowDown") {
+        nextIndex += columnCount;
+    }
+    nextIndex = Math.max(0, Math.min(items.length - 1, nextIndex));
+    const nextElement = items[nextIndex];
+    if (nextElement === currentElement) {
+        return currentElement;
+    }
+    currentElement.classList.remove("emojis__item--current");
+    nextElement.classList.add("emojis__item--current");
+    const panelRect = panelElement.getBoundingClientRect();
+    const itemRect = nextElement.getBoundingClientRect();
+    if (itemRect.top < panelRect.top + 32) {
+        panelElement.scrollTop -= panelRect.top + 32 - itemRect.top;
+    } else if (itemRect.bottom > panelRect.bottom) {
+        panelElement.scrollTop += itemRect.bottom - panelRect.bottom;
+    }
+    return nextElement;
 };
 
 export const addEmoji = (unicode: string) => {
@@ -246,22 +815,9 @@ const genWeekdayOptions = (lang: string, weekdayType: string) => {
 <option value="4" ${weekdayType === "4" ? " selected" : ""}>${dynamicWeekdayLang[4][currentLang]}</option>`;
 };
 
-const renderEmojiContent = (previousIndex: string, previousContentElement: Element) => {
-    if (!previousIndex) {
-        return;
-    }
-    let html = "";
-    window.siyuan.emojis[parseInt(previousIndex)].items.forEach(emoji => {
-        html += `<button data-unicode="${escapeAttr(emoji.unicode)}" class="emojis__item ariaLabel" aria-label="${getEmojiDesc(emoji)}">${unicode2Emoji(emoji.unicode)}</button>`;
-    });
-    previousContentElement.innerHTML = html;
-    previousContentElement.removeAttribute("data-index");
-    previousContentElement.removeAttribute("style");
-};
-
 export const openEmojiPanel = (
     id: string,
-    type: "doc" | "notebook" | "av",
+    type: "doc" | "notebook" | "av" | "insert",
     position: IPosition,
     callback?: (emoji: string) => void,
     dynamicImgElement?: HTMLElement,
@@ -279,6 +835,9 @@ export const openEmojiPanel = (
 
     const popoverElement = options?.ownerElement?.closest<HTMLElement>(".block__popover");
     const targetID = options?.targetID || id;
+    const customCategoryIndex = window.siyuan.emojis.findIndex((item) => item.id === "custom");
+    const customEmojiLabel = customCategoryIndex > -1 ?
+        getEmojiTitle(customCategoryIndex) : window.siyuan.languages.customEmoji;
     const dynamicURL = "api/icon/getDynamicIcon?";
     const dynamicCurrentObj: Record<string, any> = {
         color: "#d23f31",
@@ -307,6 +866,7 @@ export const openEmojiPanel = (
     );
     let pastedCustomIconFile: File | undefined;
     let pastedCustomIconObjectURL = "";
+    const emojiPanelState: {controller?: EmojiPanelController} = {};
     const clearPastedCustomIcon = () => {
         pastedCustomIconFile = undefined;
         if (pastedCustomIconObjectURL) {
@@ -321,16 +881,21 @@ export const openEmojiPanel = (
         hideCloseIcon: true,
         width: isMobile() ? "80vw" : "368px",
         height: "50vh",
-        destroyCallback: clearPastedCustomIcon,
+        destroyCallback: () => {
+            clearPastedCustomIcon();
+            emojiPanelState.controller?.destroy();
+        },
         content: `<div class="emojis">
     <div class="emojis__tabheader">
         <div data-type="tab-emoji" class="ariaLabel block__icon block__icon--show" aria-label="${window.siyuan.languages.emoji}"><svg><use xlink:href="#iconEmoji"></use></svg></div>
+        <div class="fn__space"></div>
+        <div data-type="tab-custom" class="ariaLabel block__icon block__icon--show${options?.custom ? " fn__none" : ""}" aria-label="${escapeAttr(escapeHtml(customEmojiLabel))}"><svg><use xlink:href="#iconStar"></use></svg></div>
         <div class="fn__space"></div>
         <div data-type="tab-dynamic" class="ariaLabel block__icon block__icon--show${options?.dynamic ? " fn__none" : ""}" aria-label="${window.siyuan.languages.dynamicIcon}"><svg><use xlink:href="#iconCalendar"></use></svg></div>
         <div class="fn__space${type === "av" ? " fn__none" : ""}"></div>
         <div data-type="tab-link" class="ariaLabel block__icon block__icon--show${type === "av" ? " fn__none" : ""}" aria-label="${window.siyuan.languages.upload} ${window.siyuan.languages.image}"><svg><use xlink:href="#iconUpload"></use></svg></div>
         <div class="fn__flex-1"></div>
-        <span class="block__icon block__icon--show fn__flex-center ariaLabel" data-action="remove" aria-label="${window.siyuan.languages.remove}"><svg><use xlink:href="#iconTrashcan"></use></svg></span>
+        <span class="block__icon block__icon--show fn__flex-center ariaLabel${type === "insert" ? " fn__none" : ""}" data-action="remove" aria-label="${window.siyuan.languages.remove}"><svg><use xlink:href="#iconTrashcan"></use></svg></span>
     </div>
     <div class="emojis__tabbody">
         <div class="fn__none" data-type="tab-emoji">
@@ -342,32 +907,12 @@ export const openEmojiPanel = (
                     <input class="b3-form__icon-input b3-text-field fn__block" placeholder="${window.siyuan.languages.searchPlaceholder}">
                 </label>
                 <span class="fn__space"></span>
-                <span class="block__icon block__icon--show fn__flex-center ariaLabel" data-action="random" aria-label="${window.siyuan.languages.random}"><svg><use xlink:href="#iconRefresh"></use></svg></span>
+                <span class="block__icon block__icon--show fn__flex-center ariaLabel" data-action="random" aria-label="${window.siyuan.languages.random}"><svg><use xlink:href="#iconDices"></use></svg></span>
                 <span class="fn__space"></span>
             </div>
-            <div class="emojis__panel">${filterEmoji("", null, options?.custom, {
-        targetID,
-        hideDynamic: options?.dynamic,
-    })}</div>
-            <div class="fn__flex">
-                ${[
-            ["2b50", window.siyuan.languages.recentEmoji],
-            ["1f527", getEmojiTitle(0)],
-            ["1f60d", getEmojiTitle(1)],
-            ["1f433", getEmojiTitle(2)],
-            ["1f96a", getEmojiTitle(3)],
-            ["1f3a8", getEmojiTitle(4)],
-            ["1f3dd-fe0f", getEmojiTitle(5)],
-            ["1f52e", getEmojiTitle(6)],
-            ["267e-fe0f", getEmojiTitle(7)],
-            ["1f6a9", getEmojiTitle(8)],
-        ].map(([unicode, title], index) => {
-            if (options?.custom && index === 1) {
-                return "";
-            }
-            return `<div data-type="${index}" class="emojis__type ariaLabel" aria-label="${title}">${unicode2Emoji(unicode)}</div>`;
-        }).join("")}
-            </div>
+            <div class="fn__hr"></div>
+            <div class="emojis__panel"></div>
+            <div class="emojis__types">${genEmojiCategoryButtons(true)}</div>
         </div>
         <div class="fn__none" data-type="tab-dynamic">
             <div class="fn__flex emoji__dynamic-color">
@@ -475,7 +1020,12 @@ export const openEmojiPanel = (
                     <span class="b3-label__text">${window.siyuan.languages.fileName}</span>
                     <input class="b3-text-field fn__block" data-type="custom-icon-name" placeholder="path/to/icon">
                 </label>
-                <div class="emojis__link-footer">
+                <div class="fn__none emojis__link-footer emojis__link-footer--choice">
+                    <button class="b3-button b3-button--cancel emojis__link-choice-back" data-action="back-custom-icon">${window.siyuan.languages.returnLabel}</button>
+                    <button class="b3-button b3-button--cancel" data-action="use-network-icon">${window.siyuan.languages.use} URL</button>
+                    <button class="b3-button b3-button--text" data-action="localize-network-icon">${window.siyuan.languages.netImg2LocalAsset}</button>
+                </div>
+                <div class="emojis__link-footer emojis__link-footer--save">
                     <button class="b3-button b3-button--cancel" data-action="back-custom-icon">${window.siyuan.languages.returnLabel}</button>
                     <button class="b3-button b3-button--text" data-action="set-network-icon" disabled>${window.siyuan.languages.save}</button>
                 </div>
@@ -500,10 +1050,11 @@ export const openEmojiPanel = (
     if (!currentTabElement || currentTabElement.classList.contains("fn__none")) {
         currentTab = "emoji";
     }
+    let customEmojiPage = currentTab === "custom";
+    const currentBodyTab = customEmojiPage ? "emoji" : currentTab;
     dialog.element.querySelector(`.emojis__tabheader [data-type="tab-${currentTab}"]`).classList.add("block__icon--active");
-    dialog.element.querySelector(`.emojis__tabbody [data-type="tab-${currentTab}"]`).classList.remove("fn__none");
+    dialog.element.querySelector(`.emojis__tabbody [data-type="tab-${currentBodyTab}"]`).classList.remove("fn__none");
     setPosition(dialog.element.querySelector(".b3-dialog__container"), position.x, position.y, position.h, position.w);
-    dialog.element.querySelector(".emojis__item").classList.add("emojis__item--current");
     const networkIconInputElement = dialog.element.querySelector('[data-type="network-icon-url"]') as HTMLTextAreaElement;
     const customIconFileElement = dialog.element.querySelector('[data-type="custom-icon-file"]') as HTMLInputElement;
     const customIconNameElement = dialog.element.querySelector('[data-type="custom-icon-name"]') as HTMLInputElement;
@@ -514,7 +1065,10 @@ export const openEmojiPanel = (
     const linkIconDetailElement = dialog.element.querySelector(".emojis__link-detail");
     const linkIconSampleElements = dialog.element.querySelectorAll(".emojis__link-sample");
     const linkIconConfirmElement = dialog.element.querySelector('[data-action="confirm-custom-icon"]') as HTMLButtonElement;
+    const linkIconChoiceFooterElement = dialog.element.querySelector(".emojis__link-footer--choice");
+    const linkIconSaveFooterElement = dialog.element.querySelector(".emojis__link-footer--save");
     const linkIconSaveElement = dialog.element.querySelector('[data-action="set-network-icon"]') as HTMLButtonElement;
+    let localizeNetworkIcon = false;
     networkIconInputElement.value = normalizeNetworkIconURL(dynamicImgElement?.getAttribute("src") || "") || "";
     const showLinkIconView = (view: "empty" | "input" | "detail") => {
         linkIconEmptyElement.classList.toggle("fn__none", view !== "empty");
@@ -528,13 +1082,16 @@ export const openEmojiPanel = (
     const renderNetworkIconPreview = () => {
         const networkURL = normalizeNetworkIconURL(networkIconInputElement.value);
         const base64Image = parseBase64Image(networkIconInputElement.value);
-        const customIcon = !!pastedCustomIconFile || !!base64Image;
         const previewSource = pastedCustomIconObjectURL ||
             (base64Image ? networkIconInputElement.value.trim() : networkURL);
         const hasIcon = !!previewSource;
+        const chooseNetworkIcon = !!networkURL && !localizeNetworkIcon;
+        const localIcon = hasIcon && !chooseNetworkIcon;
         showLinkIconView(hasIcon ? "detail" : "empty");
-        customIconNameLabelElement.classList.toggle("fn__none", !customIcon);
-        linkIconSaveElement.disabled = !hasIcon || (customIcon && !customIconNameElement.value.trim());
+        linkIconChoiceFooterElement.classList.toggle("fn__none", !chooseNetworkIcon);
+        linkIconSaveFooterElement.classList.toggle("fn__none", chooseNetworkIcon);
+        customIconNameLabelElement.classList.toggle("fn__none", !localIcon);
+        linkIconSaveElement.disabled = !hasIcon || (localIcon && !customIconNameElement.value.trim());
         linkIconSampleElements.forEach(item => {
             item.innerHTML = "";
             if (!previewSource) {
@@ -553,6 +1110,7 @@ export const openEmojiPanel = (
         networkIconInputElement.value = "";
         customIconFileElement.value = "";
         customIconNameElement.value = "";
+        localizeNetworkIcon = false;
         updateLinkIconInput();
         renderNetworkIconPreview();
         linkIconElement.focus();
@@ -562,6 +1120,7 @@ export const openEmojiPanel = (
         networkIconInputElement.value = "";
         customIconFileElement.value = "";
         customIconNameElement.value = "";
+        localizeNetworkIcon = false;
         updateLinkIconInput();
         showLinkIconView("input");
         networkIconInputElement.focus();
@@ -573,8 +1132,9 @@ export const openEmojiPanel = (
         }
         clearPastedCustomIcon();
         customIconNameElement.value = "";
+        localizeNetworkIcon = false;
         renderNetworkIconPreview();
-        if (parseBase64Image(networkIconInputElement.value)) {
+        if (!normalizeNetworkIconURL(networkIconInputElement.value)) {
             customIconNameElement.focus();
         }
     };
@@ -583,7 +1143,8 @@ export const openEmojiPanel = (
         pastedCustomIconFile = file;
         pastedCustomIconObjectURL = URL.createObjectURL(file);
         networkIconInputElement.value = "";
-        customIconNameElement.value = file.name.replace(/\.[^.]+$/, "");
+        customIconNameElement.value = file.name;
+        localizeNetworkIcon = false;
         renderNetworkIconPreview();
         customIconNameElement.focus();
     };
@@ -610,15 +1171,31 @@ export const openEmojiPanel = (
         addEmoji(unicode);
         dialog.destroy();
     };
-    const setNetworkIcon = () => {
+    const useNetworkIcon = () => {
         const networkURL = normalizeNetworkIconURL(networkIconInputElement.value);
         if (networkURL) {
             applyLinkIcon(networkURL);
+        }
+    };
+    const localizeNetworkIconFile = () => {
+        localizeNetworkIcon = true;
+        customIconNameElement.value = getNetworkIconName(networkIconInputElement.value);
+        renderNetworkIconPreview();
+        customIconNameElement.focus();
+    };
+    const backLinkIcon = () => {
+        if (normalizeNetworkIconURL(networkIconInputElement.value) && localizeNetworkIcon) {
+            localizeNetworkIcon = false;
+            customIconNameElement.value = "";
+            renderNetworkIconPreview();
             return;
         }
-
+        resetLinkIcon();
+    };
+    const setNetworkIcon = () => {
+        const networkURL = normalizeNetworkIconURL(networkIconInputElement.value);
         let customIconFile = pastedCustomIconFile;
-        if (!customIconFile) {
+        if (!networkURL && !customIconFile) {
             const base64Image = parseBase64Image(networkIconInputElement.value);
             if (base64Image) {
                 customIconFile = new File(
@@ -628,7 +1205,7 @@ export const openEmojiPanel = (
                 );
             }
         }
-        if (!customIconFile) {
+        if (!networkURL && !customIconFile) {
             showMessage(window.siyuan.languages.invalid);
             return;
         }
@@ -640,14 +1217,22 @@ export const openEmojiPanel = (
 
         const formData = new FormData();
         formData.append("name", customIconNameElement.value);
-        formData.append("file", customIconFile);
+        if (networkURL) {
+            formData.append("url", networkURL);
+        } else {
+            formData.append("file", customIconFile);
+        }
         fetchPost("/api/system/addCustomEmoji", formData, (response) => {
             if (typeof response?.data?.path !== "string") {
                 showMessage(window.siyuan.languages.kernelFault8);
                 return;
             }
-            reloadEmoji();
-            applyLinkIcon(response.data.path);
+            if (type === "insert") {
+                reloadEmoji(() => applyLinkIcon(response.data.path));
+            } else {
+                reloadEmoji();
+                applyLinkIcon(response.data.path);
+            }
         });
     };
     customIconFileElement.addEventListener("change", () => {
@@ -680,6 +1265,7 @@ export const openEmojiPanel = (
         clearPastedCustomIcon();
         networkIconInputElement.value = text;
         customIconNameElement.value = "";
+        localizeNetworkIcon = false;
         renderNetworkIconPreview();
         if (parseBase64Image(text)) {
             customIconNameElement.focus();
@@ -696,43 +1282,24 @@ export const openEmojiPanel = (
     });
     renderNetworkIconPreview();
     const emojiSearchInputElement = dialog.element.querySelector('[data-type="tab-emoji"] .b3-text-field') as HTMLInputElement;
-    const emojisContentElement = dialog.element.querySelector(".emojis__panel");
-    emojiSearchInputElement.addEventListener("compositionend", () => {
-        emojisContentElement.innerHTML = filterEmoji(emojiSearchInputElement.value, null, options?.custom, {
+    const emojisContentElement = dialog.element.querySelector(".emojis__panel") as HTMLElement;
+    const emojiPanelController = new EmojiPanelController(
+        emojisContentElement,
+        emojisContentElement.nextElementSibling as HTMLElement,
+        {
             targetID,
             hideDynamic: options?.dynamic,
-        });
-        if (emojiSearchInputElement.value) {
-            emojisContentElement.nextElementSibling.classList.add("fn__none");
-        } else {
-            emojisContentElement.nextElementSibling.classList.remove("fn__none");
-        }
-        emojisContentElement.scrollTop = 0;
-        dialog.element.querySelector(".emojis__item")?.classList.add("emojis__item--current");
-        if (emojiSearchInputElement.value === "") {
-            lazyLoadEmoji(dialog.element);
-        }
-        lazyLoadEmojiImg(dialog.element);
-    });
+            hideCustom: options?.custom,
+        },
+    );
+    emojiPanelState.controller = emojiPanelController;
+    const renderEmojiSearch = () => emojiPanelController.renderSearch(emojiSearchInputElement.value);
+    emojiSearchInputElement.addEventListener("compositionend", renderEmojiSearch);
     emojiSearchInputElement.addEventListener("input", (event: InputEvent) => {
         if (event.isComposing) {
             return;
         }
-        emojisContentElement.innerHTML = filterEmoji(emojiSearchInputElement.value, null, options?.custom, {
-            targetID,
-            hideDynamic: options?.dynamic,
-        });
-        if (emojiSearchInputElement.value) {
-            emojisContentElement.nextElementSibling.classList.add("fn__none");
-        } else {
-            emojisContentElement.nextElementSibling.classList.remove("fn__none");
-        }
-        emojisContentElement.scrollTop = 0;
-        dialog.element.querySelector(".emojis__item")?.classList.add("emojis__item--current");
-        if (emojiSearchInputElement.value === "") {
-            lazyLoadEmoji(dialog.element);
-        }
-        lazyLoadEmojiImg(dialog.element);
+        renderEmojiSearch();
     });
     emojiSearchInputElement.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.isComposing) {
@@ -741,134 +1308,42 @@ export const openEmojiPanel = (
         if (event.key.indexOf("Arrow") === -1 && event.key !== "Enter") {
             return;
         }
-        const currentElement: HTMLElement = dialog.element.querySelector(".emojis__item--current");
+        const currentElement = emojiPanelController.getCurrentElement();
         if (!currentElement) {
             return;
         }
         if (event.key === "Enter") {
-            const unicode = currentElement.getAttribute("data-unicode");
-            if (type === "notebook") {
-                fetchPost("/api/notebook/setNotebookIcon", {
-                    notebook: id,
-                    icon: unicode
-                }, () => {
-                    dialog.destroy();
-                    updateFileTreeEmoji(unicode, id, "iconNewNoteBook");
-                });
-            } else if (type === "doc") {
-                fetchPost("/api/attr/setBlockAttrs", {
-                    id,
-                    attrs: {"icon": unicode}
-                }, () => {
-                    dialog.destroy();
-                    updateFileTreeEmoji(unicode, id);
-                    updateOutlineEmoji(unicode, id);
-                });
-            }
-            if (callback) {
-                callback(unicode);
-            }
-            addEmoji(unicode);
+            applyLinkIcon(currentElement.getAttribute("data-unicode"));
             event.preventDefault();
             event.stopPropagation();
             return;
         }
-        let newCurrentElement: HTMLElement;
-        if (event.key === "ArrowLeft") {
-            if (currentElement.previousElementSibling) {
-                currentElement.classList.remove("emojis__item--current");
-                newCurrentElement = currentElement.previousElementSibling as HTMLElement;
-                event.preventDefault();
-                event.stopPropagation();
-            } else if (currentElement.parentElement.previousElementSibling?.previousElementSibling) {
-                currentElement.classList.remove("emojis__item--current");
-                newCurrentElement = currentElement.parentElement.previousElementSibling.previousElementSibling.lastElementChild as HTMLElement;
-                event.preventDefault();
-                event.stopPropagation();
-            }
-        } else if (event.key === "ArrowRight") {
-            if (currentElement.nextElementSibling) {
-                currentElement.classList.remove("emojis__item--current");
-                newCurrentElement = currentElement.nextElementSibling as HTMLElement;
-                event.preventDefault();
-                event.stopPropagation();
-            } else if (currentElement.parentElement.nextElementSibling?.nextElementSibling) {
-                currentElement.classList.remove("emojis__item--current");
-                newCurrentElement = currentElement.parentElement.nextElementSibling.nextElementSibling.firstElementChild as HTMLElement;
-                event.preventDefault();
-                event.stopPropagation();
-            }
-        } else if (event.key === "ArrowDown") {
-            if (!currentElement.nextElementSibling) {
-                const nextContentElement = currentElement.parentElement.nextElementSibling?.nextElementSibling;
-                if (nextContentElement) {
-                    newCurrentElement = nextContentElement.firstElementChild as HTMLElement;
-                    currentElement.classList.remove("emojis__item--current");
-                }
-            } else {
-                currentElement.classList.remove("emojis__item--current");
-                let counter = Math.floor(currentElement.parentElement.clientWidth / (currentElement.clientWidth + 2));
-                newCurrentElement = currentElement;
-                while (newCurrentElement.nextElementSibling && counter > 0) {
-                    newCurrentElement = newCurrentElement.nextElementSibling as HTMLElement;
-                    counter--;
-                }
-            }
-            event.preventDefault();
-            event.stopPropagation();
-        } else if (event.key === "ArrowUp") {
-            if (!currentElement.previousElementSibling) {
-                const prevContentElement = currentElement.parentElement.previousElementSibling?.previousElementSibling;
-                if (prevContentElement) {
-                    newCurrentElement = prevContentElement.lastElementChild as HTMLElement;
-                    currentElement.classList.remove("emojis__item--current");
-                }
-            } else {
-                currentElement.classList.remove("emojis__item--current");
-                let counter = Math.floor(currentElement.parentElement.clientWidth / (currentElement.clientWidth + 2));
-                newCurrentElement = currentElement;
-                while (newCurrentElement.previousElementSibling && counter > 0) {
-                    newCurrentElement = newCurrentElement.previousElementSibling as HTMLElement;
-                    counter--;
-                }
-            }
-            event.preventDefault();
-            event.stopPropagation();
-        }
-        if (newCurrentElement) {
-            newCurrentElement.classList.add("emojis__item--current");
-            const inputHeight = emojiSearchInputElement.clientHeight + 6;
-            if (newCurrentElement.offsetTop - inputHeight < emojisContentElement.scrollTop) {
-                emojisContentElement.scrollTop = newCurrentElement.offsetTop - inputHeight - 6;
-            } else if (newCurrentElement.offsetTop - inputHeight - emojisContentElement.clientHeight + newCurrentElement.clientHeight > emojisContentElement.scrollTop) {
-                emojisContentElement.scrollTop = newCurrentElement.offsetTop - inputHeight - emojisContentElement.clientHeight + newCurrentElement.clientHeight;
-            }
-        }
+        emojiPanelController.moveSelection(event.key);
+        event.preventDefault();
+        event.stopPropagation();
     });
-    if (!isMobile() && currentTab === "emoji") {
+    if (customEmojiPage) {
+        emojiPanelController.renderCategory("custom");
+        emojiPanelController.activate();
+    } else if (currentTab === "emoji") {
+        emojiPanelController.activate();
+    }
+    if (!isMobile() && (currentTab === "emoji" || customEmojiPage)) {
         emojiSearchInputElement.focus();
     } else if (!isMobile() && currentTab === "link") {
         linkIconElement.focus();
     }
-    lazyLoadEmoji(dialog.element);
-    lazyLoadEmojiImg(dialog.element);
     // 不能使用 getEventName 否则 https://github.com/siyuan-note/siyuan/issues/5472
     dialog.element.addEventListener("click", (event) => {
         let target = event.target as HTMLElement;
         while (target && target !== dialog.element) {
             if (target.classList.contains("emojis__type")) {
-                const titleElement = emojisContentElement.querySelector(`[data-type="${target.getAttribute("data-type")}"]`) as HTMLElement;
-                if (titleElement) {
-                    const index = titleElement.nextElementSibling.getAttribute("data-index");
-                    if (index) {
-                        renderEmojiContent(titleElement.previousElementSibling?.getAttribute("data-index"), titleElement.previousElementSibling);
-                        renderEmojiContent(index, titleElement.nextElementSibling);
-                    }
-                    emojisContentElement.scrollTo({
-                        top: titleElement.offsetTop - 77,
-                        // behavior: "smooth"  不能使用，否则无法定位
-                    });
-                }
+                customEmojiPage = false;
+                dialogElement.querySelector('[data-type="tab-custom"]')?.classList.remove("block__icon--active");
+                dialogElement.querySelector('[data-type="tab-emoji"]')?.classList.add("block__icon--active");
+                window.siyuan.storage[Constants.LOCAL_EMOJIS].currentTab = "emoji";
+                setStorageVal(Constants.LOCAL_EMOJIS, window.siyuan.storage[Constants.LOCAL_EMOJIS]);
+                emojiPanelController.renderCategory(target.dataset.type);
                 break;
             } else if (target.getAttribute("data-action") === "select-custom-icon") {
                 customIconFileElement.value = "";
@@ -886,8 +1361,18 @@ export const openEmojiPanel = (
                 event.preventDefault();
                 event.stopPropagation();
                 break;
+            } else if (target.getAttribute("data-action") === "use-network-icon") {
+                useNetworkIcon();
+                event.preventDefault();
+                event.stopPropagation();
+                break;
+            } else if (target.getAttribute("data-action") === "localize-network-icon") {
+                localizeNetworkIconFile();
+                event.preventDefault();
+                event.stopPropagation();
+                break;
             } else if (target.getAttribute("data-action") === "back-custom-icon") {
-                resetLinkIcon();
+                backLinkIcon();
                 event.preventDefault();
                 event.stopPropagation();
                 break;
@@ -933,7 +1418,10 @@ export const openEmojiPanel = (
                     dialog.destroy();
                 } else {
                     // 随机
-                    unicode = getRandomEmoji();
+                    unicode = getRandomEmoji(customEmojiPage ? "custom" : "builtIn");
+                    if (!unicode) {
+                        break;
+                    }
                 }
                 if (type === "notebook") {
                     fetchPost("/api/notebook/setNotebookIcon", {
@@ -956,7 +1444,7 @@ export const openEmojiPanel = (
                 }
                 addEmoji(unicode);
                 break;
-            } else if (target.getAttribute("data-type")?.startsWith("tab-")) {
+            } else if (target.matches(".emojis__tabheader > [data-type^='tab-']")) {
                 dialogElement.querySelectorAll('.emojis__tabheader [data-type|="tab"]').forEach((item: HTMLElement) => {
                     if (item.dataset.type === target.dataset.type) {
                         item.classList.add("block__icon--active");
@@ -964,8 +1452,9 @@ export const openEmojiPanel = (
                         item.classList.remove("block__icon--active");
                     }
                 });
+                const bodyType = target.dataset.type === "tab-custom" ? "tab-emoji" : target.dataset.type;
                 dialogElement.querySelectorAll(".emojis__tabbody > div").forEach((item: HTMLElement) => {
-                    if (item.dataset.type === target.dataset.type) {
+                    if (item.dataset.type === bodyType) {
                         item.classList.remove("fn__none");
                     } else {
                         item.classList.add("fn__none");
@@ -973,6 +1462,27 @@ export const openEmojiPanel = (
                 });
                 window.siyuan.storage[Constants.LOCAL_EMOJIS].currentTab = target.dataset.type.replace("tab-", "");
                 setStorageVal(Constants.LOCAL_EMOJIS, window.siyuan.storage[Constants.LOCAL_EMOJIS]);
+                if (target.dataset.type === "tab-custom") {
+                    customEmojiPage = true;
+                    emojiSearchInputElement.value = "";
+                    emojiPanelController.renderCategory("custom");
+                    emojiPanelController.activate();
+                    if (!isMobile()) {
+                        emojiSearchInputElement.focus();
+                    }
+                } else if (target.dataset.type === "tab-emoji") {
+                    if (customEmojiPage) {
+                        customEmojiPage = false;
+                        emojiSearchInputElement.value = "";
+                        emojiPanelController.renderInitial();
+                    }
+                    emojiPanelController.activate();
+                    if (!isMobile()) {
+                        emojiSearchInputElement.focus();
+                    }
+                } else {
+                    emojiPanelController.deactivate();
+                }
                 if (target.dataset.type === "tab-link" && !isMobile()) {
                     linkIconElement.focus();
                 }
@@ -1129,12 +1639,13 @@ const putEmojis = (protyle: IProtyle) => {
     }
 };
 
-export const reloadEmoji = () => {
+export const reloadEmoji = (callback?: () => void) => {
     fetchPost("/api/system/getEmojiConf", {}, response => {
         window.siyuan.emojis = response.data as IEmoji[];
         const editors = getAllEditor();
         if (editors.length > 0) {
             putEmojis(editors[0].protyle);
         }
+        callback?.();
     });
 };

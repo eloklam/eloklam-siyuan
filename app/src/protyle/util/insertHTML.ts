@@ -39,6 +39,9 @@ import {setFold} from "./blockFold";
 import {removeFoldHeading} from "./heading";
 import {
     AV_PASTE_READONLY_TYPES,
+    compactAVCellOperations,
+    getAVPasteCellValue,
+    getAVPasteValueForType,
     getAVPasteMatrixWidth,
     getUniqueAVPasteColumnName,
     inferAVPasteColumnType,
@@ -48,6 +51,7 @@ import {
     showAVPasteSkeleton,
 } from "../render/av/paste";
 import {getAVColumnFitWidth, getAVColumnTextMeasurer} from "../render/av/columnWidth";
+import {cloneAVCellValueSnapshot} from "../render/av/cellValue";
 import {Dialog} from "../../dialog";
 import {isMobile} from "../../util/functions";
 import {getCrossBlockMergeRemoveElement} from "../wysiwyg/removeRange";
@@ -325,7 +329,7 @@ const pasteAVMatrix = async (options: {
         row.cells.forEach((cell, index) => {
             const column = originalColumns[index];
             if (column) {
-                originalCellValues.set(`${row.id}:${column.id}`, JSON.parse(JSON.stringify(cell.value)));
+                originalCellValues.set(`${row.id}:${column.id}`, cloneAVCellValueSnapshot(cell.value));
             }
         });
     });
@@ -350,9 +354,18 @@ const pasteAVMatrix = async (options: {
 
     for (let sourceIndex = 0; sourceIndex < sourceWidth; sourceIndex++) {
         const headerName = options.header?.[sourceIndex]?.trim() || "";
-        const sourceValues = options.values.flatMap(row =>
-            sourceIndex < row.length && typeof row[sourceIndex] === "string" ? [row[sourceIndex] as string] : []);
-        const inferredType = options.header ? inferAVPasteColumnType(sourceValues) : "text";
+        const sourceCellValues = options.values.flatMap(row =>
+            sourceIndex < row.length ? [row[sourceIndex]] : []);
+        const sourceValues = sourceCellValues.flatMap(value => {
+            if (typeof value === "string") {
+                return [value];
+            }
+            if (value.type === "mAsset") {
+                return [(value.mAsset || []).map(item => item.name || item.content).join(", ")];
+            }
+            return [];
+        });
+        const inferredType = options.header ? inferAVPasteColumnType(sourceCellValues) : "text";
         const currentColumn = availableColumns[sourceIndex];
         if (currentColumn) {
             const readonly = AV_PASTE_READONLY_TYPES.has(currentColumn.type);
@@ -546,7 +559,8 @@ const pasteAVMatrix = async (options: {
                     continue;
                 }
                 const isNewRow = newRowIDSet.has(pasteRows[i].id);
-                const operations = await updateCellsValue(options.protyle, options.blockElement, options.values[i][j],
+                const pasteValue = getAVPasteValueForType(options.values[i][j], targetColumn.column.type);
+                const operations = await updateCellsValue(options.protyle, options.blockElement, pasteValue,
                     [cellElement], options.columns, options.cellHTML?.[i]?.[j] || options.html,
                     true, isNewRow || targetColumn.isNew || targetColumn.typeChanged, true, undefined, false);
                 if (operations.doOperations.length > 0) {
@@ -578,12 +592,17 @@ const pasteAVMatrix = async (options: {
         removePlaceholderRows(options.blockElement);
     }
 
-    const doOperations = [...schemaDoOperations, ...widthDoOperations, ...rowDoOperations, ...cellDoOperations];
+    const doOperations = [
+        ...schemaDoOperations,
+        ...widthDoOperations,
+        ...rowDoOperations,
+        ...compactAVCellOperations(cellDoOperations),
+    ];
     if (doOperations.length === 0) {
         return;
     }
     const undoOperations = [
-        ...cellUndoOperations,
+        ...compactAVCellOperations(cellUndoOperations),
         ...rowUndoOperations,
         ...widthUndoOperations.reverse(),
         ...schemaUndoOperations.reverse(),
@@ -649,11 +668,19 @@ const processAV = (range: Range, html: string, protyle: IProtyle, blockElement: 
             if (item.closest("table") !== tableElement) {
                 return;
             }
-            const rowValues: string[] = [];
+            const rowValues: TAVPasteValue[] = [];
             const rowHTML: string[] = [];
             Array.from(item.children).forEach(cell => {
                 if (cell.tagName === "TD" || cell.tagName === "TH") {
-                    rowValues.push(cell.textContent);
+                    const links = Array.from(cell.querySelectorAll<HTMLElement>(
+                        'a[href], [data-type~="a"][data-href]',
+                    )).map(link => ({
+                        content: link.textContent,
+                        href: link.getAttribute("data-href") || link.getAttribute("href") || "",
+                    }));
+                    const unlinkedCell = cell.cloneNode(true) as HTMLElement;
+                    unlinkedCell.querySelectorAll('a[href], [data-type~="a"][data-href]').forEach(link => link.remove());
+                    rowValues.push(getAVPasteCellValue(cell.textContent, links, unlinkedCell.textContent));
                     rowHTML.push(cell.outerHTML);
                 }
             });
@@ -871,7 +898,10 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
                            // 移动端插入嵌入块时，获取到的 range 为旧值
                            useProtyleRange = false,
                            // 在开头粘贴块则插入上方
-                           insertByCursor = false) => {
+                           insertByCursor = false,
+                           // 根据块级拖拽指示线强制插入方向
+                           insertPosition?: "before" | "after",
+                           undoContext?: Record<string, string>) => {
     if (html === "") {
         return;
     }
@@ -1129,7 +1159,20 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
                 (range.startContainer as HTMLElement).remove();
             }
         } else {
+            // 跨块删除时浏览器会连块内最后一个 protyle-attr 一起移除，这里提前保存并在删除后恢复
+            const preserveAttrElements = [
+                blockElement,
+                rangeEndBlockElement,
+            ].filter((item): item is HTMLElement => Boolean(item)).map(item => ({
+                element: item,
+                attrHTML: item.querySelector(":scope > .protyle-attr")?.outerHTML || "",
+            }));
             range.deleteContents();
+            preserveAttrElements.forEach(({element, attrHTML}) => {
+                if (attrHTML && !element.querySelector(":scope > .protyle-attr") && element.isConnected) {
+                    element.insertAdjacentHTML("beforeend", attrHTML);
+                }
+            });
         }
         range.insertNode(document.createElement("wbr"));
         blockElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
@@ -1229,10 +1272,10 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
             // 相邻标签之间插入空格区隔，避免后续 SpinBlockDOM 解析时合并为一个标签 https://github.com/siyuan-note/siyuan/issues/18191
             fixAdjacentTags(getContenteditableElement(blockElement));
             protyle.wysiwyg.lastHTMLs[id] = oldHTML;
-            input(protyle, blockElement as HTMLElement, range, true, undefined, isCrossBlockRange ? {
+            input(protyle, blockElement as HTMLElement, range, true, undefined, isCrossBlockRange || undoContext ? {
                 doOperations: crossBlockDoOperations,
                 undoOperations: crossBlockUndoOperations,
-                undoContext: crossBlockUndoFocusContext,
+                undoContext: crossBlockUndoFocusContext || undoContext,
             } : undefined);
             return;
         }
@@ -1313,8 +1356,8 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
         keepEmptyBlock = true;
     }
     let lastElement: Element;
-    let insertBefore = false;
-    if (!range.toString() && insertByCursor) {
+    let insertBefore = insertPosition === "before";
+    if (!insertPosition && !range.toString() && insertByCursor) {
         const positon = getSelectionOffset(blockElement, protyle.wysiwyg.element, range);
         if (positon.start === 0 && editableElement.textContent !== "") {
             insertBefore = true;
@@ -1401,7 +1444,7 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
         (emptyStartType === "NodeHeading" && blockElement.getAttribute("fold") !== "1");
     const startTextIsEmpty = editableElement &&
         editableElement.textContent.split(Constants.ZWSP).join("").replace(/\n/g, "") === "";
-    if (startTextIsEmpty && canRemoveEmptyStart && !keepEmptyBlock &&
+    if (!insertPosition && startTextIsEmpty && canRemoveEmptyStart && !keepEmptyBlock &&
         !editableElement?.querySelector("img, video, audio, iframe, canvas, .emoji")) {
         // 选中当前块所有内容粘贴再撤销会导致异常 https://ld246.com/article/1662542137636
         doOperation.find((item, index) => {
@@ -1451,9 +1494,11 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
             const childrenIDs: string[] = response.data;
             const previousId = (childrenIDs && childrenIDs.length > 0) ? childrenIDs[childrenIDs.length - 1] : blockElement.getAttribute("data-node-id");
             foldData = setFold(protyle, blockElement, true, false, false, true);
-            foldData.doOperations[0].context = {
-                focusId: lastElement?.getAttribute("data-node-id"),
-            };
+            if (foldData.doOperations.length > 0) {
+                foldData.doOperations[0].context = {
+                    focusId: lastElement?.getAttribute("data-node-id"),
+                };
+            }
             doOperation.forEach(item => {
                 if (item.action === "insert") {
                     item.previousID = previousId;

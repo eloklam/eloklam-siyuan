@@ -1,26 +1,27 @@
 import type {App} from "../index";
 import {Menu} from "./Menu";
-import {isHuawei, setStorageVal} from "../protyle/util/compatibility";
+import {setStorageVal} from "../protyle/util/compatibility";
+import {isBazaarAvailable} from "../util/bazaarAvailability";
 /// #if !MOBILE
-import {openSetting} from "../config";
 import {setTabPosition} from "../layout/tabUtil";
 /// #endif
 import {Constants} from "../constants";
 
 export const openTopBarMenu = (app: App, target?: Element) => {
     const menu = new Menu(Constants.MENU_BAR_PLUGIN);
-    /// #if !MOBILE
-    menu.addItem({
+    const manageElement = menu.addItem({
         id: "manage",
         icon: "iconSettings",
         label: window.siyuan.languages.manage,
-        ignore: isHuawei() || window.siyuan.config.readonly,
+        ignore: !isBazaarAvailable() || window.siyuan.config.readonly,
         click() {
-            openSetting(app, "bazaar");
+            void import("../config").then(({openSetting}) => openSetting(app, "bazaar"));
         }
     });
-    menu.addSeparator({id: "separator_1", ignore: isHuawei() || window.siyuan.config.readonly});
-    /// #endif
+    const manageSeparatorElement = menu.addSeparator({
+        id: "separator_1",
+        ignore: !isBazaarAvailable() || window.siyuan.config.readonly,
+    });
     let hasPlugin = false;
     app.plugins.forEach((plugin) => {
         // @ts-ignore
@@ -85,13 +86,10 @@ export const openTopBarMenu = (app: App, target?: Element) => {
                 type: "submenu",
                 submenu
             };
-            if (item.querySelector("use")) {
-                menuOption.icon = item.querySelector("use").getAttribute("xlink:href").replace("#", "");
-            } else {
-                const svgElement = item.querySelector("svg").cloneNode(true) as HTMLElement;
-                svgElement.classList.add("b3-menu__icon");
-                menuOption.iconHTML = svgElement.outerHTML;
-            }
+            const customIconElement = item.querySelector(":scope > .b3-menu__icon--custom");
+            const iconElement = (customIconElement || item.querySelector("svg")).cloneNode(true) as HTMLElement;
+            iconElement.classList.add("b3-menu__icon");
+            menuOption.iconHTML = iconElement.outerHTML;
             menu.addItem(menuOption);
             hasPlugin = true;
             hasTopBar = true;
@@ -109,9 +107,8 @@ export const openTopBarMenu = (app: App, target?: Element) => {
         }
     });
     if (!hasPlugin) {
-        if (target) {
-            window.siyuan.menus.menu.element.querySelector(".b3-menu__separator")?.remove();
-        } else {
+        manageSeparatorElement?.remove();
+        if (!manageElement && !target) {
             menu.addItem({
                 id: "emptyContent",
                 iconHTML: "",

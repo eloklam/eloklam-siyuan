@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -578,6 +578,9 @@ func fixTreeJSONData(boxID, p string, jsonData []byte, luteEngine *lute.Lute, de
 		ret.Root.ID = pathID
 		ret.ID = pathID
 		ret.Root.SetIALAttr("id", ret.ID)
+	}
+	if treenode.FixInvalidListChildren(ret.Root) {
+		needFix = true
 	}
 
 	if !needFix {

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -48,10 +48,11 @@ func sessionsDir() string {
 }
 
 type SessionIndexItem struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	CreatedAt int64  `json:"createdAt"`
-	UpdatedAt int64  `json:"updatedAt"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+	AgentRunning bool   `json:"agentRunning,omitempty"`
 }
 
 type SessionListResult struct {
@@ -303,6 +304,11 @@ func GetSessionState(id string, includeRuntime bool) (map[string]any, error) {
 			return nil, err
 		}
 	}
+	permissionMode, err := resolveSessionPermissionModeLocked(id, session)
+	if err != nil {
+		return nil, err
+	}
+	session["permissionMode"] = permissionMode
 	return session, nil
 }
 

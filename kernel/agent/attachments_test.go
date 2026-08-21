@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -131,8 +131,6 @@ func TestDowngradeImageInputPreservesTextWithoutMutatingHistory(t *testing.T) {
 }
 
 func TestImageInputUnsupportedErrorClassification(t *testing.T) {
-	param := "messages.2.content.1.type"
-	detailParam := "messages.2.content.1.image_url.detail"
 	tests := []struct {
 		name string
 		err  error
@@ -143,7 +141,7 @@ func TestImageInputUnsupportedErrorClassification(t *testing.T) {
 			err: &openai.APIError{
 				HTTPStatusCode: 400,
 				Message:        "This model does not support image input",
-				Param:          &param,
+				Param:          new("messages.2.content.1.type"),
 			},
 			want: true,
 		},
@@ -195,7 +193,7 @@ func TestImageInputUnsupportedErrorClassification(t *testing.T) {
 			err: &openai.APIError{
 				HTTPStatusCode: 400,
 				Message:        "Unsupported parameter",
-				Param:          &detailParam,
+				Param:          new("messages.2.content.1.image_url.detail"),
 			},
 		},
 		{
@@ -656,7 +654,7 @@ func TestAgentChatSendsToolAttachmentToCurrentModel(t *testing.T) {
 	defer server.Close()
 
 	events := AgentChat(
-		context.Background(), newTestOpenAIClient(server.URL), "test-model", "", 0, testSessionID, "user-1", 1,
+		context.Background(), newTestOpenAIClient(server.URL), "openai", "test-model", "", 0, testSessionID, "user-1", 1,
 		"look at the image", nil, "English", nil, EditorContext{}, nil, false, time.Second, 0, "", time.Second, time.Second,
 	)
 	doneSeen := false

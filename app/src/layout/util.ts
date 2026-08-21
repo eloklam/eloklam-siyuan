@@ -29,7 +29,12 @@ import {newDatabaseRowModel} from "../editor/databaseRow";
 import type {App} from "../index";
 import {afterLayoutReady} from "../plugin/loader";
 import {newCenterEmptyTab, resizeTabs, setTabPosition} from "./tabUtil";
-import {isSensitiveLayoutData, isSensitiveSearchConfig, setStorageVal} from "../protyle/util/compatibility";
+import {
+    isDisabledFeature,
+    isSensitiveLayoutData,
+    isSensitiveSearchConfig,
+    setStorageVal,
+} from "../protyle/util/compatibility";
 import {adjustDockPadding} from "./dock/util";
 import {setTitle} from "../util/processTitle";
 import {activateQueuedAVLocate, queueAVLocateRequest} from "../protyle/render/av/locate";
@@ -117,7 +122,6 @@ const dockToJSON = (dock: Dock) => {
                 title: item.getAttribute("data-title"),
                 show: item.classList.contains("dock__item--active"),
                 icon: item.querySelector("use").getAttribute("xlink:href").substring(1),
-                hotkey: item.getAttribute("data-hotkey") || "",
                 hotkeyLangId: item.getAttribute("data-hotkeylangid") || ""
             });
         });
@@ -329,14 +333,13 @@ const ensureCalendarDock = (layout: Pick<Config.IUiLayout, "left" | "right" | "b
 
 const initInternalDock = (dockItem: Config.IUILayoutDockTab[]) => {
     dockItem.forEach((existSubItem, index) => {
-        if (window.siyuan.isPublish && (existSubItem.type === "inbox" || existSubItem.type === "agentChat")) {
+        if ((window.siyuan.isPublish && (existSubItem.type === "inbox" || existSubItem.type === "agentChat")) ||
+            (isDisabledFeature("ai") && existSubItem.type === "agentChat")) {
             dockItem.splice(index, 1);
             return;
         }
         if (existSubItem.hotkeyLangId) {
             existSubItem.title = window.siyuan.languages[existSubItem.hotkeyLangId];
-            const km = window.siyuan.config.keymap.general[existSubItem.hotkeyLangId];
-            existSubItem.hotkey = km ? km.custom : "";
         } else if (existSubItem.type === "calendar") {
             existSubItem.title = window.siyuan.languages.calendar || "Calendar";
         }

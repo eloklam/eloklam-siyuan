@@ -1,5 +1,5 @@
-import {focusByWbr, getEditorRange, getUndoFocusContext} from "../protyle/util/selection";
-import {hasClosestBlock, hasClosestByClassName} from "../protyle/util/hasClosest";
+import {focusByRange, focusByWbr, getEditorRange, getUndoFocusContext} from "../protyle/util/selection";
+import {hasClosestBlock, hasClosestByClassName, isInEmbedBlock} from "../protyle/util/hasClosest";
 import {
     getContenteditableElement,
     getEmbedChildOperationParentID,
@@ -17,15 +17,33 @@ import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {openFileById} from "../editor/util";
 import {openMobileFileById} from "../mobile/editor";
 import {mathRender} from "../protyle/render/mathRender";
+import {buildCancelSuperBlockOperations} from "./cancelSuperBlock";
+import {shouldFocusJumpTarget, shouldFocusParentDocumentTitle} from "./jumpToParent";
+import {getHorizontalSuperBlockChild} from "./superBlock";
 
 export const cancelSB = async (protyle: IProtyle, nodeElement: Element, range?: Range) => {
-    const doOperations: IOperation[] = [];
-    const undoOperations: IOperation[] = [];
     let previousId = getPreviousBlockSibling(nodeElement)?.getAttribute("data-node-id");
     nodeElement.classList.remove("protyle-wysiwyg--select");
     nodeElement.removeAttribute("select-start");
     nodeElement.removeAttribute("select-end");
     const id = nodeElement.getAttribute("data-node-id");
+    const visibleChildElements = Array.from(nodeElement.children).filter(item => item.hasAttribute("data-node-id"));
+    let operationChildElements = visibleChildElements;
+    if (visibleChildElements.some(item => item.getAttribute("data-type") === "NodeHeading" &&
+        item.getAttribute("fold") === "1")) {
+        const response = await fetchSyncPost("/api/block/getBlockDOM", {
+            id,
+            notebook: protyle.notebookId,
+        });
+        const template = document.createElement("template");
+        template.innerHTML = response.data?.dom || "";
+        const fullSuperBlockElement = template.content.querySelector(`[data-node-id="${id}"]`);
+        if (!fullSuperBlockElement) {
+            return {doOperations: [], undoOperations: [], previousId};
+        }
+        operationChildElements = Array.from(fullSuperBlockElement.children).filter(item =>
+            item.hasAttribute("data-node-id"));
+    }
     // 先清理拖拽手柄，避免手柄被克隆进撤销用的 SB 副本，导致恢复后残留多余手柄
     nodeElement.querySelectorAll(".sb__resize").forEach(handle => handle.remove());
     const sbElement = nodeElement.cloneNode() as HTMLElement;
@@ -44,46 +62,28 @@ export const cancelSB = async (protyle: IProtyle, nodeElement: Element, range?: 
             parentID = protyle.block.rootID;
         }
     }
-    undoOperations.push({
-        action: "insert",
+    const operationData = buildCancelSuperBlockOperations({
         id,
         data: sbElement.outerHTML,
+        childIDs: operationChildElements.map(item => item.getAttribute("data-node-id")),
+        foldedHeadingIDs: operationChildElements.filter(item =>
+            item.getAttribute("data-type") === "NodeHeading" && item.getAttribute("fold") === "1"
+        ).map(item => item.getAttribute("data-node-id")),
         previousID: previousId,
         parentID,
     });
-    Array.from(nodeElement.children).forEach((item, index) => {
-        if (index === nodeElement.childElementCount - 1) {
-            doOperations.push({
-                action: "delete",
-                id,
-            });
-            if (range) {
-                getContenteditableElement(nodeElement)?.insertAdjacentHTML("afterbegin", "<wbr>");
-            }
-            nodeElement.lastElementChild.remove();
-            nodeElement.replaceWith(...nodeElement.children);
-            if (range) {
-                focusByWbr(protyle.wysiwyg.element, range);
-            }
-            return;
-        }
-        doOperations.push({
-            action: "move",
-            id: item.getAttribute("data-node-id"),
-            previousID: previousId,
-            parentID,
-        });
-        undoOperations.push({
-            action: "move",
-            id: item.getAttribute("data-node-id"),
-            previousID: getPreviousBlockSibling(item)?.getAttribute("data-node-id"),
-            parentID: id
-        });
-        previousId = item.getAttribute("data-node-id");
-    });
+    const focusId = visibleChildElements[visibleChildElements.length - 1]?.getAttribute("data-node-id") || previousId;
+    if (range) {
+        getContenteditableElement(nodeElement)?.insertAdjacentHTML("afterbegin", "<wbr>");
+    }
+    nodeElement.lastElementChild.remove();
+    nodeElement.replaceWith(...nodeElement.children);
+    if (range) {
+        focusByWbr(protyle.wysiwyg.element, range);
+    }
     mathRender(protyle.wysiwyg.element);
     // 超级块内嵌入块无面包屑，需重新渲染 https://github.com/siyuan-note/siyuan/issues/7574
-    doOperations.forEach(item => {
+    operationData.doOperations.forEach(item => {
         const element = protyle.wysiwyg.element.querySelector(`[data-node-id="${item.id}"]`);
         if (element && element.getAttribute("data-type") === "NodeBlockQueryEmbed") {
             element.removeAttribute("data-render");
@@ -91,7 +91,8 @@ export const cancelSB = async (protyle: IProtyle, nodeElement: Element, range?: 
         }
     });
     return {
-        doOperations, undoOperations, previousId
+        ...operationData,
+        previousId: focusId
     };
 };
 
@@ -196,23 +197,82 @@ export const refreshSbAndPersistWidth = (sbElement: Element,
 };
 
 export const jumpToParent = (protyle: IProtyle, nodeElement: Element, type: "parent" | "next" | "previous") => {
+    /// #if !MOBILE
+    const previousRange = getEditorRange(nodeElement);
+    /// #endif
     fetchPost("/api/block/getBlockSiblingID", {
         id: nodeElement.getAttribute("data-node-id"),
         notebook: protyle.notebookId,
-    }, (response) => {
+    }, async (response) => {
         const targetId = response.data[type];
         if (!targetId) {
             return;
         }
-        /// #if !MOBILE
-        openFileById({
-            app: protyle.app,
+        const titleElement = protyle.title?.editElement;
+        if (shouldFocusParentDocumentTitle({
+            isRoot: targetId === protyle.block.rootID,
+            hasTitle: Boolean(titleElement),
+            isBacklink: Boolean(protyle.options.backlinkData),
+        })) {
+            /// #if !MOBILE
+            let pushBack: typeof import("../util/backForward").pushBack | undefined;
+            try {
+                ({pushBack} = await import("../util/backForward"));
+            } catch (error) {
+                console.error("Failed to load the back-forward module", error);
+            }
+            /// #endif
+            const focusTitle = () => {
+                const range = titleElement.ownerDocument.createRange();
+                range.selectNodeContents(titleElement);
+                range.collapse(false);
+                focusByRange(range);
+                protyle.toolbar.range = range;
+                protyle.contentElement.scrollTop = 0;
+                /// #if !MOBILE
+                pushBack?.(protyle, range, titleElement);
+                /// #endif
+            };
+            /// #if !MOBILE
+            pushBack?.(protyle, previousRange);
+            /// #endif
+            if (protyle.block.showAll) {
+                const {zoomOut} = await import("../menus/protyle");
+                zoomOut({
+                    protyle,
+                    id: protyle.block.rootID,
+                    callback: focusTitle,
+                    reload: true,
+                });
+            } else {
+                focusTitle();
+            }
+            return;
+        }
+        fetchPost("/api/block/checkBlockFold", {
             id: targetId,
-            action: targetId !== protyle.block.rootID && protyle.block.showAll ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS]
+            notebook: protyle.notebookId,
+        }, (foldResponse) => {
+            const targetElement = Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${targetId}"]`))
+                .find(item => !isInEmbedBlock(item));
+            const shouldFocus = shouldFocusJumpTarget({
+                isRoot: targetId === protyle.block.rootID,
+                showAll: protyle.block.showAll,
+                isFolded: foldResponse.data.isFolded,
+                isHidden: !targetElement || targetElement.clientHeight === 0,
+            });
+            const action: TProtyleAction[] = shouldFocus ?
+                [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS];
+            /// #if !MOBILE
+            openFileById({
+                app: protyle.app,
+                id: targetId,
+                action
+            });
+            /// #else
+            openMobileFileById(protyle.app, targetId, action);
+            /// #endif
         });
-        /// #else
-        openMobileFileById(protyle.app, targetId, targetId !== protyle.block.rootID && protyle.block.showAll ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS]);
-        /// #endif
     });
 };
 
@@ -303,6 +363,7 @@ export const insertEmptyBlock = async (protyle: IProtyle, position: InsertPositi
                 level: "row",
                 unfocus: true,
                 getOperations: true,
+                widthSourceElement: blockElement as HTMLElement,
             });
             doOperations.push(...mergeOperations.doOperations);
             undoOperations.splice(0, 0, ...mergeOperations.undoOperations);
@@ -311,6 +372,48 @@ export const insertEmptyBlock = async (protyle: IProtyle, position: InsertPositi
     }
     focusByWbr(protyle.wysiwyg.element, range);
     scrollCenter(protyle);
+};
+
+export const insertEmptySuperBlockColumn = (protyle: IProtyle, position: "left" | "right", target?: Element) => {
+    const range = getEditorRange(protyle.wysiwyg.element);
+    let blockElement = target;
+    if (!blockElement) {
+        const selectElements = protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select");
+        if (selectElements.length > 0) {
+            blockElement = position === "left" ? selectElements[0] : selectElements[selectElements.length - 1];
+        } else {
+            blockElement = hasClosestBlock(range.startContainer) as HTMLElement;
+        }
+    }
+    const columnElement = getHorizontalSuperBlockChild(blockElement, protyle.wysiwyg.element);
+    if (!columnElement) {
+        return false;
+    }
+
+    const undoFocusContext = getUndoFocusContext(protyle.wysiwyg.element, range);
+    hideElements(["select"], protyle);
+    const newElement = genEmptyElement(false, true);
+    const newID = newElement.getAttribute("data-node-id");
+    const doOperations: IOperation[] = [{
+        action: "insert",
+        data: newElement.outerHTML,
+        id: newID,
+        parentID: columnElement.parentElement.getAttribute("data-node-id"),
+        nextID: position === "left" ? columnElement.getAttribute("data-node-id") : undefined,
+        previousID: position === "right" ? columnElement.getAttribute("data-node-id") : undefined,
+    }];
+    const undoOperations: IOperation[] = [{
+        action: "delete",
+        id: newID,
+        context: undoFocusContext,
+    }];
+    protyle.observerLoad?.disconnect();
+    columnElement.insertAdjacentElement(position === "left" ? "beforebegin" : "afterend", newElement);
+    refreshSbAndPersistWidth(columnElement.parentElement, doOperations, undoOperations);
+    transaction(protyle, doOperations, undoOperations);
+    focusByWbr(protyle.wysiwyg.element, range);
+    scrollCenter(protyle);
+    return true;
 };
 
 export const genEmptyBlock = (zwsp = true, wbr = true, string?: string) => {

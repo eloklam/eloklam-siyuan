@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -115,6 +115,39 @@ func getAttributeViewBoundBlockIDsByItemIDs(c *gin.Context) {
 	ret.Data = model.GetAttributeViewBoundBlockIDs(avID, itemIDs)
 }
 
+func getAttributeViewItemStatuses(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	avID := arg["id"].(string)
+	blockID, _ := arg["blockID"].(string)
+	viewID, _ := arg["viewID"].(string)
+	query, _ := arg["query"].(string)
+	itemIDsArg := arg["itemIDs"].([]any)
+	itemIDs := make([]string, 0, len(itemIDsArg))
+	for _, itemIDArg := range itemIDsArg {
+		itemIDs = append(itemIDs, itemIDArg.(string))
+	}
+	if err := holdAttributeViewRequest(c, blockID, avID); nil != err {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(314)
+		return
+	}
+
+	statuses, err := model.GetAttributeViewItemStatuses(blockID, avID, viewID, query, itemIDs)
+	if nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = statuses
+}
+
 // getAttributeViewAddingBlockDefaultValues 用于获取添加块时的默认值。
 // 存在过滤或分组条件时，添加块时需要填充默认值到过滤字段或分组字段中，前端需要调用该接口来获取这些默认值以便填充。
 func getAttributeViewAddingBlockDefaultValues(c *gin.Context) {
@@ -200,6 +233,7 @@ func setAttrViewGroup(c *gin.Context) {
 	avID := arg["avID"].(string)
 	blockID := arg["blockID"].(string)
 	groupArg := arg["group"].(map[string]any)
+	ignoreRows, _ := arg["ignoreRows"].(bool)
 
 	data, err := gulu.JSON.MarshalJSON(groupArg)
 	if nil != err {
@@ -225,7 +259,7 @@ func setAttrViewGroup(c *gin.Context) {
 		return
 	}
 
-	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, "", false, false, "", "")
+	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, "", false, ignoreRows, "", "")
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
@@ -356,6 +390,11 @@ func getAttributeViewKeysByID(c *gin.Context) {
 		return
 	}
 	avID := arg["avID"].(string)
+	if model.IsReadOnlyRoleContext(c) && !model.CheckAttributeViewAccessableByPublishAccess(c, model.GetPublishAccess(), avID) {
+		ret.Code = -1
+		ret.Msg = av.ErrAttributeViewNotFound.Error()
+		return
+	}
 	keyIDsArg := arg["keyIDs"].([]any)
 	var keyIDs []string
 	for _, v := range keyIDsArg {
@@ -904,8 +943,6 @@ func createAttributeViewItem(c *gin.Context) {
 	) {
 		return
 	}
-
-	// fieldValues 是 {keyID: IAVCellValue} 形式的对象，BindJsonArg 只处理标量，这里单独反序列化。
 	fieldValues := map[string]*av.Value{}
 	if rawFieldValues, exists := arg["fieldValues"]; exists && nil != rawFieldValues {
 		rawMap, isMap := rawFieldValues.(map[string]any)
@@ -926,9 +963,48 @@ func createAttributeViewItem(c *gin.Context) {
 			return
 		}
 	}
-
 	result, err := model.CreateAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID,
 		&model.CreateItemOptions{PrimaryKey: primaryKey, FieldValues: fieldValues})
+	setCreateAttributeViewItemResult(ret, result, err, app, session)
+}
+
+func createAttributeViewItemWithMarkdown(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	var avID, blockID, viewID, templateID, previousID, groupID, title, markdown, tags, clippingHref, app, session string
+	var withMath, listDocTree bool
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("avID", &avID, true, true),
+		util.BindJsonArg("blockID", &blockID, true, true),
+		util.BindJsonArg("viewID", &viewID, false, false),
+		util.BindJsonArg("templateID", &templateID, true, true),
+		util.BindJsonArg("previousID", &previousID, false, false),
+		util.BindJsonArg("groupID", &groupID, false, false),
+		util.BindJsonArg("title", &title, true, true),
+		util.BindJsonArg("markdown", &markdown, true, false),
+		util.BindJsonArg("tags", &tags, false, false),
+		util.BindJsonArg("withMath", &withMath, false, false),
+		util.BindJsonArg("clippingHref", &clippingHref, false, false),
+		util.BindJsonArg("listDocTree", &listDocTree, false, false),
+		util.BindJsonArg("app", &app, false, false),
+		util.BindJsonArg("session", &session, false, false),
+	) {
+		return
+	}
+	result, err := model.CreateAttributeViewItemWithMarkdown(avID, blockID, viewID, templateID, previousID, groupID,
+		&model.CreateAttributeViewItemMarkdown{
+			Title: title, Markdown: markdown, Tags: tags, WithMath: withMath, ClippingHref: clippingHref,
+			ListDocTree: listDocTree,
+		})
+	setCreateAttributeViewItemResult(ret, result, err, app, session)
+}
+
+func setCreateAttributeViewItemResult(ret *gulu.Result, result *model.CreateAttributeViewItemResult, err error, app, session string) {
 	if nil != err {
 		if errors.Is(err, model.ErrBoxNotFound) {
 			ret.Code = 1
@@ -1070,17 +1146,12 @@ func searchAttributeView(c *gin.Context) {
 		}
 	}
 	includeViewMatches, _ := arg["includeViewMatches"].(bool)
-	limit := 0
-	if nil != arg["limit"] {
-		limit = int(arg["limit"].(float64))
-	}
 	results := model.SearchAttributeViewWithOptions(model.SearchAttributeViewOptions{
 		Keyword:            keyword,
 		ExcludeAvIDs:       excludes,
 		CurrentAvID:        currentAvID,
 		CurrentBlockID:     currentBlockID,
 		IncludeViewMatches: includeViewMatches,
-		Limit:              limit,
 	})
 	ret.Data = map[string]any{
 		"results": results,

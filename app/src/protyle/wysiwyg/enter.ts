@@ -12,7 +12,15 @@ import {
     IEmbedChildOperationContext
 } from "./getBlock";
 import {transaction, turnsIntoOneTransaction, updateTransaction} from "./transaction";
-import {breakList, genListItemElement, listOutdent, updateListOrder} from "./list";
+import {
+    breakList,
+    genListItemElement,
+    getFocusedOrderedListInsertOperations,
+    getFocusedParentOrderedList,
+    getOrderedListStart,
+    listOutdent,
+    updateListOrder
+} from "./list";
 import {highlightRender} from "../render/highlightRender";
 import {Constants} from "../../constants";
 import {scrollCenter} from "../../util/highlightById";
@@ -23,6 +31,8 @@ import {isMobile} from "../../util/functions";
 import {processRender} from "../util/processCode";
 import {hasClosestByAttribute, hasClosestByClassName} from "../util/hasClosest";
 import {blockRender} from "../render/blockRender";
+import {isCodeBlockFenceBeforeCaret} from "./codeBlockEnter";
+import {isEmptyListItemBlock, shouldCreateListItemChildOnEnter} from "./listContext";
 
 export const enter = async (blockElement: HTMLElement, range: Range, protyle: IProtyle) => {
     const embedResultElement = hasClosestByClassName(blockElement, "protyle-wysiwyg__embed");
@@ -59,6 +69,7 @@ export const enter = async (blockElement: HTMLElement, range: Range, protyle: IP
         return true;
     }
 
+    const position = getSelectionOffset(editableElement, protyle.wysiwyg.element, range);
     const trimStartHTML = editableElement.innerHTML.trimStart();
     const trimStartText = editableElement.textContent.trimStart();
     const enableCodeBlockMiddleDot = window.siyuan.config.editor.markdown.codeBlockMiddleDot !== false;
@@ -70,7 +81,9 @@ export const enter = async (blockElement: HTMLElement, range: Range, protyle: IP
         (html.indexOf("\n~~~") > -1 && text.indexOf("\n~~~") > -1) ||
         (enableCodeBlockMiddleDot && (html.startsWith("···") ||
             (html.indexOf("\n···") > -1 && text.indexOf("\n···") > -1)));
-    if (hasCodeBlockFence(trimStartHTML, trimStartText)) {
+    // 光标位于代码块围栏之前或内部时按普通换行处理 https://github.com/siyuan-note/siyuan/issues/18873
+    if (hasCodeBlockFence(trimStartHTML, trimStartText) &&
+        isCodeBlockFenceBeforeCaret(editableElement.textContent, position.start, enableCodeBlockMiddleDot)) {
         if (trimStartHTML.indexOf("\n") === -1 &&
             trimStartHTML.replace(codeBlockMarkerRegExp, "`").replace(/^`{3,}/g, "").indexOf("`") > -1) {
             // ```test` 不处理，正常渲染为段落块
@@ -201,7 +214,6 @@ export const enter = async (blockElement: HTMLElement, range: Range, protyle: IP
         return true;
     }
 
-    const position = getSelectionOffset(editableElement, protyle.wysiwyg.element, range);
     if (blockElement.parentElement.getAttribute("data-type") === "NodeListItem" &&
         (
             blockElement.nextElementSibling.classList.contains("protyle-attr") ||
@@ -213,13 +225,14 @@ export const enter = async (blockElement: HTMLElement, range: Range, protyle: IP
         if ("none" === embedListEnterMode) {
             return;
         }
-        if ("list" === embedListEnterMode && listEnter(protyle, blockElement, range)) {
+        if ("list" === embedListEnterMode && await listEnter(protyle, blockElement, range)) {
             return true;
         }
     }
 
     // 段首换行
     if (editableElement.textContent !== "" && range.toString() === "" && position.start === 0) {
+        const undoFocusContext = getUndoFocusContext(protyle.wysiwyg.element, range);
         let newElement;
         const previousBlockElement = getPreviousBlockSibling(blockElement);
         if (previousBlockElement?.getAttribute("data-type") === "NodeHeading" &&
@@ -230,15 +243,32 @@ export const enter = async (blockElement: HTMLElement, range: Range, protyle: IP
         }
         blockElement.insertAdjacentElement("beforebegin", newElement);
         const newId = newElement.getAttribute("data-node-id");
-        transaction(protyle, [{
+        const doOperations: IOperation[] = [{
             action: "insert",
             data: newElement.outerHTML,
             id: newId,
             nextID: blockElement.getAttribute("data-node-id"),
-        }], [{
+        }];
+        const undoOperations: IOperation[] = [{
             action: "delete",
             id: newId,
-        }]);
+            context: undoFocusContext,
+        }];
+        if (blockElement.parentElement.classList.contains("sb") &&
+            blockElement.parentElement.getAttribute("data-sb-layout") === "col") {
+            const mergeOperations = await turnsIntoOneTransaction({
+                protyle,
+                selectsElement: [newElement, blockElement],
+                type: "BlocksMergeSuperBlock",
+                level: "row",
+                unfocus: true,
+                getOperations: true,
+                widthSourceElement: blockElement,
+            });
+            doOperations.push(...mergeOperations.doOperations);
+            undoOperations.splice(0, 0, ...mergeOperations.undoOperations);
+        }
+        transaction(protyle, doOperations, undoOperations);
         newElement.querySelector("wbr").remove();
         removeEmptyNode(newElement);
         return true;
@@ -422,29 +452,34 @@ const getEmbedListEnterMode = (blockElement: HTMLElement, embedContext: IEmbedCh
     }
     const listElement = listItemElement.parentElement;
     const editableElement = getContenteditableElement(blockElement);
-    const exitsList = ["", "\n"].includes(editableElement.textContent) &&
-        blockElement.previousElementSibling.classList.contains("protyle-action") &&
-        !blockElement.querySelector("img");
+    const exitsList = isEmptyListItemBlock(editableElement.textContent, !!blockElement.querySelector("img")) &&
+        blockElement.previousElementSibling.classList.contains("protyle-action");
     if (exitsList && listElement.parentElement === embedContext.resultElement) {
         return "none";
     }
     return embedContext.boundaryElement.contains(exitsList ? listElement.parentElement : listElement) ? "list" : "none";
 };
 
-const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) => {
+const listEnter = async (protyle: IProtyle, blockElement: HTMLElement, range: Range) => {
     const listItemElement = blockElement.parentElement;
     const editableElement = getContenteditableElement(blockElement);
+    const isPrimaryBlock = blockElement.previousElementSibling.classList.contains("protyle-action");
+    const isEmptyBlock = isEmptyListItemBlock(editableElement.textContent, !!blockElement.querySelector("img"));
+    // 列表项的非空末尾子块按普通块处理，空子块再次回车时仍创建后续列表项。
+    if (shouldCreateListItemChildOnEnter(isPrimaryBlock,
+        blockElement.nextElementSibling.classList.contains("protyle-attr"), isEmptyBlock)) {
+        return false;
+    }
     if (// \n 是因为 https://github.com/siyuan-note/siyuan/issues/3846
-        ["", "\n"].includes(editableElement.textContent) &&
-        blockElement.previousElementSibling.classList.contains("protyle-action") &&
-        !blockElement.querySelector("img") // https://ld246.com/article/1651820644238
+        isEmptyBlock &&
+        isPrimaryBlock // https://ld246.com/article/1651820644238
     ) {
         if (listItemElement.nextElementSibling?.classList.contains("protyle-attr")) {
-            listOutdent(protyle, [blockElement.parentElement], range);
+            await listOutdent(protyle, [blockElement.parentElement], range);
             return true;
         } else if (!listItemElement.parentElement.classList.contains("protyle-wysiwyg")) {
             // 打断列表
-            breakList(protyle, blockElement, range);
+            await breakList(protyle, blockElement, range);
             return true;
         }
     }
@@ -460,32 +495,44 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
         // https://github.com/siyuan-note/siyuan/issues/8935
         const wbrElement = document.createElement("wbr");
         range.insertNode(wbrElement);
-        const html = listItemElement.parentElement.outerHTML;
+        const listElement = listItemElement.parentElement;
+        const html = listElement.outerHTML;
+        const listStart = getOrderedListStart(listElement);
         wbrElement.remove();
         let newElement = genListItemElement(listItemElement, -1, true);
-        if (!blockElement.previousElementSibling.classList.contains("protyle-action")) {
+        if (!isPrimaryBlock) {
             // 列表项中有多个块，最后一个块为空，换行应进行缩进
-            if (getContenteditableElement(blockElement).textContent !== "") {
+            if (!isEmptyBlock) {
                 return false;
             }
             blockElement.remove();
             newElement = genListItemElement(listItemElement, -1, true);
             listItemElement.insertAdjacentElement("afterend", newElement);
-        } else if (getContenteditableElement(blockElement).textContent === "") {
+        } else if (isEmptyBlock) {
             listItemElement.insertAdjacentElement("afterend", newElement);
         } else {
             listItemElement.insertAdjacentElement("beforebegin", newElement);
         }
         if (listItemElement.getAttribute("data-subtype") === "o") {
-            updateListOrder(listItemElement.parentElement);
+            updateListOrder(listElement, listStart);
         }
-        updateTransaction(protyle, listItemElement.parentElement, html);
+        updateTransaction(protyle, listElement, html);
         focusByWbr(newElement, range);
         scrollCenter(protyle);
         removeEmptyNode(newElement);
         return true;
     }
 
+    const shouldUpdateParentList = listItemElement.getAttribute("data-subtype") === "o" &&
+        listItemElement.parentElement.classList.contains("protyle-wysiwyg");
+    const focusedParentListElement = shouldUpdateParentList ?
+        await getFocusedParentOrderedList(protyle, listItemElement.parentElement) : undefined;
+    if (shouldUpdateParentList && !focusedParentListElement) {
+        return true;
+    }
+    if (!listItemElement.isConnected) {
+        return true;
+    }
     const subListElement = listItemElement.querySelector(".list");
     let newElement;
     if (subListElement && listItemElement.getAttribute("fold") !== "1" &&
@@ -498,11 +545,12 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
             // 段末换行，在子列表中插入
             range.insertNode(document.createElement("wbr"));
             const html = listItemElement.outerHTML;
+            const listStart = getOrderedListStart(subListElement);
             blockElement.querySelector("wbr").remove();
             newElement = genListItemElement(subListElement.firstElementChild, -1, true);
             subListElement.firstElementChild.before(newElement);
             if (subListElement.getAttribute("data-subtype") === "o") {
-                updateListOrder(subListElement);
+                updateListOrder(subListElement, listStart);
             }
             updateTransaction(protyle, listItemElement, html);
             focusByWbr(listItemElement, range);
@@ -540,6 +588,9 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
                 updateListOrder(listItemElement.parentElement);
             }
             if (listItemElement.parentElement.classList.contains("protyle-wysiwyg")) {
+                const orderOperations = focusedParentListElement ?
+                    getFocusedOrderedListInsertOperations(focusedParentListElement, listItemElement, newElement) :
+                    {doOperations: [], undoOperations: []};
                 listItemElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
                 transaction(protyle, [{
                     action: "update",
@@ -550,14 +601,14 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
                     id: newElement.getAttribute("data-node-id"),
                     data: newElement.outerHTML,
                     previousID: listItemElement.getAttribute("data-node-id")
-                }], [{
+                }, ...orderOperations.doOperations], [{
                     action: "delete",
                     id: newElement.getAttribute("data-node-id"),
                 }, {
                     action: "update",
                     data: listItemHTML,
                     id: listItemElement.getAttribute("data-node-id")
-                }]);
+                }, ...orderOperations.undoOperations]);
             } else {
                 updateTransaction(protyle, listItemElement.parentElement, html);
             }
@@ -629,6 +680,9 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
         updateListOrder(listItemElement.parentElement);
     }
     if (listItemElement.parentElement.classList.contains("protyle-wysiwyg")) {
+        const orderOperations = focusedParentListElement ?
+            getFocusedOrderedListInsertOperations(focusedParentListElement, listItemElement, newElement) :
+            {doOperations: [], undoOperations: []};
         listItemElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
         transaction(protyle, [{
             action: "update",
@@ -639,14 +693,14 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
             id: newElement.getAttribute("data-node-id"),
             data: newElement.outerHTML,
             previousID: listItemElement.getAttribute("data-node-id")
-        }], [{
+        }, ...orderOperations.doOperations], [{
             action: "delete",
             id: newElement.getAttribute("data-node-id"),
         }, {
             action: "update",
             id: listItemElement.getAttribute("data-node-id"),
             data: listItemHTML
-        }]);
+        }, ...orderOperations.undoOperations]);
     } else {
         updateTransaction(protyle, listItemElement.parentElement, oldHTML);
     }

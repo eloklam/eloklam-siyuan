@@ -1,3 +1,5 @@
+export const getAVBlockRefSubtype = (value?: IAVCellValue): "s" | "d" => value?.block?.refSubtype === "d" ? "d" : "s";
+
 export const cellValueIsEmpty = (value: IAVCellValue) => {
     if (value.type === "checkbox") {
         return false;
@@ -76,6 +78,16 @@ export const genEmptyAVCellValue = (colType: TAVCol): IAVCellValue => {
         cellValue.isDetached = true;
     }
     return cellValue;
+};
+
+export const cloneAVCellValueSnapshot = (value: IAVCellValue): IAVCellValue => {
+    const snapshot = JSON.parse(JSON.stringify(value)) as IAVCellValue;
+    if ((snapshot.type === "mSelect" || snapshot.type === "select") && !snapshot.mSelect) {
+        snapshot.mSelect = [];
+    } else if (snapshot.type === "mAsset" && !snapshot.mAsset) {
+        snapshot.mAsset = [];
+    }
+    return snapshot;
 };
 
 export const getConvertedEmptyAVCellValue = (colType: TAVCol, value: IAVCellValue) => {

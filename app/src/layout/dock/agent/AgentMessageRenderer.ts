@@ -15,6 +15,7 @@ import {openLink} from "../../../editor/openLink";
 import {previewImages} from "../../../protyle/preview/image";
 import {getDiagramBlock, previewDiagram} from "../../../protyle/preview/diagram";
 import {removeCompressURL} from "../../../util/image";
+import {writeClipboardData} from "../../../protyle/util/compatibility";
 /// #if !MOBILE
 import {openGlobalSearch} from "../../../search/util";
 /// #else
@@ -178,49 +179,6 @@ export const createThinkingCardElement = (step: {
     return el;
 };
 
-export const bindThinkingCardToggle = (el: HTMLElement): void => {
-    const header = el.querySelector(".agent-chat__thinking-header") as HTMLElement;
-    const body = el.querySelector(".agent-chat__thinking-body") as HTMLElement;
-    const expandIcon = el.querySelector(".agent-chat__thinking-arrow--expand") as HTMLElement;
-    const contractIcon = el.querySelector(".agent-chat__thinking-arrow--contract") as HTMLElement;
-    if (!header || !body || !expandIcon || !contractIcon) {
-        return;
-    }
-    header.addEventListener("click", () => {
-        el.setAttribute("data-user-interacted", "true");
-        const isExpanded = body.classList.contains("agent-chat__thinking-body--expanded");
-        const isDone = el.classList.contains("agent-chat__msg--thinking-done");
-        if (isDone) {
-            // 思考完成后：两态 toggle（折叠↔完全展开），不经过预览中间态。
-            if (isExpanded) {
-                body.classList.remove("agent-chat__thinking-body--expanded");
-                expandIcon.classList.remove("fn__none");
-                contractIcon.classList.add("fn__none");
-            } else {
-                body.classList.remove("agent-chat__thinking-body--preview");
-                body.classList.add("agent-chat__thinking-body--expanded");
-                expandIcon.classList.add("fn__none");
-                contractIcon.classList.remove("fn__none");
-            }
-        } else {
-            // 流式中：三态循环（完全折叠 → 预览 → 完全展开 → 完全折叠）。
-            const isPreview = body.classList.contains("agent-chat__thinking-body--preview");
-            if (isExpanded) {
-                body.classList.remove("agent-chat__thinking-body--expanded");
-                expandIcon.classList.remove("fn__none");
-                contractIcon.classList.add("fn__none");
-            } else if (isPreview) {
-                body.classList.remove("agent-chat__thinking-body--preview");
-                body.classList.add("agent-chat__thinking-body--expanded");
-                expandIcon.classList.add("fn__none");
-                contractIcon.classList.remove("fn__none");
-            } else {
-                body.classList.add("agent-chat__thinking-body--preview");
-            }
-        }
-    });
-};
-
 // 为容器内所有代码块（pre）和公式块（div[data-subtype=math]）注入复制按钮。
 export const addCopyButtons = (container: HTMLElement): void => {
     // 代码块复制 code 文本；公式块复制 data-content（KaTeX 渲染前的原始 LaTeX）。
@@ -241,6 +199,18 @@ export const addCopyButtons = (container: HTMLElement): void => {
     });
 };
 
+export const copyAgentText = async (text: string) => {
+    const result = await writeClipboardData({textPlain: text});
+    if (result.error) {
+        console.log("Write Agent clipboard error:", result.error);
+    }
+    if (result.status === "failed") {
+        showMessage(window.siyuan.languages.clipboardPermissionDenied, 7000, "error");
+        return;
+    }
+    showMessage(window.siyuan.languages.copied, 2000);
+};
+
 // 构建单个复制按钮，getText 返回要复制的文本。
 const createCopyButton = (getText: () => string): HTMLElement => {
     const btn = document.createElement("span");
@@ -250,12 +220,7 @@ const createCopyButton = (getText: () => string): HTMLElement => {
     btn.setAttribute("data-position", "4north");
     btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const text = getText();
-        navigator.clipboard.writeText(text).then(() => {
-            showMessage(window.siyuan.languages.copied, 2000);
-        }).catch(() => {
-            showMessage(window.siyuan.languages.copied, 2000);
-        });
+        void copyAgentText(getText());
     });
     return btn;
 };
